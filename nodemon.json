@@ -1,0 +1,6 @@
+{
+    "watch": ["taskserver/server.mjs", "next.config.js", "pages/api", "pages/wsApi", "lib_backend", "src", "taskServer", "nodemon.json" ],
+    "ext": "js,json,jsx,ts,tsx",
+    "ignore": ["node_modules", "lib_client", "GameCode", "monbodb-local", "nginx", "styles"],
+    "exec": "node --experimental-detect-module --experimental-loader=./taskserver/custom-loader.mjs ./taskserver/server.mjs"
+}

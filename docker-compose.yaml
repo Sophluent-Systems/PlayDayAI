@@ -1,0 +1,100 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: playday
+      RABBITMQ_DEFAULT_PASS: asdf1234
+    restart: always
+    ports:
+        - 5672:5672
+        - 15672:15672
+    volumes:
+        - ~/.playday/rabbitmq/data/:/var/lib/rabbitmq/
+        - ~/.playday/rabbitmq/log/:/var/log/rabbitmq/
+  mongodb:
+    image: mongodb:latest
+    build: ./mongodb
+    restart: always
+    ports:
+      - 27017:27017
+    volumes:
+      - ~/.playday/mongodb/data/db:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: playday
+      MONGO_INITDB_ROOT_PASSWORD: asdf1234
+    command: ["-f", "/etc/mongod.conf"]
+  nginx:
+    image: nginx:latest
+    build: 
+      context: ./nginx
+      args:
+        PROTOCOL: ${PROTOCOL:-HTTP}
+        EXTERNAL_HTTP_PORT: ${EXTERNAL_HTTP_PORT:-80}
+        EXTERNAL_HTTPS_PORT: ${EXTERNAL_HTTPS_PORT:-443}
+        LOCALHOST_FRONTEND_PORT: ${LOCALHOST_FRONTEND_PORT:-3000}
+        LOCALHOST_WEBSOCKET_PORT: ${LOCALHOST_WEBSOCKET_PORT:-3005}
+        SERVER_NAME: ${BASE_URL:-localhost}
+    restart: always
+    ports:
+      - ${EXTERNAL_HTTP_PORT:-80}:${EXTERNAL_HTTP_PORT:-80}
+      - ${EXTERNAL_HTTPS_PORT:-443}:${EXTERNAL_HTTPS_PORT:-443}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - ~/.playday/ssldata/certbot/conf:/etc/letsencrypt
+      - ~/.playday/ssldata/certbot/www:/var/www/certbot
+      - ~/.playday/public/gen:/var/public/gen
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ~/.playday/ssldata/certbot/conf:/etc/letsencrypt
+      - ~/.playday/ssldata/certbot/www:/var/www/certbot
+    restart: always
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+  frontend:
+    image: frontend:latest
+    build: 
+      context: ./
+      dockerfile: frontend/Dockerfile
+      args:
+        NODE_ENV: ${NODE_ENV:-development}  
+        LOCALHOST_FRONTEND_PORT: ${LOCALHOST_FRONTEND_PORT:-3000}
+    restart: always
+    volumes:
+      - ~/.playday/logs/next:/var/log/next
+      - ~/.playday/public/gen:/app/public/gen
+    deploy:
+      resources:
+        limits:
+          memory: 20G
+        reservations:
+          memory: 10G
+    ports:
+      - "127.0.0.1:${LOCALHOST_FRONTEND_PORT:-3000}:${LOCALHOST_FRONTEND_PORT:-3000}"
+      - "127.0.0.1:${LOCALHOST_WEBSOCKET_PORT:-3005}:${LOCALHOST_WEBSOCKET_PORT:-3005}"    
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  taskserver:
+    image: taskserver:latest
+    build: 
+      context: ./
+      dockerfile: taskserver/Dockerfile
+      args:
+        NODE_ENV: ${NODE_ENV:-development}
+        LOCALHOST_WEBSOCKET_PORT: ${LOCALHOST_WEBSOCKET_PORT:-3005}
+    restart: always
+    volumes:
+      - ~/.playday/public/gen:/app/public/gen
+    deploy:
+      resources:
+        limits:
+          memory: 20G
+        reservations:
+          memory: 10G       
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    

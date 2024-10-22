@@ -45,7 +45,7 @@ Try the demo at [https://playday.ai](https://playday.ai)
 
 ```bash
 # Clone the repository
-git clone https://github.com/tomlangan/playday
+git clone https://github.com/Sophluent-Systems/PlayDayAI
 
 # Install the packages
 npm install

@@ -40,7 +40,7 @@ const doFetchGoogle =async (params, stream) => {
     const { Constants } = Config;
     Constants.debug.logAICalls && console.log("doFetchGoogle");
   
-    const apiKeyToUse = keySource.source == 'account' ? getAccountServiceKey(keySource.account, "openAIkey") : llmParameters.apiKey;
+    const apiKeyToUse = keySource.source == 'account' ? getAccountServiceKey(keySource.account, "googleLLMKey") : llmParameters.apiKey;
   
     if (nullUndefinedOrEmpty(apiKeyToUse) ||
     apiKeyToUse == 'sk-xxxxxxxxxxxxxxxxxxxxxxxx') {

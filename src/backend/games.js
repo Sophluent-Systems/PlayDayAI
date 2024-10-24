@@ -33,7 +33,7 @@ export async function getGameTitlesByIDs(db, gameIDs) {
   try {
       const coll = db.collection('games');
       const query = { gameID: { $in: gameIDs } };
-      const projection = { _id: 0, gameID: 1, url: 1, title: 1 }; // We only want gameID and url fields
+      const projection = { _id: 0, gameID: 1, url: 1, title: 1, description: 1 }; // We only want gameID and url fields
 
       const results = await coll.find(query).project(projection).toArray();
       return results; // This will be an array of objects, each with a gameID and its corresponding url

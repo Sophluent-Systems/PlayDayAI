@@ -204,8 +204,6 @@ function ThemeEditor(props) {
   const { classes } = useStyles(defaultAppTheme);
   const { onChange, gameInfo } = props;
   const [appliedTheme, setAppliedTheme] = useState(null);
-
-  console.log("Applied theme: ", appliedTheme);
   
   useEffect(() => {
     if (gameInfo && gameInfo.theme) {
@@ -368,7 +366,6 @@ function Home(props) {
 
   const handleTopLevelInputChange = (e) => {
     const { name, value } = e.target;
-    console.log(name, " -> ", value);
     setGameInfo((prevState) => ({
       ...prevState,
       [name]: value,

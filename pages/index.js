@@ -496,18 +496,20 @@ export default function Home(props) {
                 All Apps
               </Typography>
               <Box display="flex" justifyContent="center">
-                <IconButton
+                <Button
                   onClick={() => setShowAllApps(!showAllApps)}
+                  endIcon={<ExpandMore sx={{
+                    transition: 'transform 0.3s',
+                    transform: showAllApps ? 'rotate(180deg)' : 'none',
+                  }} />}
+                  variant="outlined"
                   sx={{
-                    '& .MuiSvgIcon-root': {
-                      fontSize: '2rem',
-                      transition: 'transform 0.3s',
-                      transform: showAllApps ? 'none' : 'rotate(180deg)',
-                    },
+                    marginBottom: 2,
+                    minWidth: '200px'
                   }}
                 >
-                  <ExpandMore />
-                </IconButton>
+                  {showAllApps ? 'Show Less' : 'Show All Apps'}
+                </Button>
               </Box>
               {showAllApps && (
                 <Grid container spacing={{ xs: 2, md: 3 }} columns={{ xs: 4, sm: 8, md: 12 }} className={classes.appGrid}>

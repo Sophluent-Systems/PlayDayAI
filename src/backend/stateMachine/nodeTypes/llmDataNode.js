@@ -11,8 +11,6 @@ export class llmDataNode extends llmNode {
     async getLLMParams(params, stateMachine, seed, keySource) {
         let llmParameters = {...await super.getLLMParams(params, stateMachine, seed, keySource)};
 
-        llmParameters.streaming = true;
-
         return llmParameters;
     }
 

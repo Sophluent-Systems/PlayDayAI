@@ -107,7 +107,7 @@ const doFetchChatGPT = async (params, stream) => {
       model: llmParameters.model,
       temperature: isO1Model ? 1 : llmParameters.temperature
     };
-    if (llmParameters.outputFormat == 'json' && llmParameters.model != 'gpt-4' && llmParameters.model != 'gpt-3-turbo') {
+    if (llmParameters.outputFormat == 'json' && !isO1Model && llmParameters.model != 'gpt-4' && llmParameters.model != 'gpt-3-turbo') {
       openApiParams.response_format = { type: "json_object" }
     }
     if (stream) {

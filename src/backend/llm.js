@@ -91,7 +91,7 @@ export async function callLLMChat_Blocking(prompt, llmParameters) {
   }
 
   try {
-      let result = await endpoint.blockingAPI(prompt, llmParameters);
+      let result = await endpoint.blockingAPI({ prompt, llmParameters });
 
       if (result) {
         Constants.debug.logAICalls && console.log("callLLMChat_Blocking result: ", JSON.stringify(result, null, 2));

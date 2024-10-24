@@ -303,6 +303,13 @@ export const nodeTypeMenus = {
               tooltip: "Exponential penalty factor for repeating prior tokens. 1 means no penalty, higher value = less repetition, lower value = more repetition.",
               defaultValue: 1.1,
             },
+            {
+              label: "Streaming response",
+              type: "checkbox",
+              path: "params.streaming",
+              tooltip: "If selected, the AI will send responses as they are generated.",
+              defaultValue: true,
+            },
           ]
         }
       ],
@@ -446,6 +453,13 @@ export const nodeTypeMenus = {
               path: "params.repetition_penalty",
               tooltip: "Exponential penalty factor for repeating prior tokens. 1 means no penalty, higher value = less repetition, lower value = more repetition.",
               defaultValue: 1.1,
+            },
+            {
+              label: "Streaming response",
+              type: "checkbox",
+              path: "params.streaming",
+              tooltip: "If selected, the AI will send responses as they are generated.",
+              defaultValue: true,
             },
           ]
         }

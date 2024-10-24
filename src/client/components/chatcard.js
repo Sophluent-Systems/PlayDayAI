@@ -299,6 +299,8 @@ function renderMarkup(key, markupText) {
       variant="body1"
       sx={{
         flex: 1,
+        color: styling.color,
+        fontFamily: styling.fontFamily,
         whiteSpace: "pre-wrap",
         direction: "ltr",
         overflowWrap: "break-word",

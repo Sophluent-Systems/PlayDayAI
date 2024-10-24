@@ -26,6 +26,24 @@ import { getMessageStyling } from "@src/client/themestyling";
 import { PersonaIcons } from "./versioneditor/personas/icons";
 import DOMPurify from 'dompurify';
 
+
+// Create a custom renderer for marked
+const renderer = new marked.Renderer();
+
+// Override list item rendering to be more compact
+renderer.listitem = (text) => `<li style="margin: 0; padding: 0;">${text}</li>`;
+
+// Override paragraph rendering to remove extra spacing
+renderer.paragraph = (text) => `<p style="margin: 0; padding: 0;">${text}</p>`;
+
+// Configure marked options
+marked.setOptions({
+  renderer: renderer,
+  gfm: true,
+  breaks: true,
+  smartLists: true
+});
+
 const useStyles = makeStyles()((theme, pageTheme) => {
   const { colors, fonts } = pageTheme;
   return {
@@ -270,60 +288,86 @@ export const ChatCard = memo(({
     );
   }
 
-  function renderMarkup(key, markupText) {
-    const rawMarkup = marked(`${markupText}`);
+  
+function renderMarkup(key, markupText) {
+  const rawMarkup = marked(markupText);
+  const safeMarkup = DOMPurify.sanitize(rawMarkup);
 
-    // Sanitize the HTML to prevent XSS attacks
-    const safeMarkup = DOMPurify.sanitize(rawMarkup);
-
-    return (
-        <Typography
-            key={key}
-            variant="body1"
-            sx={{
-                flex: 1,
-                color: styling.color,
-                whiteSpace: "pre-wrap",
-                direction: "ltr",
-                fontFamily: styling.fontFamily,
-                overflowWrap: "break-word",
-                wordBreak: "break-word",
-                padding: 0,
-                margin: 0,
-                "& *": { // This targets all elements inside the Typography component
-                  margin: 0,
-                  padding: 0,
-                },
-                "& p, & h1, & h2, & h3, & h4, & h5, & h6, & ul, & ol, & li": {
-                  "lineHeight": '1.5', // Reduces the line height to minimize space between lines
-                },
-                "& p": {
-                    "margin": "0",
-                    "marginBlockStart": '0em',
-                    "marginBlockEnd": '0em',
-                },
-                "& h1, & h2, & h3, & h4, & h5, & h6": {
-                  "margin": "0",
-                    fontWeight: "normal", // Adjust weight as needed
-                    "marginBlockStart": '0em',
-                    "marginBlockEnd": '0em',
-                },
-                "& ul, & ol": {
-                  "margin": "0",
-                    paddingInlineStart: "20px",
-                    "marginBlockStart": '0em',
-                    "marginBlockEnd": '0em',
-                },
-                "& li": {
-                  "margin": "0",
-                    "marginBlockStart": '0em',
-                    "marginBlockEnd": '0em',
-                },
-            }}
-            component="div"
-            dangerouslySetInnerHTML={{ __html: safeMarkup }}
-        />
-    );
+  return (
+    <Typography
+      key={key}
+      variant="body1"
+      sx={{
+        flex: 1,
+        whiteSpace: "pre-wrap",
+        direction: "ltr",
+        overflowWrap: "break-word",
+        wordBreak: "break-word",
+        
+        // Base styles
+        '& > *:first-child': {
+          marginTop: 0,
+        },
+        '& > *:last-child': {
+          marginBottom: 0,
+        },
+        
+        // Global reset
+        '& *': {
+          margin: 0,
+          padding: 0,
+        },
+        
+        // Typography
+        '& p, & li': {
+          lineHeight: 1.4,
+          marginBottom: '0.2em',
+        },
+        
+        // Lists
+        '& ul, & ol': {
+          paddingLeft: '1.5em',
+          marginBottom: '0.2em',
+        },
+        
+        // Nested lists
+        '& ul ul, & ol ol, & ul ol, & ol ul': {
+          marginTop: 0,
+          marginBottom: 0,
+        },
+        
+        // Headings
+        '& h1, & h2, & h3, & h4, & h5, & h6': {
+          lineHeight: 1.2,
+          marginTop: '0.5em',
+          marginBottom: '0.2em',
+          
+          '&:first-child': {
+            marginTop: 0,
+          }
+        },
+        
+        // Code blocks
+        '& pre': {
+          margin: '0.3em 0',
+        },
+        
+        // Inline code
+        '& code': {
+          padding: '0.1em 0.2em',
+        },
+        
+        // Blockquotes
+        '& blockquote': {
+          margin: '0.3em 0',
+          paddingLeft: '1em',
+          borderLeft: '3px solid #ddd',
+        },
+      }}
+      component="div"
+      dangerouslySetInnerHTML={{ __html: safeMarkup }}
+    />
+  );
 }
 
 

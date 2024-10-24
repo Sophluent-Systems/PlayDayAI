@@ -41,7 +41,7 @@ export default function Home(props) {
   }, [accountLoaded, code]);
 
   useEffect(() => {
-    if (!hasServicePerms("service_basicAccess")) {
+    if (hasServicePerms("service_basicAccess")) {
       navigateTo('/')
     }
   }, [account]);

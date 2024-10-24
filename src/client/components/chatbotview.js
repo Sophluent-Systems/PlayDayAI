@@ -353,7 +353,7 @@ function ChatBotView(props) {
                       supportedMediaTypes={supportedMediaTypes}
                       handleSendMessage={onSendMessage}
                       sendAudioOnSpeechEnd={conversational}
-                      debug={editMode}
+                      debug={false}
                     />
                 </Box>
             </Box>

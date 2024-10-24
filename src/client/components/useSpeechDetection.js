@@ -623,27 +623,27 @@ const cancelFinalDataCallback = () => {
   const onStopStreaming = () => {
     debug && console.log("onStopStreaming")
     if (listener.current) {
-      listener.current.stop();
-      listener.current = undefined;
+        listener.current.stop();
+        listener.current = undefined;
     }
 
     if (stream.current) {
-      stream.current.getTracks().forEach(track => {
-          try {
-              track.stop();
-              stream.current.removeTrack(track);
-          }
-          catch (e) {
-              console.error("Error stopping track:", e);
-          }
-      });
+        stream.current.getTracks().forEach(track => {
+            try {
+                track.stop();
+                stream.current.removeTrack(track);
+            }
+            catch (e) {
+                console.error("Error stopping track:", e);
+            }
+        });
 
-      
-      if (audioDuckingControl === 'on_speaking') {
-        debug && console.log("Setting audio session type to 'playback'")
-        navigator.audioSession['type'] = 'playback';
-      }
-      stream.current = undefined;
+        // Check if audioSession exists before trying to use it
+        if (audioDuckingControl === 'on_speaking' && 'audioSession' in navigator) {
+            debug && console.log("Setting audio session type to 'playback'")
+            navigator.audioSession['type'] = 'playback';
+        }
+        stream.current = undefined;
     }
 
     setSpeakingState('no_speech');
@@ -651,7 +651,7 @@ const cancelFinalDataCallback = () => {
     currentSpeakingStartTime.current = null;
     setListeningForSpeech(false)
     setSpeaking(false)
-  }
+}
 
   function printWavHeader(chunk) {
     if (!(chunk instanceof Uint8Array) && !(chunk instanceof ArrayBuffer)) {

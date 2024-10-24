@@ -2,6 +2,7 @@ import { nullUndefinedOrEmpty } from '@src/common/objects.js';
 import { nodeType } from  './nodeType.js';
 import { Config } from "@src/backend/config";
 import { getBlobFromStorage } from '@src/backend/blobstorage';
+import { getAccountServiceKey } from "@src/backend/accounts";
 
 const whisperApiEndpoint = "https://api.openai.com/v1/audio/transcriptions";
 

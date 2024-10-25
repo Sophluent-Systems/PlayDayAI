@@ -39,6 +39,15 @@ const permissionOptions = {
   },
 }
 
+// Define the access hierarchy from highest to lowest privilege
+const ACCESS_HIERARCHY = {
+  'admin': ['admin'],
+  'creator': ['admin', 'creator'],
+  'consumer': ['admin', 'creator', 'consumer'],
+  'guest': ['admin', 'creator', 'consumer', 'guest']
+};
+
+
 
 export const PermissionsEditor = (props) => {
   const { Constants } = useConfig();
@@ -94,58 +103,111 @@ export const PermissionsEditor = (props) => {
     onPermissionsChange(newPermissions);
   };
 
-  const isMorePermissive = (existingGroup, newGroup) => {
-    // look up the array index of both
-    const groupIndex = groupOptions.findIndex((group) => group.value === existingGroup);
-    const newGroupIndex = groupOptions.findIndex((group) => (newGroup && Array.isArray(newGroup)) && newGroup.includes(group.value));
+  const leastRestrictive = (groupOrArray) => {
+    if (!groupOrArray) {
+        return "individuals";
+    }
 
-    return newGroupIndex < groupIndex;
-  }
+    if (!Array.isArray(groupOrArray)) {
+      return groupOrArray;
+    }
+
+    if (groupOrArray.length === 0) {
+        return "individuals";
+    }
+
+    // Find the group with the lowest index (most permissive)
+    if (groupOrArray.includes('guest')) {
+        return 'guest';
+    } else if (groupOrArray.includes('consumer')) {
+        return 'consumer';
+    } else if (groupOrArray.includes('creator')) {
+        return 'creator';
+    } else if (groupOrArray.includes('admin')) {
+        return 'admin';
+    } else {
+        return 'individuals';
+    }
+}; 
+
+
+  const isMoreRestrictive = (existingGroupArray, newGroup) => {
+    const leastRestrictiveNew = leastRestrictive(newGroup);
+    const leastRestrictiveExisting = leastRestrictive(existingGroupArray);
+    
+    // Find indices in groupOptions to determine hierarchy
+    const newIndex = groupOptions.findIndex(group => group.value === leastRestrictiveNew);
+    const existingIndex = groupOptions.findIndex(group => group.value === leastRestrictiveExisting);
+    
+    // Higher index means more restrictive (admin = 0, guest = 3)
+    return newIndex > existingIndex;
+};
 
   async function updateGroupPermissions(option, newGroup) {
     const newPermissions = { ...permissions };
     if (!newPermissions.groups.roles) {
       newPermissions.groups.roles = {};
     }
-    newPermissions.groups.roles[option] = (newGroup != "individuals") ? [newGroup] : [];
-
+    
     // Anyone who can edit can also view source
     // Anyone who can view source can also play
     // Anyone who can't play can't view source
     // Anyone who can't view source can't edit
-    if (option === "game_editor") {
-      // If a group other than "individuals" can edit, they can also view source and play
-      if (newGroup !== "individuals") {
-        if (isMorePermissive(newGroup, newPermissions.groups.roles.game_sourceViewer)) {
-          newPermissions.groups.roles.game_sourceViewer = [newGroup];
-        }
-        if (isMorePermissive(newGroup, newPermissions.groups.roles.game_player)) {
-          newPermissions.groups.roles.game_player = [newGroup];
-        }
+    
+    // If selecting "individuals", clear the group
+    if (newGroup === "individuals") {
+      newPermissions.groups.roles[option] = [];
+      
+      // Cascade restrictions upward
+      if (option === "game_player") {
+        // If players are restricted to individuals, source viewers and editors must be too
+        newPermissions.groups.roles.game_sourceViewer = [];
+        newPermissions.groups.roles.game_editor = [];
+      } else if (option === "game_sourceViewer") {
+        // If source viewers are restricted to individuals, editors must be too
+        newPermissions.groups.roles.game_editor = [];
       }
-    }
+    } else {
+      const groupsToApply = ACCESS_HIERARCHY[newGroup] || [];
+      newPermissions.groups.roles[option] = groupsToApply;
 
-    if (option === "game_sourceViewer") {
-      // If a group other than "individuals" can view source, they can also play
-      if (newGroup !== "individuals") {
-        if (isMorePermissive(newGroup, newPermissions.groups.roles.game_player)) {
-          newPermissions.groups.roles.game_player = [newGroup];
+      // Handle cascading both up and down
+      if (option === "game_editor") {
+        // More permissive changes cascade downward
+        const sourceViewerGroup = newPermissions.groups.roles.game_sourceViewer?.[0];
+        const playerGroup = newPermissions.groups.roles.game_player?.[0];
+        
+        // If current source viewer/player permissions are more restrictive,
+        // cascade the permissions down
+        if (!sourceViewerGroup || !isMoreRestrictive(sourceViewerGroup, groupsToApply)) {
+          newPermissions.groups.roles.game_sourceViewer = groupsToApply;
         }
-      }
-      // If a group is "individuals" or less permissive than the current editor, they can't edit
-      if (newGroup === "individuals" || isMorePermissive(newPermissions.groups.roles.game_editor, newGroup)) {
-        newPermissions.groups.roles.game_editor = newGroup === "individuals" ? [] : [newGroup];
-      }
-    }
-
-    if (option === "game_player") {
-      // If a group is "individuals" or less permissive than the current source viewer, they can't view source
-      if (newGroup === "individuals" || isMorePermissive(newPermissions.groups.roles.game_sourceViewer, newGroup)) {
-        newPermissions.groups.roles.game_sourceViewer = newGroup === "individuals" ? [] : [newGroup];
-      }
-      // If a group is "individuals" or less permissive than the current editor, they can't edit
-      if (newGroup === "individuals" || isMorePermissive(newPermissions.groups.roles.game_editor, newGroup)) {
-        newPermissions.groups.roles.game_editor = newGroup === "individuals" ? [] : [newGroup];
+        if (!playerGroup || !isMoreRestrictive(playerGroup, groupsToApply)) {
+          newPermissions.groups.roles.game_player = groupsToApply;
+        }
+      } else if (option === "game_sourceViewer") {
+        // More restrictive changes cascade upward
+        const editorGroup = newPermissions.groups.roles.game_editor?.[0];
+        if (editorGroup && isMoreRestrictive(editorGroup, newGroup)) {
+          newPermissions.groups.roles.game_editor = groupsToApply;
+        }
+        
+        // More permissive changes cascade downward
+        const playerGroup = newPermissions.groups.roles.game_player?.[0];
+        if (!playerGroup || !isMoreRestrictive(playerGroup, groupsToApply)) {
+          newPermissions.groups.roles.game_player = groupsToApply;
+        }
+      } else if (option === "game_player") {
+        // More restrictive changes cascade upward
+        const sourceViewerGroup = newPermissions.groups.roles.game_sourceViewer?.[0];
+        const editorGroup = newPermissions.groups.roles.game_editor?.[0];
+        
+        if (sourceViewerGroup && isMoreRestrictive(sourceViewerGroup, newGroup)) {
+          newPermissions.groups.roles.game_sourceViewer = groupsToApply;
+        }
+        if (editorGroup && isMoreRestrictive(editorGroup, newGroup)) {
+          newPermissions.groups.roles.game_editor = groupsToApply;
+        }
       }
     }
 
@@ -154,32 +216,37 @@ export const PermissionsEditor = (props) => {
     onPermissionsChange(newPermissions);
   }
 
-
   const renderGroupDropdown = (optionValue) => {
-      const option = permissionOptions[optionValue];
-      const currentValue = permissions.groups?.roles?.[optionValue]?.[0] || "individuals";
+    const option = permissionOptions[optionValue];
+    // Get the current groups array
+    const currentGroups = permissions.groups?.roles?.[optionValue] || [];
+    
+    // Find the most permissive (lowest index) group that isn't admin
+    let currentValue = leastRestrictive(currentGroups);
 
-      return  (
-          <FormControl 
-            sx={{ m: 1, minWidth: 120}}
-            fullWidth 
-          >
-              <InputLabel >Groups</InputLabel>
-              <Select
-                value={currentValue}
-                label={option.label}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  updateGroupPermissions(optionValue, e.target.value);
-                }}
-              >
-                {groupOptions.map((group, index) => {
-                  return <MenuItem value={group.value} key={group.value}>{group.label}</MenuItem>;
-                })}
-              </Select>
-          </FormControl>
+    return  (
+        <FormControl 
+          sx={{ m: 1, minWidth: 120}}
+          fullWidth 
+        >
+            <InputLabel>Groups</InputLabel>
+            <Select
+              value={currentValue}
+              label={option.label}
+              onChange={(e) => {
+                e.stopPropagation();
+                updateGroupPermissions(optionValue, e.target.value);
+              }}
+            >
+                {groupOptions.map((group) => (
+                    <MenuItem value={group.value} key={group.value}>
+                        {group.label}
+                    </MenuItem>
+                ))}
+            </Select>
+        </FormControl>
     );
-  }
+}
 
   const enterAccountEditMode = (permissions) => {
     setMode("accountpermissions");

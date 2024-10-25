@@ -97,7 +97,7 @@ const defaultWidth = 180;
 const defaultHeight = 80;
 
 const NodeGraphNode = memo((props) => {
-  const { data, id } = props;
+  const { data, id, readOnly} = props;
   const { theme, versionInfo, node, onClicked } = data;
   const connectionNodeId = useStore((state) => state.connectionNodeId);
   const isConnecting = !!connectionNodeId;
@@ -196,7 +196,7 @@ const NodeGraphNode = memo((props) => {
       </Box>
       
       {/* Events */}
-      {!isConnecting && metadata.events.map((event, index) => (
+      {!isConnecting && !readOnly && metadata.events.map((event, index) => (
         <Handle
           key={`event-${event}`}
           type="source"
@@ -217,7 +217,7 @@ const NodeGraphNode = memo((props) => {
         </Handle>
       ))}
       {/* Outputs */}
-      {!isConnecting && metadata.outputs.map((output, index) => (
+      {!isConnecting && !readOnly && metadata.outputs.map((output, index) => (
         <Handle
           key={`output-${output}`}
           type="source"

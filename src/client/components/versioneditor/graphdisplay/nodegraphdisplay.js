@@ -363,7 +363,8 @@ export function NodeGraphDisplay(params) {
                                 node,
                                 theme,
                                 isSelected: selectedNodes.includes(node.instanceID),
-                                onClicked: () => handleNodeClicked(node)
+                                onClicked: () => handleNodeClicked(node),
+                                readOnly,
                             }
                         };
                     } else {
@@ -475,6 +476,7 @@ export function NodeGraphDisplay(params) {
       const onDrop = useCallback(
         (event) => {
             event.preventDefault();
+            if (readOnly) { return };
     
             const eventData = event.dataTransfer.getData('application/reactflow');
 
@@ -528,6 +530,8 @@ export function NodeGraphDisplay(params) {
       
     const handleDeleteNodes = (event) => {
         event.preventDefault();
+        if (readOnly) { return };
+
         if (!selectedNodes || selectedNodes.length == 0) {
             return;
         }
@@ -536,6 +540,8 @@ export function NodeGraphDisplay(params) {
 
     const handleDeleteNodesByID = (event, nodeIDs) => {
         event.preventDefault();
+        if (readOnly) { return };
+
         for (let i=0; i<nodeIDs.length; i++) {
             const node = nodes.find((n) => n.instanceID === nodeIDs[i]);
             // delete so long as it's not the start node
@@ -603,6 +609,7 @@ export function NodeGraphDisplay(params) {
       (event, graphNodes) => {
         // Prevent native context menu from showing
         event.preventDefault();
+        if (readOnly) { return };
   
         // Calculate position of the context menu. We want to make sure it
         // doesn't get positioned off-screen.
@@ -625,6 +632,7 @@ export function NodeGraphDisplay(params) {
         (event, edge) => {
           // Prevent native context menu from showing
           event.preventDefault();
+          if (readOnly) { return };
 
           // Calculate position of the context menu. We want to make sure it
           // doesn't get positioned off-screen.
@@ -642,6 +650,8 @@ export function NodeGraphDisplay(params) {
 
     const handleDeleteEdge = (event, node, edge) => {
         event.preventDefault();
+        if (readOnly) { return };
+
         console.log("handleDeleteEdge: ", node, edge)
 
         const { source, target, sourceHandle, targetHandle } = edge;
@@ -668,6 +678,7 @@ export function NodeGraphDisplay(params) {
         (event) => {
             // Prevent native context menu from showing
             event.preventDefault();
+
             setNodeMenu(null);
             setEdgeMenu(null);
             clearSelection();
@@ -795,6 +806,8 @@ export function NodeGraphDisplay(params) {
     }
 
     const handlePaste = (event) => {
+        if (readOnly) { return };
+        
         event.preventDefault();
         pasteDataFromClipboard().then((data) => {
             if (data && data.contents === "nodecopydata" && data.nodes && data.nodes.length > 0) {
@@ -903,6 +916,8 @@ export function NodeGraphDisplay(params) {
     }
 
     const handleSelectAll = (event) => {
+        if (readOnly) { return };
+
         event.preventDefault();
         event.stopPropagation();
         setGraphNodes((nds) => nds.map((graphNode) => {
@@ -917,6 +932,8 @@ export function NodeGraphDisplay(params) {
 
     const onPaneClick = useCallback((event) => {
         event.preventDefault();
+        if (readOnly) { return };
+
         setNodeMenu(null);
         setEdgeMenu(null);
         clearSelection();
@@ -927,6 +944,8 @@ export function NodeGraphDisplay(params) {
         // Handle cross-platform delete/backspace
         if (event.key === 'Delete' || (event.key === 'Backspace' && event.metaKey)) {
             console.log('Delete key pressed');
+            if (readOnly) { return };
+
             handleDeleteNodesByID(event, selectedNodes);
         } 
         
@@ -939,6 +958,8 @@ export function NodeGraphDisplay(params) {
         // Handle paste: Command+V on macOS, Ctrl+V on Windows
         if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
             console.log('Ctrl+V pressed');
+            if (readOnly) { return };
+
             handlePaste(event);
         }
         

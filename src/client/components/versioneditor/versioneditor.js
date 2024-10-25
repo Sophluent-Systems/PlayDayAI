@@ -1011,7 +1011,7 @@ function VersionEditor(props) {
                           color="primary"
                           className={classes.inputfield}
                           onClick={submitNewVersionInfo}
-                          disabled={!dirtyEditor}
+                          disabled={readOnly || !dirtyEditor}
                           startIcon={<Save />}
                         >
                           Save changes

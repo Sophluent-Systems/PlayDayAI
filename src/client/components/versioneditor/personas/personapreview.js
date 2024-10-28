@@ -39,6 +39,7 @@ export function PersonaPreview(props) {
                                     mediaTypes:[key],
                                 }
                             }}
+                            onRequestAudioControl={() => {}}
                         />
                 }
             )
@@ -52,6 +53,7 @@ export function PersonaPreview(props) {
                         mediaTypes:["text"],
                     }
                 }}
+                onRequestAudioControl={() => {}}
             />
         }
     </Box>

@@ -4,7 +4,7 @@ import {
     CardContent, 
     Typography, 
     Tooltip, 
-    Grid 
+    Grid2 as Grid
 } from '@mui/material';
 import { PersonaIcons } from './icons';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
@@ -38,26 +38,26 @@ export const PersonaCard = ({ persona }) => {
         m: 0,
       }}>
         {/* Icon Grid */}
-        <Grid item xs={1} sx={{ display: 'flex', alignItems: 'center', pl: 1 }}>
+        <Grid xs={1} sx={{ display: 'flex', alignItems: 'center', pl: 1 }}>
           <IconComponent sx={{ color: persona.theme.icon.color }} />
         </Grid>
 
         {/* Display Name Grid */}
-        <Grid item xs={2} sx={{ ml: 1 }}>
-          <Typography variant="body2" sx={{ fontSize: '0.75rem', textAlign: 'left' }}>
+        <Grid xs={2} sx={{ ml: 1 }}>
+          <Typography variant="body2" sx={{ fontSize: '0.75rem', textAlign: 'left', color: persona.theme.colors.messageTextColor }}>
             {persona.displayName}
           </Typography>
         </Grid>
 
         {/* Identity Grid */}
-        <Grid item xs={8} sx={{ ml: 2 }}>
-          <Typography variant="body2" sx={{ fontSize: '0.75rem', textAlign: 'left' }}>
+        <Grid xs={8} sx={{ ml: 2 }}>
+          <Typography variant="body2" sx={{ fontSize: '0.75rem', textAlign: 'left', color: persona.theme.colors.messageTextColor }}>
             {persona.identity}
           </Typography>
         </Grid>
         
         {/* Hidden from end users Grid */}
-        <Grid item xs={1} sx={{ ml: 2 }}>
+        <Grid xs={1} sx={{ ml: 2 }}>
             {persona.hideFromEndUsers &&
                 <Tooltip title="Hidden from end users" placement="top">           
                     <VisibilityOff />

@@ -73,7 +73,7 @@ export const DragDropSidebar = (params) => {
             let styling = getMessageStyling(["text"], persona);
             return (
             <NodeContainer key={node.instanceID} width={180} height={40} styling={styling} onDragStart={(event) => (!readOnly) && onDragStart(event, JSON.stringify({action: "duplicate", node: node}))} draggable >
-                <Typography variant="body1" style={{ fontWeight: 'bold' }}>
+                <Typography variant="body1" style={{ fontWeight: 'bold', color: styling.color }}>
                     {node.instanceName}
                 </Typography>
             </NodeContainer>

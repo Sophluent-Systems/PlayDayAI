@@ -11,7 +11,6 @@ import { CacheProvider } from '@emotion/react';
 import { createEmotionCache } from '@src/client/createEmotionCache';
 import { StateProvider } from '@src/client/stateprovider';
 import { ConfigProvider } from '@src/client/configprovider';
-import { GoogleTagManager, GoogleAnalytics } from '@next/third-parties/google';
 
 // Create a react-query client
 const queryClient = new QueryClient();
@@ -21,9 +20,6 @@ const clientSideEmotionCache = createEmotionCache();
 
 // Disable Recoil's duplicate atom key checks which throw warnings in development mode
 RecoilEnv.RECOIL_DUPLICATE_ATOM_KEY_CHECKING_ENABLED = false;
-
-const gtmId = process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID;
-const gaID = process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID;
 
 export default function App({ Component, emotionCache = clientSideEmotionCache, pageProps }) {
 
@@ -53,10 +49,6 @@ export default function App({ Component, emotionCache = clientSideEmotionCache, 
                 </RecoilRoot>
             </ThemeProvider>
         </CacheProvider>
-        
-      {/* Google Tag Manager and Google Analytics */}
-      {gtmId && <GoogleTagManager  gtmId={gtmId} /> }
-      {gaID && <GoogleAnalytics gaID={gaID} /> }
   </>
   );
 }

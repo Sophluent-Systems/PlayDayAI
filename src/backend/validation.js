@@ -3,7 +3,7 @@
 //
 import { validateToken } from './auth';
 import { isUserAllowed, getAccountRolesAndBasicPermissions, hasRight, setAccountRoles } from './accesscontrol';
-import { lookupAccount, addNewAccount, updateAccountInfo } from './accounts';
+import { lookupAccount, addNewAccount, updateAccountInfo, logAccountAccess } from './accounts';
 import { getMongoClient } from '@src/backend/mongodb.js';
 import ACL from 'acl2';
 import { promisify } from 'util';
@@ -111,10 +111,7 @@ async function commonAuthAndValidationInternal(user, accessToken, requiredAccess
       }
     }
 
-
-    if (user.email != account.email || account.profile?.displayName != user.name || account.profile?.profilePictureUrl != user.picture) {
-        account = await updateAccountInfo(db, user, account);
-    } 
+    account = await logAccountAccess(db, user, account);
     
     //
     // Roles come here now that we're not retrieving account from the DB anymore

@@ -66,7 +66,33 @@ export async function lookupAccountInfoByIDs(db, accountIDs) {
     } 
   }
 
+export async function logAccountAccess(db, user, account) {
+    // Update the account's lastAccessed date and update
+    // the user's email or profile pic if they've changed
 
+    let updateData = {
+        lastAccessed: new Date(),
+    }
+    
+    const coll = db.collection('accounts');
+    if (user.email !== account.email) {
+        updateData.email = user.email;
+    }
+    if (account.profile?.displayName != user.name) {
+        updateData['profile.displayName'] = user.name;
+    }
+    if (user.picture !== account.profile?.profilePictureUrl) {
+        updateData['profile.profilePictureUrl'] = user.picture;
+    }
+    
+    // call async so this function returns immediately
+    coll.updateOne({authID: user.sub},{$set:  updateData}, {upsert: true}).catch((error) => {
+        console.error('Error logging account access:', error);
+        // do not throw error here, as this is not a critical operation
+    });
+
+    return {...account, ...updateData};
+}
 
 export async function updateAccountInfo(db, user, account) {
     const allowedPreferences = [

@@ -97,6 +97,8 @@ fi
 
 echo "### Creating folder $data_path/conf/live/$BASE_URL ..."
 
+mkdir -p "$data_path/conf/live/$BASE_URL"
+
 echo "### Creating dummy certificate for $BASE_URL ..."
 docker_compose run --rm --entrypoint "\
   openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\

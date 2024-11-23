@@ -12,71 +12,66 @@ upstream taskserver_upstream {
 server {
     listen ${EXTERNAL_HTTP_PORT};
     server_name ${SERVER_NAME};
-    
-    client_max_body_size 32M;  # Allows uploads up to 32MB
-    
-  location / {
-    proxy_buffering off;
-    proxy_cache off;
-    proxy_read_timeout 300s;
-    proxy_connect_timeout 75s;
-    proxy_max_temp_file_size 16000m;
-    proxy_pass http://frontend_upstream;
-    
-  }
+        
+        client_max_body_size 32M;
+        
+        # Buffer settings
+        proxy_buffer_size 256k;
+        proxy_buffers 4 512k;    
+        proxy_busy_buffers_size 1024k; 
 
-  # Additional configuration for WebSocket connections
-  location /ws {  # Assuming WebSocket connections are made to /ws
-      proxy_pass http://taskserver_upstream;
-      proxy_http_version 1.1;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
-      proxy_set_header Host $host;
-      proxy_cache_bypass $http_upgrade;
-  }
+        # Global settings
+        server_tokens off;
+        gzip on;
+        gzip_proxied any;
+        gzip_comp_level 4;
+        gzip_types text/css application/javascript image/svg+xml;
 
-  server_tokens off;
+        # Main application
+        location / {
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 75s;
+            proxy_max_temp_file_size 16000m;
+            proxy_pass http://frontend_upstream;
+        }
 
-  gzip on;
-  gzip_proxied any;
-  gzip_comp_level 4;
-  gzip_types text/css application/javascript image/svg+xml;
+        # WebSocket endpoint
+        location /ws {
+            proxy_pass http://taskserver_upstream;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
 
-  proxy_http_version 1.1;
-  proxy_set_header Upgrade $http_upgrade;
-  proxy_set_header Connection 'upgrade';
-  proxy_set_header Host $host;
-  proxy_cache_bypass $http_upgrade;
+        # Next.js static files
+        location /_next/static {
+            proxy_cache STATIC;
+            proxy_pass http://frontend_upstream;
+            add_header X-Cache-Status $upstream_cache_status; # Remove in production
+        }
 
-  location /_next/static {
-    proxy_cache STATIC;
-    proxy_pass http://frontend_upstream;
-
-    # For testing cache - remove before deploying to production
-    add_header X-Cache-Status $upstream_cache_status;
-  }
-
-
-  location /static {
-    proxy_cache STATIC;
-    proxy_ignore_headers Cache-Control;
-    proxy_cache_valid 60m;
-    proxy_read_timeout 300s;
-    proxy_connect_timeout 75s;
-    proxy_max_temp_file_size 4096m;
-    proxy_pass http://frontend_upstream;
-
-    # For testing cache - remove before deploying to production
-    add_header X-Cache-Status $upstream_cache_status;
-  }
-  
-  location /gen {
-    proxy_cache STATIC;
-    proxy_ignore_headers Cache-Control;
-    root /var/public;
-
-    # For testing cache - remove before deploying to production
-    add_header X-Cache-Status $upstream_cache_status;
-  }
-}
+        # Static files
+        location /static {
+            proxy_cache STATIC;
+            proxy_ignore_headers Cache-Control;
+            proxy_cache_valid 60m;
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 75s;
+            proxy_max_temp_file_size 4096m;
+            proxy_pass http://frontend_upstream;
+            add_header X-Cache-Status $upstream_cache_status; # Remove in production
+        }
+        
+        # Generated content
+        location /gen {
+            proxy_cache STATIC;
+            proxy_ignore_headers Cache-Control;
+            root /var/public;
+            add_header X-Cache-Status $upstream_cache_status; # Remove in production
+        }
+    }
 }

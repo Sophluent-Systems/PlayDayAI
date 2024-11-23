@@ -27,95 +27,105 @@ server {
 server {
     listen ${EXTERNAL_HTTPS_PORT} ssl;
     server_name ${SERVER_NAME} www.${SERVER_NAME};
-    
-    client_max_body_size 16M;  # Allows uploads up to 16MB
-    
-  location / {
-      proxy_buffering off;
-      proxy_cache off;
-      proxy_read_timeout 300s;
-      proxy_connect_timeout 75s;
-      proxy_max_temp_file_size 16000m;
-      proxy_pass http://frontend_upstream;
-  }
+        
+        # SSL Configuration
+        ssl_certificate /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;
+        include /etc/letsencrypt/options-ssl-nginx.conf;
+        ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+        
+        # Global settings
+        client_max_body_size 16M;
+        server_tokens off;
 
-  # Additional configuration for WebSocket connections
-  location /ws {  # Assuming WebSocket connections are made to /ws
-        proxy_pass http://taskserver_upstream;
+        # Compression
+        gzip on;
+        gzip_proxied any;
+        gzip_comp_level 4;
+        gzip_types text/css application/javascript image/svg+xml;
+
+        # Global proxy settings
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
 
-      # Increase timeouts for long-lived WebSocket connections
-      proxy_connect_timeout 120s;  # Allows more time for the WebSocket connection to be established
-      proxy_read_timeout 7d;  # Significantly increases the timeout for idle WebSocket connections
-      proxy_send_timeout 120s;  # Allows more time for data to be sent to the WebSocket server
+        # Buffer settings
+        proxy_buffer_size 256k;
+        proxy_buffers 4 512k;    
+        proxy_busy_buffers_size 1024k; 
 
-      # Optionally, increase buffer sizes for high traffic WebSocket connections
-      proxy_buffers 8 32k;  # Adjust the buffer size and number according to your application's needs
-      proxy_buffer_size 64k;  # Adjust the buffer size according to your application's needs
+        # Main application
+        location / {
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 75s;
+            proxy_max_temp_file_size 16000m;
+            proxy_pass http://frontend_upstream;
+        }
 
-      # Disable lingering close to prevent long waits on sockets in closing states
-      lingering_close off;
+        # WebSocket endpoint
+        location /ws {
+            proxy_pass http://taskserver_upstream;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
 
-      # Disable proxy buffering for real-time interaction over WebSockets
-      proxy_buffering off;
-  }
-  
-  location /.well-known/acme-challenge/ {
-    root /var/www/certbot;
-  }
+            # WebSocket specific settings
+            proxy_connect_timeout 120s;
+            proxy_read_timeout 7d;
+            proxy_send_timeout 120s;
+            proxy_buffers 8 32k;
+            proxy_buffer_size 64k;
+            proxy_busy_buffers_size 128k; 
+            lingering_close off;
+            proxy_buffering off;
+        }
 
-  ssl_certificate /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;
+        # Next.js static files
+        location /_next/static {
+            proxy_cache STATIC;
+            proxy_pass http://frontend_upstream;
+            add_header X-Cache-Status $upstream_cache_status; # Remove in production
+            expires 1y;
+            add_header Cache-Control "public, no-transform";
+        }
 
-  include /etc/letsencrypt/options-ssl-nginx.conf;
-  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+        # Static files
+        location /static {
+            proxy_cache STATIC;
+            proxy_ignore_headers Cache-Control;
+            proxy_cache_valid 60m;
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 75s;
+            proxy_max_temp_file_size 4096m;
+            proxy_pass http://frontend_upstream;
+            add_header X-Cache-Status $upstream_cache_status; # Remove in production
+            expires 1y;
+            add_header Cache-Control "public, no-transform";
+        }
+        
+        # Generated content
+        location /gen {
+            proxy_cache STATIC;
+            proxy_ignore_headers Cache-Control;
+            root /var/public;
+            add_header X-Cache-Status $upstream_cache_status; # Remove in production
+        }
 
-  server_tokens off;
+        # ACME challenge location (also needed in HTTPS server)
+        location /.well-known/acme-challenge/ {
+            root /var/${SERVER_NAME}/certbot;
+        }
 
-  gzip on;
-  gzip_proxied any;
-  gzip_comp_level 4;
-  gzip_types text/css application/javascript image/svg+xml;
-
-  proxy_http_version 1.1;
-  proxy_set_header Upgrade $http_upgrade;
-  proxy_set_header Connection 'upgrade';
-  proxy_set_header Host $host;
-  proxy_cache_bypass $http_upgrade;
-
-  location /_next/static {
-      proxy_cache STATIC;
-      proxy_pass http://frontend_upstream;
-
-    # For testing cache - remove before deploying to production
-    add_header X-Cache-Status $upstream_cache_status;
-  }
-
-
-  location /static {
-      proxy_cache STATIC;
-      proxy_ignore_headers Cache-Control;
-      proxy_cache_valid 60m;
-      proxy_read_timeout 300s;
-      proxy_connect_timeout 75s;
-      proxy_max_temp_file_size 4096m;
-      proxy_pass http://frontend_upstream;
-
-    # For testing cache - remove before deploying to production
-    add_header X-Cache-Status $upstream_cache_status;
-  }
-  
-  location /gen {
-      proxy_cache STATIC;
-      proxy_ignore_headers Cache-Control;
-      root /var/public;
-
-    # For testing cache - remove before deploying to production
-    add_header X-Cache-Status $upstream_cache_status;
-  }
-}
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
 }

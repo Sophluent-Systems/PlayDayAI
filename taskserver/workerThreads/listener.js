@@ -109,6 +109,8 @@ export async function listenForTasks() {
     return true; // Return true to indicate success
   } catch (error) {
     console.error("Failed to connect to RabbitMQ:", error);
+    // try again afer 30 seconds
+    setTimeout(listenForTasks, 30000);
     return false; // Return false to indicate failure
   }
 }

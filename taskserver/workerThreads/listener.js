@@ -90,12 +90,32 @@ async function processSessionsThatNeedWork() {
   printActiveThreads(db);
 }
 
+async function reconnectToRabbitMQ() {
+  console.log("Reconnecting to RabbitMQ");
+  await listenForTasks();
+}
+
 export async function listenForTasks() {
 
   try {
  
     const channel = await openPubSubChannel('taskQueue', 'taskQueue');
 
+    channel.setConnectionCallbacks({
+      onError: (error) => {
+        console.error('Main taskQueue channel experienced an error:', error);
+        channel.close();
+        channel = null;
+        reconnectToRabbitMQ();
+      },
+      onClosed: () => {
+        console.error('Main taskQueue channel closed');
+        channel.close();
+        channel = null;
+        reconnectToRabbitMQ();
+      },
+    });
+    
     const handlers = {
       "newTask": (command, payload) => {
         console.log("Received new task command: ", payload);

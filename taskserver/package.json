@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "NODE_ENV=development NODE_OPTIONS=--max-old-space-size=8192 node --loader ./custom-loader.mjs ./server.mjs",
-    "start": "NODE_ENV=production NODE_OPTIONS=--max-old-space-size=8192 node --loader ./custom-loader.mjs ./server.mjs"
+    "dev": "NODE_ENV=development node --loader ./custom-loader.mjs ./server.mjs",
+    "start": "NODE_ENV=production node --loader ./custom-loader.mjs ./server.mjs"
   },
   "type": "module",
   "_moduleAliases": {
@@ -13,21 +13,21 @@
     "@styles": "./frontend/styles"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.19.0",
+    "@anthropic-ai/sdk": "^0.19.2",
     "@auth0/nextjs-auth0": "^3.5.0",
-    "@breezystack/lamejs": "^1.2.7",
     "@google/generative-ai": "^0.11.4",
+    "@breezystack/lamejs": "^1.2.7",
     "acl2": "^4.0.0",
-    "amqplib": "^0.10.3",
+    "amqplib": "^0.10.4",
     "diff": "^5.2.0",
     "dotenv": "^16.4.4",
     "elevenlabs": "^0.8.0",
     "jsonwebtoken": "^9.0.2",
     "jwks-rsa": "^3.1.0",
-    "mongodb": "^6.3.0",
+    "mongodb": "^6.16.0",
     "multer": "^1.4.5-lts.1",
-    "openai": "^4.28.0",
-    "piscina": "^4.3.2",
+    "openai": "^4.73.0",
+    "piscina": "^4.7.0",
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^5.0.0",

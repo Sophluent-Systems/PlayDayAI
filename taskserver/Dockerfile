@@ -8,20 +8,19 @@ RUN echo "TASKSERVER: Building for $NODE_ENV environment on port $LOCALHOST_WEBS
 WORKDIR /app
 
 ENV NODE_ENV=${NODE_ENV}
-ENV NODE_OPTIONS="--max_old_space_size=4096"
 
-# Copy package.json first to leverage Docker cache
-COPY /taskserver/package*.json ./
 
 # Now copy the rest of the application
 COPY ./.env ./
-COPY ./taskserver ./
+COPY ./taskserver/*.cjs ./
+COPY ./taskserver/*.mjs ./
+COPY ./taskserver/*.json ./
+COPY ./taskserver/workerThreads ./workerThreads
 COPY ./src/backend ./src/backend
 COPY ./src/common ./src/common
-COPY ./taskserver/ecosystem.config.cjs ./ecosystem.config.cjs
 
 # Install dependencies
-RUN npm ci --no-audit --maxsockets 1 --fetch-timeout=600000
+RUN yarn install
 
 # Install PM2 globally
 RUN npm install --global pm2

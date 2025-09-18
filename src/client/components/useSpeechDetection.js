@@ -535,7 +535,6 @@ const cancelFinalDataCallback = () => {
   /**
    * start speech recording event
    * - first ask user for media stream
-   * - create recordrtc instance and pass media stream to it
    * - check recorder state and start or resume recorder accordingly
    * - start timeout for stop timeout config
    * - update recording state to true
@@ -591,7 +590,6 @@ const cancelFinalDataCallback = () => {
    * - stop user media stream
    * - clear stop timeout
    * - set recording state to false
-   * - destroy recordrtc instance and clear it from ref
    */
   const onStopRecording = async () => {
     debug && console.log("onStopRecording")

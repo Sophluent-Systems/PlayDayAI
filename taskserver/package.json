@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "NODE_ENV=development node --loader ./custom-loader.mjs ./server.mjs",
-    "start": "NODE_ENV=production node --loader ./custom-loader.mjs ./server.mjs"
+    "dev": "nodemon",
+    "start": "nodemon"
   },
   "type": "module",
   "_moduleAliases": {
@@ -21,13 +21,12 @@
     "amqplib": "^0.10.4",
     "diff": "^5.2.0",
     "dotenv": "^16.4.4",
-    "elevenlabs": "^0.8.0",
     "jsonwebtoken": "^9.0.2",
     "jwks-rsa": "^3.1.0",
     "mongodb": "^6.16.0",
     "multer": "^1.4.5-lts.1",
-    "openai": "^4.73.0",
-    "piscina": "^4.7.0",
+    "openai": "^4.28.0",
+    "piscina": "^4.3.2",
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^5.0.0",

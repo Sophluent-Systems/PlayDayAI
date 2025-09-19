@@ -1,5 +1,5 @@
 import { nodeType } from  './nodeType.js';
-import { LLMPipelineStage } from '@src/taskserver/llmpipelinestage.js';
+import { LLMPipelineStage } from '../../llmpipelinestage.js';
 import { Config } from "@src/backend/config";
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { AIError } from '@src/common/errors';

@@ -1,6 +1,6 @@
-import { nullUndefinedOrEmpty } from '../../../common/objects.js';
+import { nullUndefinedOrEmpty } from '@src/common/objects.js';
 import { nodeType } from  './nodeType.js';
-import { doImageGeneration } from '@src/taskserver/imageGen.js';
+import { doImageGeneration } from '../../imageGen.js';
 
 export class imageGeneratorNode extends nodeType {
     constructor({db, session, fullNodeDescription}) {

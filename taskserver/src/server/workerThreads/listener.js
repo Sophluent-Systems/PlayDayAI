@@ -2,7 +2,7 @@ import piscina from './piscinaSetup.js';
 import { openPubSubChannel } from '@src/common/pubsub/pubsubapi.js';
 import { Constants } from "@src/common/defaultconfig";
 import { getMongoClient } from '@src/backend/mongodb.js';
-import { threadGetActiveSessionList } from '@src/taskserver/threads.js';
+import { threadGetActiveSessionList } from '../threads.js';
 import { PrettyDate } from '@src/common/date.js';
 
 

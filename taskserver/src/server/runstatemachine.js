@@ -6,7 +6,7 @@ import { getRandomInt } from '@src/common/math';
 import { hasRight } from '@src/backend/accesscontrol';
 import { StateMachine } from './stateMachine/stateMachine';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
-import { threadHeartbeat } from '@src/taskserver/threads';
+import { threadHeartbeat } from './threads';
 
 // This function is called from taskWorker.js
 

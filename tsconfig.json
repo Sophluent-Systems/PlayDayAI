@@ -9,10 +9,10 @@
     "baseUrl": "./",
     "paths": {
       "@src/*": [
-        "src/*"
+        "packages/shared/src/*"
       ],
       "@components/*": [
-        "src/client/components/*"
+        "packages/shared/src/client/components/*"
       ],
       "@styles/*": [
         "frontend/styles/*"

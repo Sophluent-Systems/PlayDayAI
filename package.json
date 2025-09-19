@@ -6,11 +6,11 @@
     "build": "next build",
     "dev": "next dev",
     "start": "next start",
-    "taskserver": "nodemon"
+    "taskserver": "pnpm --filter taskserver dev"
   },
   "_moduleAliases": {
-    "@src": "./src",
-    "@components": "./src/client/components",
+    "@src": "./packages/shared/src",
+    "@components": "./packages/shared/src/client/components",
     "@styles": "./frontend/styles"
   },
   "dependencies": {

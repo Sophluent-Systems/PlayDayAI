@@ -1,4 +1,4 @@
-import { nullUndefinedOrEmpty } from '../../../common/objects';
+import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { llmNode } from './llmNode';
 
 export class llmDataNode extends llmNode {

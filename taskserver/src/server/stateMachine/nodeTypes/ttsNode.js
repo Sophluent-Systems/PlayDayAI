@@ -1,5 +1,5 @@
 import { nodeType } from  './nodeType.js';
-import { doAudioGen } from '@src/taskserver/audioGen.js';
+import { doAudioGen } from '../../audioGen.js';
 
 export class ttsNode extends nodeType {
 

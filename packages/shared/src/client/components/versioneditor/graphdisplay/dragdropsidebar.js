@@ -9,7 +9,7 @@ import { NodeContainer } from './nodecontainer';
 import { getPersonaFromLocation } from '@src/common/personainfo';
 import { getMessageStyling } from "@src/client/themestyling";
 import { getAddableNodeTypes } from '@src/common/nodeMetadata';
-import { getMetadataForNodeType } from '../../../../common/nodeMetadata';
+import { getMetadataForNodeType } from '@src/common/nodeMetadata';
 
 const addableNodeTypes = getAddableNodeTypes();
 

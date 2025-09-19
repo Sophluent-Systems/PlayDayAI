@@ -2,9 +2,15 @@
   "compilerOptions": {
     "baseUrl": "./",
     "paths": {
-      "@src/*": ["src/*"],
-      "@components/*": ["src/client/components/*"],
-      "@styles/*": ["frontend/styles/*"]
+      "@src/*": [
+        "packages/shared/src/*"
+      ],
+      "@components/*": [
+        "packages/shared/src/client/components/*"
+      ],
+      "@styles/*": [
+        "frontend/styles/*"
+      ]
     }
   }
 }

@@ -3,17 +3,17 @@ console.error("INIT: server.mjs");
 // env.js needs to be first to load environment variables
 import { env } from './env.mjs';
 import * as WebSocket from 'ws';
-import { listenForTasks } from '@src/taskserver/workerThreads/listener.js';
+import { listenForTasks } from './src/server/workerThreads/listener.js';
 import { Constants } from "@src/common/defaultconfig";
 import { doAuthAndValidationToken } from '@src/backend/validation.js';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
 import { openPubSubChannel } from '@src/common/pubsub/pubsubapi';
-import { StateMachine } from '@src/taskserver/stateMachine/stateMachine.js';
+import { StateMachine } from './src/server/stateMachine/stateMachine.js';
 import { hasRight } from '@src/backend/accesscontrol.js';
 import { getGameSession } from '@src/backend/gamesessions.js';
-import { invalidateAllThreadsForMachine } from '@src/taskserver/threads.js';
+import { invalidateAllThreadsForMachine } from './src/server/threads.js';
 import { MongoClient } from 'mongodb';
-import { getMachineIdentifier } from '@src/taskserver/machineid';
+import { getMachineIdentifier } from './src/server/machineid';
 
 console.error("INIT: environment");
 

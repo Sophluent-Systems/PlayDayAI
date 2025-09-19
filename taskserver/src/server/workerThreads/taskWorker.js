@@ -1,13 +1,13 @@
 // taskWorker.js
 import { claimTask } from '@src/backend/tasks';
-import { runStateMachine } from '@src/taskserver/runstatemachine';
+import { runStateMachine } from '../runstatemachine';
 import { openPubSubChannel } from '@src/common/pubsub/pubsubapi.js';
 import { lookupAccount } from '@src/backend/accounts';
 import ACL from 'acl2';
 import { promisify } from 'util';
 import { Constants } from "@src/common/defaultconfig";
-import { getMachineIdentifier } from '@src/taskserver/machineid';
-import { threadClaimSession, threadSetInactive } from '@src/taskserver/threads';
+import { getMachineIdentifier } from '../machineid';
+import { threadClaimSession, threadSetInactive } from '../threads';
 import { v4 as uuidv4 } from 'uuid';
 import { workerData } from 'worker_threads';
 import { getMongoDb } from '@src/backend/mongodb.js';

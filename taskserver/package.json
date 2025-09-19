@@ -9,8 +9,8 @@
   },
   "type": "module",
   "_moduleAliases": {
-    "@src": "./src",
-    "@components": "./src/client/components",
+    "@src": "../packages/shared/src",
+    "@components": "../packages/shared/src/client/components",
     "@styles": "./frontend/styles"
   },
   "dependencies": {
@@ -31,6 +31,7 @@
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^5.0.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@elevenlabs/elevenlabs-js": "^2.15.0"
   }
 }

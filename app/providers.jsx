@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { Suspense, useState } from "react";
 import { CacheProvider } from "@emotion/react";
 import { createEmotionCache } from "@src/client/createEmotionCache";
 import { ThemeProvider, CssBaseline } from "@mui/material";
@@ -23,9 +23,11 @@ export default function Providers({ children, isSandbox }) {
             <QueryClientProvider client={queryClient}>
               <ConfigProvider>
                 <AlertProvider>
-                  <StateProvider isSandbox={isSandbox}>
-                    {children}
-                  </StateProvider>
+                  <Suspense fallback={null}>
+                    <StateProvider isSandbox={isSandbox}>
+                      {children}
+                    </StateProvider>
+                  </Suspense>
                 </AlertProvider>
               </ConfigProvider>
             </QueryClientProvider>
@@ -34,3 +36,4 @@ export default function Providers({ children, isSandbox }) {
     </CacheProvider>
   );
 }
+

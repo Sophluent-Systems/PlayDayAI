@@ -10,7 +10,7 @@ import { Save } from "@mui/icons-material";
 import { DeleteForever } from "@mui/icons-material";
 import { VersionSelector } from "@src/client/components/versionselector";
 import { PlayArrow } from "@mui/icons-material";
-import { useRecoilState } from 'recoil';
+import { useAtom } from 'jotai';
 import { vhState } from '@src/client/states';
 import { editorSaveRequestState, dirtyEditorState } from '@src/client/states';
 import {
@@ -186,8 +186,8 @@ function VersionEditor(props) {
     switchVersionByName,
     gamePermissions,
   } = React.useContext(stateManager);
-  const [dirtyEditor, setDirtyEditor] = useRecoilState(dirtyEditorState);
-  const [editorSaveRequest, setEditorSaveRequest] = useRecoilState(editorSaveRequestState);
+  const [dirtyEditor, setDirtyEditor] = useAtom(dirtyEditorState);
+  const [editorSaveRequest, setEditorSaveRequest] = useAtom(editorSaveRequestState);
   const dirtyEditorRef = useRef(false);
   const [isUpdated, setIsUpdated] = useState(false);
   const [versionInfo, setVersionInfo] = useState(null);
@@ -197,7 +197,7 @@ function VersionEditor(props) {
   const [readOnly, setreadOnly] = useState(true);
   const [settingsDiff, setSettingsDiff] = useState(null);
   const [menu, setMenu] = useState([]);
-  const [vh] = useRecoilState(vhState);
+  const [vh] = useAtom(vhState);
   const [addNodeAnchorEl, setAddNodeAnchorEl] = useState(null);
   const settingsDiffTimeoutId = useRef(null);
   const versionInfoUpdateTimeoutId = useRef(null);

@@ -1,41 +1,62 @@
+'use client';
 
-import { useRouter } from 'next/router';
+
+import { useLegacyRouter } from '@src/client/useLegacyRouter';
 import { useState, useEffect, useRef } from 'react';
 import { callListGameVersions, callGetVersionInfoForEdit } from '@src/client/editor';
 import { callgetGameInfoByUrl, callGetSessionInfo } from '@src/client/gameplay';
 import { account, editModeState, gameState, versionListState, versionState, sessionState, loadingState, globalTemporaryStateState, accessTokenState, optimisticAccountState } from '@src/client/states';
-import { useRecoilState, useRecoilValue } from 'recoil';
+import { useAtom } from 'jotai';
 import { defaultAppTheme } from '@src/common/theme';
 import { callGetAccountInfo, callUpdateAccountInfo } from '@src/client/account';
 import { callGetAccountPermissionsForGame } from '@src/client/permissions';
 import { useUser } from "@src/client/auth";
-import { useQuery, useMutation, QueryClient } from 'react-query';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { callStartNewGame } from '@src/client/gameplay';
 import { useConfig } from '@src/client/configprovider';
 import { analyticsReportEvent} from "@src/client/analytics";
 import { isEqual, debounce } from 'lodash';
 import { nullUndefinedOrEmpty } from '../common/objects';
 
+const ROUTES_WITH_GAME_URL = new Set([
+    'play',
+    'editdetails',
+    'editgameversions',
+    'editpermissions',
+    'sessionlist',
+    'trainingdata',
+]);
+
+
 export function topLevelStateController(props) {
     const { Constants } = useConfig();
-    const router = useRouter();
+    const router = useLegacyRouter();
+    const redirectToAuthRoute = (path) => {
+        const target = path.startsWith('/') ? path : `/${path}`;
+        if (typeof window !== 'undefined') {
+            window.location.href = target;
+        } else {
+            router.push(target);
+        }
+    };
+
     const auth0 = useUser();
     const { gameUrl, versionName, sessionID } = router.query;
     const [loading, setLoading] = useState(true);
     const [optimisticAccount, setOptimisticAccount] = useState(null);
-    const [localAccount, setLocalAccount] = useRecoilState(account);
-    const [accessToken, setAccessToken] = useRecoilState(accessTokenState);
-    const [editMode, setEditMode] = useRecoilState(editModeState);
-    const [game, setGame] = useRecoilState(gameState);
-    const [versionList, setVersionList] = useRecoilState(versionListState);
-    const [version, setVersion] = useRecoilState(versionState);
-    const [session, setSession] = useRecoilState(sessionState);
+    const [localAccount, setLocalAccount] = useAtom(account);
+    const [accessToken, setAccessToken] = useAtom(accessTokenState);
+    const [editMode, setEditMode] = useAtom(editModeState);
+    const [game, setGame] = useAtom(gameState);
+    const [versionList, setVersionList] = useAtom(versionListState);
+    const [version, setVersion] = useAtom(versionState);
+    const [session, setSession] = useAtom(sessionState);
     const [gamePermissions, setGamePermissions] = useState(null);
-    const [globalTemporaryState, setGlobalTemporaryState] = useRecoilState(globalTemporaryStateState);
+    const [globalTemporaryState, setGlobalTemporaryState] = useAtom(globalTemporaryStateState);
     const [gameDataLoading, setGameDataLoading] = useState(true);
     const routeChangeUnderwayRef = useRef(false);
     const loadingRef = useRef(true);
-    const queryClient = new QueryClient();
+    const queryClient = useQueryClient();
     const { isSandbox } = props;
     const [accountLoading, setAccountLoading] = useState(true);
     const accountQuery = useQuery('account', callGetAccountInfo, {
@@ -111,7 +132,7 @@ export function topLevelStateController(props) {
             setEditMode(!!newEditMode);
             
             if (localAccount && !localAccount?.roles?.userRoles) {
-                router.push(`/api/auth/logout?returnTo=${encodeURIComponent('/')}`);
+                redirectToAuthRoute(`/auth/logout?returnTo=${encodeURIComponent('/')}`);
             } else if (localAccount && !hasServicePerms("service_basicAccess")) {
                 console.log("GUEST: Redirecting to redeem key page");
                 navigateTo('/account/redeemkey');
@@ -301,73 +322,86 @@ export function topLevelStateController(props) {
     }
     
     function updateUrl(props) {
-        let { navigationPath, mode, newGameUrl, clearParams, newSessionID, newVersionName } = props ? props : {};
-        Constants.debug.logStateManager && console.log("updateUrl: ", navigationPath, mode, newGameUrl, clearParams)
-        // Extract the current pathname and query params
+        const { navigationPath, mode, newGameUrl, clearParams, newSessionID, newVersionName } = props ?? {};
         const { query, pathname } = router;
 
-        const finalMode = (typeof mode == "undefined") ? "replace" : mode;
+        const finalMode = typeof mode === "undefined" ? "replace" : mode;
 
-        let currentPath = pathname.split("?")[0];
-        if (!currentPath) {
-            currentPath = pathname;
+        const currentPath = pathname.split("?")[0] || pathname || "/";
+        const currentQuery = clearParams ? {} : { ...query };
+
+        let basePath = navigationPath ? navigationPath : currentPath;
+        if (!basePath.startsWith("/")) {
+            basePath = `/${basePath}`;
         }
 
-        let newQuery = clearParams ? {} : {...query};
+        const baseSegments = basePath.split("/").filter(Boolean);
+        const baseRoot = baseSegments[0];
+        const fallbackGameUrl = typeof query.gameUrl !== "undefined" ? query.gameUrl : gameUrl;
+        const desiredGameUrl = newGameUrl === null
+            ? undefined
+            : typeof newGameUrl !== "undefined"
+                ? newGameUrl
+                : fallbackGameUrl;
 
-        let newPath = null;
-        if (navigationPath) {
-            newPath = navigationPath;
-            if (newGameUrl && newPath.indexOf('[gameUrl]') == -1) {   
-                newPath += "/[gameUrl]";
+        if (ROUTES_WITH_GAME_URL.has(baseRoot)) {
+            if (desiredGameUrl) {
+                if (baseSegments.length === 1) {
+                    baseSegments.push(desiredGameUrl);
+                } else {
+                    baseSegments[1] = desiredGameUrl;
+                }
+            } else {
+                baseSegments.splice(1);
             }
-        } else {
-            newPath = currentPath;
         }
-        
-        
+
+        const finalPath = `/${baseSegments.join("/")}`;
+
+        const nextQuery = { ...currentQuery };
+
         if (newVersionName === null) {
-            console.log("newVersionName == null")
-            delete newQuery.versionName;
-        } else if (typeof newVersionName != "undefined") {
-            console.log("versionName not undefined -> ", newVersionName)
-            newQuery.versionName = newVersionName;
-        } // else it stays whatever it was
-
-        if (newSessionID === null 
-            || 
-            (!newSessionID && newQuery.versionName != versionName)) {
-            
-            // Switching versions? switch sessions too!
-            delete newQuery.sessionID;
-
-        } else if (typeof newSessionID != "undefined") {
-            newQuery.sessionID = newSessionID;
-        } // else it stays whatever it was
-        
-        if (newGameUrl) {
-            newQuery.gameUrl = newGameUrl;
-        } else if (newGameUrl === null) {
-            // intentionally clear the gameUrl
-            newQuery = {};
+            delete nextQuery.versionName;
+        } else if (typeof newVersionName !== "undefined") {
+            nextQuery.versionName = newVersionName;
         }
 
-        if (newPath != currentPath || JSON.stringify(newQuery) != JSON.stringify(query)) {
-            
-            Constants.debug.logStateManager && console.log("UPDATING URL");
-            Constants.debug.logStateManager && console.log(`PATH(${finalMode}): `, currentPath, " -> ", newPath);
-            Constants.debug.logStateManager && console.log("QUERY: ", query, " -> ", newQuery);
+        if (newSessionID === null || (!newSessionID && nextQuery.versionName !== versionName)) {
+            delete nextQuery.sessionID;
+        } else if (typeof newSessionID !== "undefined") {
+            nextQuery.sessionID = newSessionID;
+        }
 
-            if (finalMode == "push" || pathname != newPath) {
-                router.push({
-                    pathname: newPath,
-                    query: newQuery,
-                });
-            } else if (finalMode == "replace") {
-                router.replace({
-                    pathname: router.pathname,
-                    query: newQuery,
-                }, undefined, { shallow: true });
+        if (newGameUrl === null) {
+            delete nextQuery.gameUrl;
+        } else if (typeof newGameUrl !== "undefined") {
+            nextQuery.gameUrl = newGameUrl;
+        }
+        if (ROUTES_WITH_GAME_URL.has(baseRoot)) {
+            delete nextQuery.gameUrl;
+        }
+
+        const searchParams = new URLSearchParams();
+        Object.entries(nextQuery).forEach(([key, value]) => {
+            if (value === undefined || value === null) {
+                return;
+            }
+
+            if (Array.isArray(value)) {
+                value.forEach((entry) => searchParams.append(key, entry));
+            } else {
+                searchParams.set(key, value);
+            }
+        });
+
+        const search = searchParams.toString();
+        const href = search.length > 0 ? `${finalPath}?${search}` : finalPath;
+
+        if (href !== router.asPath) {
+            if (finalMode === "push" || pathname !== finalPath) {
+                router.push(href);
+            } else {
+                router.replace(href);
             }
             routeChangeUnderwayRef.current = true;
         }
@@ -407,7 +441,7 @@ export function topLevelStateController(props) {
 
     function refreshAccessToken(forceLogin=false) {
         Constants.debug.logStateManager && console.log("refreshAccessToken")
-        router.push(`/api/auth/login?returnTo=${encodeURIComponent(router.asPath)}`);
+        redirectToAuthRoute(`/auth/login?returnTo=${encodeURIComponent(router.asPath)}`);
     }
 
 
@@ -479,33 +513,37 @@ export function topLevelStateController(props) {
             if (!accountQuery.isLoading && accountQuery.status == "error") {
                 // Construct the root URL
                 const returnUrl = router.asPath;
-                router.push(`/api/auth/logout?returnTo=${encodeURIComponent(returnUrl)}`);
+                redirectToAuthRoute(`/auth/logout?returnTo=${encodeURIComponent(returnUrl)}`);
             }
         }
     }, [auth0.isLoading, accountQuery.status]);
 
     useEffect(() => {
-        if (!routeChangeUnderwayRef.current) {
-            if (router.isReady) {
-                if ((router.pathname.indexOf('[gameUrl]') == -1) || !gameUrl) {
-                    
-                    Constants.debug.logStateManager && console.log("NO GAME URL - all go null")
-                    setGame(null);
-                    setGamePermissions(null);
-                    setVersionList(null);
-                    setVersion(null);
-                    setSession(null);
-                    Constants.debug.logStateManager && console.log("setGameDataLoading(false) 2")
-                    setGameDataLoading(false);
-                } else {
-                    if (!game || (game.url != gameUrl)) {
-                        Constants.debug.logStateManager && console.log("SWITCHING GAME BY URL game=", game, " ==> gameUrl=", gameUrl)
-                        updateGameInfo();
-                    }
-                }
-            }
+        if (routeChangeUnderwayRef.current) {
+            return;
         }
-    }, [gameUrl, router.isReady]);
+
+        if (!router.isReady) {
+            return;
+        }
+
+        const pathSegments = router.pathname.split('/').filter(Boolean);
+        const requiresGameUrl = pathSegments.length > 0 && ROUTES_WITH_GAME_URL.has(pathSegments[0]);
+
+        if (!requiresGameUrl || !gameUrl) {
+            Constants.debug.logStateManager && console.log("NO GAME URL - all go null");
+            setGame(null);
+            setGamePermissions(null);
+            setVersionList(null);
+            setVersion(null);
+            setSession(null);
+            Constants.debug.logStateManager && console.log("setGameDataLoading(false) 2");
+            setGameDataLoading(false);
+        } else if (!game || (game.url !== gameUrl)) {
+            Constants.debug.logStateManager && console.log("SWITCHING GAME BY URL game=", game, " ==> gameUrl=", gameUrl);
+            updateGameInfo();
+        }
+    }, [gameUrl, router.isReady, router.pathname, game]);
        
 
     useEffect(() => {
@@ -574,3 +612,6 @@ export function topLevelStateController(props) {
         hasServicePerms,
       };
 }
+
+
+

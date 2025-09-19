@@ -1,23 +1,16 @@
-import { UserProvider as OriginalUserProvider } from '@auth0/nextjs-auth0/client';
-import { useUser as OriginalUseUser } from "@auth0/nextjs-auth0/client";
-import React from 'react';
+import { useUser as auth0UseUser } from "@auth0/nextjs-auth0";
 
-const isSandbox = process.env.SANDBOX == 'true';
+const isSandbox = process.env.SANDBOX === "true";
 
 // Mock Data
 const mockUser = {
-    "sub": "default-user",
-    "email": "local_admin@"
+    sub: 'default-user',
+    email: 'local_admin@'
 };
 
-function mockUserProvider(props) {
-    const { children } = props;
-    return (
-        <React.Fragment>{children}</React.Fragment>
-    );
-}
 
-export const useUser = isSandbox ? () => mockUser : OriginalUseUser;
+const mockUseUser = async () => {
+  return mockUser;
+};
 
-export const UserProvider = isSandbox ? (mockUserProvider) : OriginalUserProvider;
-
+export const useUser = isSandbox ? mockUseUser : auth0UseUser;

@@ -9,7 +9,7 @@ import {
 } from '@mui/material';
 import { stateManager } from '@src/client/statemanager';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
-import { useRecoilState } from 'recoil';
+import { useAtom } from 'jotai';
 import { browserSessionIDState } from '@src/client/states';
 
 
@@ -22,7 +22,7 @@ export function EditorPreferencesCheck(props) {
   const [newGoogleLLMKey, setNewGoogleLLMKey] = useState("");
   const [elevenLabsKey, setElevenLabsKey] = useState("");
   const [newStabilityAIKey, setNewStabilityAIKey] = useState("");
-  const [browserSessionID, browserSetSessionID] = useRecoilState(browserSessionIDState);
+  const [browserSessionID, browserSetSessionID] = useAtom(browserSessionIDState);
 
   
   useEffect(() => {

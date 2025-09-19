@@ -1,7 +1,7 @@
 //
 // DO NOT IMPORT 'CONSTANTS'... ON THE CRITICAL PATH OF RETRIEVING CONSTANTS
 //
-import { validateToken } from './auth';
+import { validateToken } from './authWithToken';
 import { isUserAllowed, getAccountRolesAndBasicPermissions, hasRight, setAccountRoles } from './accesscontrol';
 import { lookupAccount, addNewAccount, updateAccountInfo, logAccountAccess } from './accounts';
 import { getMongoClient } from '@src/backend/mongodb.js';

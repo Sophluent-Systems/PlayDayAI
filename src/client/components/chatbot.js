@@ -23,7 +23,7 @@ import {
   Typography,
 } from '@mui/material';
 import { analyticsReportEvent} from "@src/client/analytics";
-import { useRecoilState } from 'recoil';
+import { useAtom } from 'jotai';
 import { vhState, editorSaveRequestState, dirtyEditorState } from '@src/client/states';
 import { AudioManager } from '@src/client/audiomanager'
 import { EditorPreferencesCheck } from '@src/client/components/editorpreferencescheck';
@@ -86,8 +86,8 @@ function ChatBot(props) {
   const [inputNodeInstanceID, setInputNodeInstanceID] = useState(null);
   const [scrollingMode, setScrollingMode] = useState(Constants.defaultScrollingMode);
   const stateMachineWebsocket = useRef(null);
-  const [editorSaveRequest, setEditorSaveRequest] = useRecoilState(editorSaveRequestState);
-  const [dirtyEditor, setDirtyEditor] = useRecoilState(dirtyEditorState);
+  const [editorSaveRequest, setEditorSaveRequest] = useAtom(editorSaveRequestState);
+  const [dirtyEditor, setDirtyEditor] = useAtom(dirtyEditorState);
   const [supportedMediaTypes, setSupportedMediaTypes] = useState([]);
   const scrollRef = useRef(null);
   const showAlert = useAlert();

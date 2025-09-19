@@ -1,3 +1,5 @@
+"use client";
+
 import React from 'react';
 import { stateManager } from './statemanager.js';
 import { topLevelStateController } from './toplevelstatecontroller.js';

@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import { Box, Button, Popover, Typography } from '@mui/material';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'; // Import MUI's dropdown icon
 import { MenuItemList } from './menuitemlist';
-import { useRecoilState } from 'recoil';
+import { useAtom } from 'jotai';
 import { vhState } from '@src/client/states';
 
 export function MenuItemDropdown(props) {
     const { menuItems, onMenuItemSelected, selectedIndex, autoSelect, title } = props;
     const [anchorEl, setAnchorEl] = useState(null);
-    const [vh, setVh] = useRecoilState(vhState);
+    const [vh, setVh] = useAtom(vhState);
 
     const handleClick = (event) => {
         setAnchorEl(event.currentTarget);

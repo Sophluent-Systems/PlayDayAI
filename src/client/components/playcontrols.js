@@ -14,14 +14,14 @@ import {
  import PlayArrowIcon from '@mui/icons-material/PlayArrow';
  import PauseIcon from '@mui/icons-material/Pause';
  import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import { useRecoilState } from 'recoil';
+import { useAtom } from 'jotai';
 import { editorSaveRequestState, dirtyEditorState } from '@src/client/states';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 
 export function PlayControls(props) {
   const { isRunning, onRequestStateChange, sessionID } = props;
-  const [editorSaveRequest, setEditorSaveRequest] = useRecoilState(editorSaveRequestState);
-  const [dirtyEditor, setDirtyEditor] = useRecoilState(dirtyEditorState);
+  const [editorSaveRequest, setEditorSaveRequest] = useAtom(editorSaveRequestState);
+  const [dirtyEditor, setDirtyEditor] = useAtom(dirtyEditorState);
   const [waitingForPlay, setWaitingForPlay] = useState(false);
   const [waitingForPause, setWaitingForPause] = useState(false);
   const [waitingForRestart, setWaitingForRestart] = useState(false);

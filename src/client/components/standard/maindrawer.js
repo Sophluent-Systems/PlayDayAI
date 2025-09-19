@@ -122,7 +122,7 @@ export function MainDrawer(props) {
           {(account && editMode) ? (
             <NewGameListOption  />
           ) : null}
-          <ListItemButton component="a" href={`/api/auth/logout?returnTo=${encodeURIComponent(baseUri)}`} onClick={toggleDrawer}  className={classes.loginOrLogoutButton}>
+          <ListItemButton component="a" href={`/auth/logout?returnTo=${encodeURIComponent(baseUri)}`} onClick={toggleDrawer}  className={classes.loginOrLogoutButton}>
           <ListItemIcon>
             <Logout />
           </ListItemIcon>
@@ -142,7 +142,7 @@ export function MainDrawer(props) {
               </ListItemIcon>
               <ListItemText primary="Home" />
             </ListItemButton>
-              <ListItemButton component="a" href={`/api/auth/login?returnTo=${encodeURIComponent(baseUri)}`} onClick={toggleDrawer}  className={classes.loginOrLogoutButton}>
+              <ListItemButton component="a" href={`/auth/login?returnTo=${encodeURIComponent(baseUri)}`} onClick={toggleDrawer}  className={classes.loginOrLogoutButton}>
                 <ListItemIcon>
                   <Login />
                 </ListItemIcon>

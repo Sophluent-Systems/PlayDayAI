@@ -8,7 +8,7 @@ import {
     ListItemText, 
     Paper,
     useTheme,
-    Grid2 as Grid,
+    Grid,
 } from '@mui/material';
 
 export function TwoColumnSelector({

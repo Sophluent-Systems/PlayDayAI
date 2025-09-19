@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
-import { useRecoilState } from 'recoil';
+import { useAtom } from 'jotai';
 import { vhState } from '@src/client/states';
 
 
@@ -21,7 +21,7 @@ const useStyles = makeStyles()((theme) => ({
 export function StandardContentArea(props) {
   const { classes } = useStyles();
   const { children } = props;
-  const [vh, setVh] = useRecoilState(vhState);
+  const [vh, setVh] = useAtom(vhState);
 
   return (<React.Fragment>
        <Box className={classes.contentContainer} minHeight={`${vh}px`} >

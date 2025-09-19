@@ -13,7 +13,7 @@ import { makeStyles } from 'tss-react/mui';
 import { useConfig } from '@src/client/configprovider';
 import { getMostRecentMessageOfType,getMostRecentMessageOfTypeSincePreviousTypes } from '@src/common/messages';
 import { vhState } from '@src/client/states';
-import { useRecoilState } from 'recoil';
+import { useAtom } from 'jotai';
 import { RawHTMLBox } from './standard/rawhtmlbox';
 import { CircularProgress } from '@mui/material';
 import { MultimediaInput } from './multimediainput';
@@ -168,7 +168,7 @@ function ChatBotView(props) {
     const [messageAreaHeight, setMessageAreaHeight] = useState(0);
     const [suggestionsDrawerOpen, setSuggestionssuggestionsDrawerOpen] = useState(true);
     const inputAreaRef = useRef(null);
-    const [vh, setVh] = useRecoilState(vhState);
+    const [vh, setVh] = useAtom(vhState);
 
   useEffect(() => {
     

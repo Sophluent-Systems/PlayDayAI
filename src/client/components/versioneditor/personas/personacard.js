@@ -4,7 +4,7 @@ import {
     CardContent, 
     Typography, 
     Tooltip, 
-    Grid2 as Grid
+    Grid
 } from '@mui/material';
 import { PersonaIcons } from './icons';
 import { nullUndefinedOrEmpty } from '@src/common/objects';

@@ -15,9 +15,9 @@ COPY ./.env ./
 COPY ./taskserver/*.cjs ./
 COPY ./taskserver/*.mjs ./
 COPY ./taskserver/*.json ./
-COPY ./taskserver/workerThreads ./workerThreads
 COPY ./src/backend ./src/backend
 COPY ./src/common ./src/common
+COPY ./src/taskserver ./src/taskserver
 
 # Install dependencies
 RUN yarn install

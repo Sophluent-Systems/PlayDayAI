@@ -3,7 +3,7 @@ import {
     Box,
 } from '@mui/material';
 import { vhState } from '@src/client/states';
-import { useRecoilState } from 'recoil';
+import { useAtom } from 'jotai';
 import { ChatCard } from './chatcard';
 import { stateManager } from '@src/client/statemanager';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
@@ -27,7 +27,7 @@ export function FilteredMessageList(props) {
     const { account, editMode } = React.useContext(stateManager);
     const [messageAreaHeight, setMessageAreaHeight] = useState(0);
     const inputAreaRef = useRef(null);
-    const [vh, setVh] = useRecoilState(vhState);
+    const [vh, setVh] = useAtom(vhState);
 
     useEffect(() => {
       

@@ -8,7 +8,7 @@ import {
 } from '@mui/material';
 import { ChevronLeft, ChevronRight } from '@mui/icons-material';
 import { makeStyles } from 'tss-react/mui';
-import { useRecoilState } from 'recoil';
+import { useAtom } from 'jotai';
 import { vhState, collapsiblePanelSettingsState } from '@src/client/states';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 
@@ -60,8 +60,8 @@ export function CollapsiblePanelLayout(props) {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(0);
   const { classes } = useStyles();
-  const [vh, setVh] = useRecoilState(vhState);
-  const [collapsiblePanelSettings, setCollapsiblePanelSettings] = useRecoilState(collapsiblePanelSettingsState);
+  const [vh, setVh] = useAtom(vhState);
+  const [collapsiblePanelSettings, setCollapsiblePanelSettings] = useAtom(collapsiblePanelSettingsState);
 
   useEffect(() => {
     const updateWidth = () => {

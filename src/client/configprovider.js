@@ -1,3 +1,5 @@
+"use client";
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { defaultConfig } from '@src/common/defaultconfig';
 import { useUser } from "@src/client/auth";

@@ -4,19 +4,38 @@ import { MessagesPubServer } from './messagespubserver';
 import { v4 as uuidv4 } from 'uuid';
 import { nullUndefinedOrEmpty } from '../objects.js';
 
+
+const DEFAULT_MESSAGE_RETENTION = 5 * 60 * 1000;  // How long to keep individual messages (5 mins)
+const DEFAULT_CLEANUP_INTERVAL = 60 * 1000;       // How often to run cleanup (1 min)
+
 export class RabbitMQPubSubChannel extends MessagesPubServer {
-    constructor(channelName=null, sessionID=null, synchronize = false) {
-      super(channelName, sessionID, synchronize);
+    constructor(channelName=null, sessionID=null, options = {}) {
+        const synchronize = options.synchronize ? true : false;
+
+        super(channelName, sessionID, synchronize);
+        
         this.rabbitMQConnection = null;
         this.channelName = channelName;
         this.channel = null;
         this.subscribed = false;
         this.reconnecting = false;
-        this.acknowledgments = {};
+        this.messageBuffer = new Map();
+        this.lastProcessedSequence = 0;
+        this.isSessionComplete = false;
+        this.lastActivityTimestamp = Date.now();
+        this.cleanupInterval = null;
+        this.sessionID = sessionID || '';
+        this.inactivityTimeout = options.inactivityTimeout || 0;
+        
+        // Configuration
+        this.MESSAGE_RETENTION = options.messageRetention || DEFAULT_MESSAGE_RETENTION;
+        this.CLEANUP_INTERVAL = options.cleanupInterval || DEFAULT_CLEANUP_INTERVAL;
     }
 
+
+
     async connect(params = {}) {
-        Constants.debug.logRabbitMQ && Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect ",this.channelName, this.clientID);
+        Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect ",this.channelName, this.clientID);
         await super.connect(params);
         const { existingConnection } = params;
 
@@ -24,80 +43,93 @@ export class RabbitMQPubSubChannel extends MessagesPubServer {
             throw new Error('RabbitMQPubSubChannel.connect: existingConnection not supported');
         }
 
-        this.acknowledgments = {};
+        try {
+            Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: amqp.connect");
+            this.rabbitMQConnection = await amqp.connect(process.env.RABBITMQ_URL);
+            this.rabbitMQConnection.on('error', error => {
+                Constants.debug.logRabbitMQ && console.error('RabbitMQ Connection Error:', error);
+                this.onerror(error);
+            });
+            this.rabbitMQConnection.on('close', () => {
+                Constants.debug.logRabbitMQ && console.error('RabbitMQ Connection Closed');
+            });
+            
+            Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: createChannel");
+            this.channel = await this.rabbitMQConnection.createChannel();
 
-        Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: amqp.connect");
-        this.rabbitMQConnection = await amqp.connect(process.env.RABBITMQ_URL);
-        this.rabbitMQConnection.on('error', this.reconnect.bind(this, params));
-        this.rabbitMQConnection.on('close', this.reconnect.bind(this, params));
-        
-        Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: createChannel");
-        this.channel = await this.rabbitMQConnection.createChannel();
+            // Create the exchange
+            await this.channel.assertExchange(this.channelName, 'fanout', { 
+                durable: false,
+                autoDelete: false 
+            });
 
-        Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: assertExchange");
-        // Declare a fanout exchange
-        await this.channel.assertExchange(this.channelName, 'fanout', { durable: false });
+            Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: channel configure");
+            this.channel.on('error', (error) => {
+                this.onerror(error);
+                // Reconnect just to be sure (is this right? who knows..)
+                console.error('RabbitMQ Channel Error (reconnecting):', error);
+                this.reconnect(params);
+            });
+    
+            this.channel.on('close', () => {
+                console.log('RabbitMQ Channel Closed: ', this.channelName);
+                this.onclose();
+                this.subscribed = false;
+                this.channel = null;
+            });
 
-        // Declare a callback queue for receiving acknowledgments
-        this.callbackQueue = await this.channel.assertQueue('', { exclusive: true });
-        
-        Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: consume");
-        // Listen for acknowledgments on the callback queue
-        this.channel.consume(this.callbackQueue.queue, (msg) => {
-            // Handle acknowledgment message
-            const ack = msg.content.toString();
-            const correlationId = msg.properties.correlationId;
+            //
+            // Here is the main queue for the channel.  This is where messages are sent and received.
+            //
 
-            // Store the acknowledgment in a way that the publish method can access it
-            // For simplicity, let's store it in an object
-            this.acknowledgments[correlationId] = ack;
-        }, { noAck: true });
+            //
+            // USE THIS LINE TEMPORARILY IF QUEUE SETTINGS CHANGE
+            //   (it cleans up the queue on startup, which is useful for testing)
+            //
+            //await this.channel.deleteQueue(this.channelName);
+            
+            // Declare a callback queue for receiving acknowledgments
+            let rabbitArgs = {
+                'x-message-ttl': this.MESSAGE_RETENTION,  // Messages expire after 5 mins
+            };
+            if (this.inactivityTimeout > 0) {
+                rabbitArgs['x-expires'] = this.inactivityTimeout;
+            }
+            
+            await this.channel.assertQueue(this.channelName, {
+                durable: false,
+                autoDelete: false,
+                arguments: rabbitArgs
+            });
 
-        // await this.channel.prefetch(1); // only one message at a time
+            if (this.inactivityTimeout > 0) {
+                // Start the cleanup interval
+                this.startCleanupInterval();
+            }
 
-        Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: channel configure");
-        this.channel.on('error', (error) => {
-            this.onerror(error);
-            // Reconnect just to be sure (is this right? who knows..)
-            Constants.debug.logRabbitMQ && console.error('RabbitMQ Channel Error (reconnecting):', error);
-            this.reconnect(params);
-        });
+            if (this.eventCallbacks?.onConnect) {
+                await this.eventCallbacks.onConnect();
+            }
 
-        this.channel.on('close', () => {
-            this.onclose();
-            this.subscribed = false;
-            this.channel = null;
-        });
-
-        await this.channel.assertQueue(this.channelName, {
-            durable: false,  // The queue will not be saved to disk
-            autoDelete: true // The queue will be deleted when no consumers are connected
-        });
-
-        if (this.eventCallbacks?.onConnect) {
-            await this.eventCallbacks.onConnect();
+            Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: done");
+        } catch (error) {
+            Constants.debug.logRabbitMQ && console.error("Error in connect:", error);
+            throw error;
         }
-
-        this.channel.on('error', (error) => {
-            Constants.debug.logRabbitMQ && console.error('RabbitMQ Channel Error:', error);
-            this.onerror(error);
-        });
-
-        Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.connect: done");
     }
 
     async reconnect(params) {
         if (this.reconnecting) return;  // Prevent multiple reconnection attempts
         this.reconnecting = true;
     
+        console.warn('Attempting to reconnect to RabbitMQ...');
+
         let backoffTime = 250;  // Start with a 250ms backoff time
         const maxBackoffTime = 30000;  // Maximum backoff time set to 30 seconds
     
         while (this.reconnecting) {
             try {
-                // Safely check if anything is still open and active and cleanup if so
-                this.internal_closeAndCleanupResources();
-    
+                await this.internal_closeAndCleanupResources();
                 await this.connect(params);
                 this.reconnecting = false;  // Connection successfully re-established
                 Constants.debug.logRabbitMQ && console.error('Successfully reconnected to RabbitMQ');
@@ -109,105 +141,160 @@ export class RabbitMQPubSubChannel extends MessagesPubServer {
             }
         }
     }
+    
+
+    startCleanupInterval() {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+        }
+        this.cleanupInterval = setInterval(() => {
+            this.checkAndCleanup();
+        }, this.CLEANUP_INTERVAL);
+    }
+
+    updateActivityTimestamp() {
+        this.lastActivityTimestamp = Date.now();
+    }
+
+    async checkAndCleanup() {
+        if (this.inactivityTimeout == 0) {
+            // No inactivity timeout set, so no need to check
+            return;
+        }
+
+        const currentTime = Date.now();
+        const timeSinceLastActivity = currentTime - this.lastActivityTimestamp;
+
+        if (this.isSessionComplete || timeSinceLastActivity > this.inactivityTimeout) {
+            await this.internal_closeAndCleanupResources();
+        }
+    }
 
     async subscribe(handlers) {
         super.subscribe(handlers);
         
         if (!this.subscribed) {
-            // Declare a temporary queue
-            const q = await this.channel.assertQueue(this.clientID, { exclusive: true });
+            
+            let rabbitArgs = {
+                'x-message-ttl': this.MESSAGE_RETENTION,  // Messages expire after 5 mins
+            };
+            if (this.inactivityTimeout > 0) {
+                rabbitArgs['x-expires'] = this.inactivityTimeout;
+            }
+
+            await this.channel.assertQueue(this.clientID, { 
+                exclusive: false,
+                autoDelete: false,
+                durable: false,
+                arguments: rabbitArgs
+            });
         
-            // Bind the queue to the exchange
-            await this.channel.bindQueue(q.queue, this.channelName,'');
+            // Bind to the queue
+            await this.channel.bindQueue(this.clientID, this.channelName, '');
 
-            this.channel.consume(q.queue, async (msg) => {
-                const messageContent = msg.content.toString();
-                Constants.debug.logStreamingMessages && Constants.debug.logRabbitMQ && console.error("[rabbit recv] ", messageContent);
-                
-                // Process the message
-                const consumeResult = await this.onmessage(messageContent);
+            this.channel.consume(this.clientID, async (msg) => {
+                if (msg === null) return;
 
-                if (!nullUndefinedOrEmpty(msg.properties.correlationId)) {
-                    // Send an acknowledgment back to the publisher
-                    const ackMessage = JSON.stringify({ acknowledged: true, result: consumeResult });
-                    ; // This could be any message indicating successful processing
-                    this.channel.sendToQueue(msg.properties.replyTo, Buffer.from(ackMessage), {
-                        correlationId: msg.properties.correlationId,
-                        result: consumeResult
-                    });
+                try {
+                    this.updateActivityTimestamp();
+                    const messageContent = msg.content.toString();
+                    const messageData = JSON.parse(messageContent);
+                    Constants.debug.logStreamingMessages && Constants.debug.logRabbitMQ && console.error("[rabbit recv] ", messageContent);
+
+                    if (messageData.command === 'session_complete' && this.inactivityTimeout > 0) {
+                        this.isSessionComplete = true;
+                        await this.checkAndCleanup();
+                        return;
+                    }
+
+                    // Process the message
+                    const consumeResult = await this.onmessage(messageContent);
+
+                    if (!nullUndefinedOrEmpty(msg.properties.correlationId)) {
+                        const ackMessage = JSON.stringify({ acknowledged: true, result: consumeResult });
+                        this.channel.sendToQueue(
+                            msg.properties.replyTo,
+                            Buffer.from(ackMessage),
+                            {
+                                correlationId: msg.properties.correlationId,
+                                result: consumeResult
+                            }
+                        );
+                    }
+
+                    this.channel.ack(msg);
+                } catch (error) {
+                    Constants.debug.logRabbitMQ && console.error('Error processing message:', error);
+                    this.channel.nack(msg, false, false);
                 }
-
-                // Acknowledge the message
-                this.channel.ack(msg);
-            }, 
-            { noAck: false }); // Changed to false to manually handle ACKs
+            }, { noAck: false });
+            
             this.subscribed = true;
         }
     }
-    
-    async publish(message, params) {
-        const receiptTimeout = params?.receiptTimeout || 0;
+
+    async publish(message, params = {}) {
         await super.publish(message);
 
-        if (typeof receiptTimeout != 'number' || receiptTimeout < 0) {
-            Constants.debug.logRabbitMQ && console.error("rabbitmq receiptTimeout must be a positive number or zero: ", receiptTimeout);
-            throw new Error('RabbitMQPubSubChannel.publish: receiptTimeout must be a positive number');
+        this.updateActivityTimestamp();
+
+        this.channel.publish(this.channelName, '', Buffer.from(message), {
+            persistent: false,
+            expiration: this.MESSAGE_RETENTION.toString()
+        });
+    }
+
+    async endSession() {
+        if (!this.isSessionComplete) {
+            await this.publish(JSON.stringify({
+                command: 'session_complete',
+                data: { sessionID: this.sessionID }
+            }));
+            this.isSessionComplete = true;
         }
+    }
 
-        if (receiptTimeout == 0) {
-         this.channel.publish(this.channelName, '', Buffer.from(message), { persistent: false });
-        } else if (receiptTimeout > 0) {
-
-            // Generate a unique correlation ID for this message
-            const correlationId = uuidv4();
-
-            const publishOptions = {
-                persistent: false,
-                correlationId: correlationId,
-                replyTo: this.callbackQueue.queue // Specify the callback queue for the acknowledgment
-            };
-
-            // Publish the message with the options
-            this.channel.publish(this.channelName, '', Buffer.from(message), publishOptions);
-
-            if (receiptTimeout > 0) {
-                // Wait for the acknowledgment or timeout
-                const startTime = Date.now();
-
-                while ((Date.now() - startTime) < receiptTimeout) {
-                    // Check if the acknowledgment has been received
-                    if (this.acknowledgments.hasOwnProperty(correlationId)) {
-                        const acknowledgement = this.acknowledgments[correlationId];
-                        Constants.debug.logRabbitMQ && console.error("rabbitmq acknowledgment received: ", acknowledgement)
-                        delete this.acknowledgments[correlationId]; // Clean up
-                        return { acknowledged : true, result: acknowledgement?.result ?  acknowledgement.result : null}; // Return true if acknowledged, false otherwise
-                    }
-
-                    // Pause briefly to prevent a tight loop
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
-
-                Constants.debug.logRabbitMQ && console.error("rabbitmq acknowledgment timed out: false")
-                // Timeout reached without receiving acknowledgment
-                return { acknowledged: false };
+    async internal_closeAndCleanupResources() {
+        try {
+            // Clear message buffer
+            this.messageBuffer?.clear();
+            
+            // Clear cleanup interval
+            if (this.cleanupInterval) {
+                clearInterval(this.cleanupInterval);
+                this.cleanupInterval = null;
             }
+
+            // Close and cleanup channel
+            if (this.channel) {
+                const queueName = `${this.channelName}_${this.sessionID}`;
+                try {
+                    await this.channel.deleteQueue(queueName);
+                } catch (error) {
+                    // Queue might already be deleted
+                }
+                await this.channel.close();
+                this.channel = null;
+            }
+
+            // Close connection
+            if (this.rabbitMQConnection) {
+                await this.rabbitMQConnection.close();
+                this.rabbitMQConnection = null;
+            }
+
+        } catch (error) {
+            Constants.debug.logRabbitMQ && console.error('Error during cleanup:', error);
         }
     }
 
-    internal_closeAndCleanupResources() {
-        if (this.channel) {
-            this.channel.close();
-            this.channel = null;
+    async close() {
+        try {
+            Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.close");
+            await this.internal_closeAndCleanupResources();
+            super.close();
+        } catch (error) {
+            console.error('Error during RabbitMQ close:', error);
         }
-        if (this.rabbitMQConnection) {
-            this.rabbitMQConnection.close();
-            this.rabbitMQConnection = null;
-        }
-    }
-
-    close() {
-        Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.close NO ERROR, STACK: ", (new Error()).stack);
-        super.close();
-        this.internal_closeAndCleanupResources();
     }
 }

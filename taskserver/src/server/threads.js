@@ -1,5 +1,6 @@
 
-export async function threadClaimSession(db, sessionID, machineID, threadID, expirationTimeMS=120000) {
+
+export async function threadClaimSession({db, sessionID, machineID, threadID, expirationTimeMS=120000}) {
     try {
         const coll = db.collection('threads');
         const now = new Date();
@@ -55,7 +56,6 @@ export async function threadSetInactive(db, sessionID) {
     try {
         const coll = db.collection('threads');
         const query = { sessionID: sessionID };
-        // just delete the entry
         const update = { $set: { status: "inactive" } };
         const options = { returnOriginal: false };
         const result = await coll.findOneAndUpdate(query, update, options);
@@ -68,16 +68,27 @@ export async function threadSetInactive(db, sessionID) {
     } 
 }
 
-export async function invalidateAllThreadsForMachine(db, machineID) {
+export async function getAllThreadsForMachine(db, machineID) {
     try {
         const coll = db.collection('threads');
         const query = { machineID: machineID };
-        const update = { $set: { status: "inactive" } };
-        const options = { returnOriginal: false };
-        const result = await coll.updateMany(query, update, options);
+        const result = await coll.find(query).toArray();
+        return result;
+    }
+    catch (error) {
+        console.error('getAllThreadsForMachine: Error getting threads: ', error);
+        return null;
+    }
+}
+
+export async function deleteAllThreadsForMachine(db, machineID) {
+    try {
+        const coll = db.collection('threads');
+        const query = { machineID: machineID };
+        const result = await coll.deleteMany(query);
         return result;
     } catch (error) {
-        console.error('invalidateAllThreadsForMachine: Error updating thread status: ', error);
+        console.error('deleteAllThreadsForMachine: Error updating thread status: ', error);
         return null;
     } 
 }

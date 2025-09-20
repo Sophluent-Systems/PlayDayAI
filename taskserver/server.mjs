@@ -7,33 +7,25 @@ import { listenForTasks } from './src/server/workerThreads/listener.js';
 import { Constants } from "@src/common/defaultconfig";
 import { doAuthAndValidationToken } from '@src/backend/validation.js';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
-import { openPubSubChannel } from '@src/common/pubsub/pubsubapi';
-import { StateMachine } from './src/server/stateMachine/stateMachine.js';
-import { hasRight } from '@src/backend/accesscontrol.js';
-import { getGameSession } from '@src/backend/gamesessions.js';
-import { invalidateAllThreadsForMachine } from './src/server/threads.js';
+import { RabbitMQPubSubChannel } from '@src/common/pubsub/rabbitmqpubsub.js';
+import { getAllThreadsForMachine, deleteAllThreadsForMachine } from './src/server/threads.js';
 import { MongoClient } from 'mongodb';
 import { getMachineIdentifier } from './src/server/machineid';
+import { StateMachine } from './src/server/stateMachine/stateMachine.js';
+import { deleteTasksForThreadID, deleteTasksForSession } from '@src/backend/tasks';
+import { hasRight } from '@src/backend/accesscontrol.js';
+import { getGameSession } from '@src/backend/gamesessions.js';
 
-console.error("INIT: environment");
+console.log("INIT: environment");
 
 const machineID = await getMachineIdentifier();
-
 
 async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsChannel, hasViewSourcePermissions }) {
   Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: session=", session.sessionID, " wsChannel=", wsChannel.clientID);
 
-  const stateMachine = new StateMachine(db, session);
-  await stateMachine.load();
-
-  Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: Loaded state machine");
- 
-  const messageList = stateMachine.exportAsMessageList({skipDeleted: true, sortNewestFirst: false, includeDebugInfo: hasViewSourcePermissions});
-
-  Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: Got messages");
-
-  const workerChannel = await openPubSubChannel(`session_${session.sessionID}`, session.sessionID);
-
+  const workerChannel = new RabbitMQPubSubChannel(`session_${session.sessionID}`, session.sessionID, { inactivityTimeout: 10 * 60 * 1000 });
+  await workerChannel.connect();
+  
   Constants.debug.logTaskSystem && console.error(`initializeConnectionAndSubscribeForTaskUpdates: Opened channel session_${session.sessionID}`);
 
   const filterAllHandler = {
@@ -51,11 +43,8 @@ async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsC
     },
   }
 
-  workerChannel.subscribe(filterAllHandler);
-  
   const wsConnectionCallbacks = {
     onError: (error) => {
-      console.error('WebSocket error:', error);
       workerChannel.unsubscribe(filterAllHandler);
       workerChannel.close();
     },
@@ -66,6 +55,8 @@ async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsC
     }
   }
 
+  wsChannel.requireSynchronization();
+
   wsChannel.setConnectionCallbacks(wsConnectionCallbacks);
 
   Constants.debug.logTaskSystem && console.error(`initializeConnectionAndSubscribeForTaskUpdates: Callbacks initialized`);
@@ -75,11 +66,20 @@ async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsC
   // is spawned AFTER syncing the history, but BEFORE the proxy is set up.
   //
 
-  await wsChannel.initializeAndSendMessageHistory(messageList);
+  const stateMachine = new StateMachine(db, session);
+  await stateMachine.load();
 
-  await wsChannel.sendCommand("initcomplete", "success");
+  Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: Loaded state machine");
+ 
+  const messages = stateMachine.exportAsMessageList({skipDeleted: true, sortNewestFirst: false, includeDebugInfo: hasViewSourcePermissions});
 
-  Constants.debug.logTaskSystem && console.error(`initializeConnectionAndSubscribeForTaskUpdates: DONE`);
+  Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: Got messages");
+
+  await wsChannel.initializeAndSendMessageHistory(messages);
+  
+  workerChannel.subscribe(filterAllHandler);
+
+  Constants.debug.logWebSockets && console.error(`WS: Messages synced`);
 }
 
 async function clearStaleEntries() {
@@ -88,7 +88,19 @@ async function clearStaleEntries() {
     await mongoClient.connect();
     const db = mongoClient.db("pd");
 
-    await invalidateAllThreadsForMachine(db, machineID);
+    // get all threads for this machine
+    const threads = await getAllThreadsForMachine(db, machineID);
+
+    Constants.debug.logInit && console.log("Clearing stale threads for this machine: ", threads.map(t => t.threadID));
+
+    if (threads && threads.length > 0) {
+      for(let thread of threads) {
+        Constants.debug.logInit && console.error("Clearing stale tasks for thread:", thread.threadID);
+        await deleteTasksForThreadID(db, thread.threadID);
+      }
+    }
+
+    await deleteAllThreadsForMachine(db, machineID);
   } catch (err) {
     console.error("Failed to clear stale entries:", err);
   } finally {
@@ -96,6 +108,22 @@ async function clearStaleEntries() {
   }
 }
 
+// handleHalt
+async function handleHalt(params) {
+  const { db, channel, payload } = params;
+  const { sessionID } = payload;
+
+  await deleteTasksForSession(db, sessionID);
+
+  const workerChannel = new RabbitMQPubSubChannel(`session_${sessionID}`, sessionID, { inactivityTimeout: 10 * 60 * 1000 }); 
+  await workerChannel.connect();
+  
+  await workerChannel.sendCommand("stateMachineCommand", { command: "halt" });
+
+  await channel.sendCommand("statemachinestatusupdate", {state: "completed", result: "halted", sessionID: sessionID});
+
+  return { success: true };
+}
 
 export async function startServer() {
 
@@ -104,7 +132,7 @@ export async function startServer() {
     const wsPort = parseInt(process.env.LOCALHOST_WEBSOCKET_PORT, 10) || 3005;
   
     const wsHandlers = {
-      // Map actions to their handlers
+      "halt": handleHalt,
     };
   
     Constants.debug.logInit && console.error("CLEARING STALE ENTRIES");
@@ -166,9 +194,7 @@ export async function startServer() {
               }
               return;
             }
-  
-            Constants.debug.logTaskSystem && console.error("=== WS COMMAND: ", type);
-  
+
             //
             // SPECIAL CASE - FIRST TIME INITIALIZATION
             // (by this point, authenticated)
@@ -194,6 +220,9 @@ export async function startServer() {
                 }
 
                 await initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsChannel, hasViewSourcePermissions });
+                  Constants.debug.logWebSockets && console.error(`WS: subscribed for updates`);
+                  Constants.debug.logWebSockets && console.error(`WS: sessionStatusUpdate: processing`);
+                  await wsChannel.sendCommand("sessionStatusUpdate", {state: "processing", sessionID: sessionID});
               } catch (error) {
                 console.error('Error initializing connection:', error);
                 await wsChannel.sendCommand("error", `Error initializing connection: ${error}`);
@@ -243,6 +272,7 @@ export async function startServer() {
       // Websocket init complete
       //
     });
+
 
 
     Constants.debug.logInit && console.error("Starting task listener");

@@ -9,7 +9,16 @@ export function areObjectsIdentical(objA, objB) {
     }
 
     for (let key of keysA) {
-        if (objA[key] !== objB[key]) {
+        // Check if they are the same type
+        if (typeof objA[key] !== typeof objB[key]) {
+            return false;
+        }
+        // If objects or arrays, do a deep comparison using JSON.stringify
+        if (typeof objA[key] === 'object' || Array.isArray(objA[key])) {
+            if (JSON.stringify(objA[key]) !== JSON.stringify(objB[key])) {
+                return false;
+            }
+        } else if (objA[key] !== objB[key]) {
             return false;
         }
     }

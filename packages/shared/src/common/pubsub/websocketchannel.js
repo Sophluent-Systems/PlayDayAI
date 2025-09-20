@@ -31,11 +31,11 @@ export class WebSocketChannel extends MessagesPubServer {
     const { existingConnection, url } = params;
     let ws = null;
     if (existingConnection) {
-      console.log("WebSocketChannel.connect: Reusing existing connection");
+      Constants.debug.logPubSub && console.log("WebSocketChannel.connect: Reusing existing connection");
       ws = existingConnection;
     }
     return new Promise((resolve, reject) => {
-      console.log('WebSocketChannel.connect');
+      Constants.debug.logPubSub && console.log('WebSocketChannel.connect');
 
       try {
         const needToConnect = !ws;
@@ -100,7 +100,7 @@ export class WebSocketChannel extends MessagesPubServer {
         ws.onerror = this.onerror.bind(this);
       
         ws.onclose = (event) => {
-          console.log(">>>>>>>>> SOCKET CLOSED (onclose) <<<<<<<<<<");
+          Constants.debug.logPubSub && console.log(">>>>>>>>> SOCKET CLOSED (onclose) <<<<<<<<<<");
           this.stopKeepAliveTimer();
           this.ws = null;
           this.updateConnectionStatus('disconnected');
@@ -156,8 +156,8 @@ export class WebSocketChannel extends MessagesPubServer {
   }
 
   onerror(error) {
-    console.error('WebSocket error:', error);
     this.updateConnectionStatus('error');
+    super.onerror(error);
   }
 
   safeSend(message) {
@@ -178,10 +178,6 @@ export class WebSocketChannel extends MessagesPubServer {
   }
 
   async publish(message, params) {
-    const receiptTimeout = params?.receiptTimeout || 0;
-    if (receiptTimeout > 0) {
-      throw new Error('WebSocketChannel.publish: receiptTimeout not supported yet');
-    }
     await super.publish(message);
     return this.safeSend(message);
   }
@@ -201,8 +197,7 @@ export class WebSocketChannel extends MessagesPubServer {
   }
 
   handleSendFailure(error) {
-    console.log('WebSocketChannel: handleSendFailure', error);
-    this.updateConnectionStatus('error');
+    this.onerror(error);
     this.close();
   }
 

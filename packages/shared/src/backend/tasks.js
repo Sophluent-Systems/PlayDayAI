@@ -19,19 +19,17 @@ export class Task {
     }
 
     async resetExpirationTime() {
+        const now = new Date();
         const coll = this.db.collection('tasks');
         const query = { taskID: this.taskID };
-        const update = { $set: { expirationTime: new Date(this.queueTime.getTime() + this.expirationTimeout) } };
+        const update = { $set: { expirationTime: new Date(now.getTime() + this.expirationTimeout) } };
         await coll.updateOne(query, update);
     }
 
     async setComplete() {
         const coll = this.db.collection('tasks');
         const query = { taskID: this.taskID };
-        const now = new Date();
-        const executionTime = now.getTime() - (new Date(this.startTime)).getTime();
-        const update = { $set: { status: 'complete', completeTime: now, executionTime: executionTime } };
-        await coll.updateOne(query, update);
+        await coll.deleteOne(query);
     }
 
     getParams() {
@@ -44,35 +42,34 @@ export async function enqueueNewTask(db, accountID, sessionID, requestType, para
     try {
         const coll = db.collection('tasks');
 
-        if (requestType == 'continuation') {
-            //
-            // Check if there's an existing task for the same session that hasn't
-            // completed. Even though this isn't "atomic", it's OK since
-            // this means there was a continuation "live" at the time
-            // the client requested a new continuation.
-            //
+        //
+        // Check if there's an existing task for the same session that hasn't
+        // completed. Even though this isn't "atomic", it's OK since
+        // this means there was a continuation "live" at the time
+        // the client requested a new continuation.
+        //
+         const existingTaskCondition = {
+            sessionID: sessionID,
+            completeTime: null
+        };
 
-            const existingTaskCondition = {
-                sessionID: sessionID,
-                completeTime: null
-            };
-
-            // Check if a matching document exists
-            const existingTask = await coll.findOne(existingTaskCondition);
-            if (existingTask) {
-                return existingTask;
-            }
+        // Check if a matching document exists
+        const existingTask = await coll.findOne(existingTaskCondition);
+        if (existingTask) {
+            return existingTask;
         }
 
+        const now = new Date();
+        
         const newTask = {
-            taskID: uuidv4(),
             sessionID: sessionID,
-            queueTime: new Date(),
+            taskID: uuidv4(),
+            queueTime: now,
             startTime: null,
             completeTime: null,
             executionTime: null,
             expirationTimeout: expirationTimeMS,
-            expirationTime: null,
+            expirationTime: new Date(now.getTime() + expirationTimeMS),
             status: 'queued',
             threadID: null,
             machineID: null,
@@ -151,3 +148,42 @@ export async function claimTask(db, sessionID, machineID, threadID) {
     } 
 }
 
+export async function notifyServerOnTaskQueued() {
+    try {
+        //
+        // Signal the work queue to process the task; OK to do async
+        //
+        console.log("Notifying server that there's a new task")
+
+        const taskChannel = new RabbitMQPubSubChannel('taskQueue', 'taskQueue');
+        await taskChannel.connect();
+  
+        taskChannel.sendCommand("newTask", "ready");
+
+    } catch (error) {
+        console.error('Error notifying server on task queued: ', error);
+        throw error;
+    } 
+}
+
+export async function deleteTasksForThreadID(db, threadID) {
+    try {
+        const coll = db.collection('tasks');
+        const query = { threadID };
+        await coll.deleteMany(query);
+    } catch (error) {
+        console.error('Error deleting tasks for thread ID: ', error);
+        throw error;
+    } 
+}
+
+export async function deleteTasksForSession(db, sessionID) {
+    try {
+        const coll = db.collection('tasks');
+        const query = { sessionID };
+        await coll.deleteMany(query);
+    } catch (error) {
+        console.error('Error deleting tasks for session: ', error);
+        throw error;
+    } 
+}

@@ -34,6 +34,7 @@ const updateDB = async () => {
 }
 async function cleanup(channel, db) {
   if (channel) {
+    await channel.endSession();
     await channel.close();
   }
   // No need to close the db connection as it's managed by the Singleton
@@ -69,6 +70,10 @@ export default async ({ sessionID }) => {
 
       try {
 
+        //
+        // Claim the task with all the info about what to run
+        //
+
         let task = await claimTask(db, sessionID, machineID, threadID);
         
         while (task) {
@@ -78,13 +83,23 @@ export default async ({ sessionID }) => {
           db = dbInfo.db;
           acl = dbInfo.acl;
 
-          const channel = await openPubSubChannel(`session_${task.sessionID}`, task.sessionID);
-
           let account = await lookupAccount(db, task.accountID, null, null);
-
+          
+          channel = new RabbitMQPubSubChannel(`session_${task.sessionID}`, task.sessionID, { inactivityTimeout: 10 * 60 * 1000 });
+          await channel.connect();
+          
           Constants.debug.logTaskSystem && console.error(`[worker ${threadID}] Running state machine`)
 
+          //
+          // Run the actual state machine
+          //
+          
           await runStateMachine(db, acl, account, channel, task, threadID);
+
+          //
+          // Mark the task as complete
+          //
+
           await task.setComplete();
           Constants.debug.logTaskSystem && console.error(`[worker ${threadID}] Task completed: taskID=`, task.taskID);
 

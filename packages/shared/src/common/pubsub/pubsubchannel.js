@@ -72,7 +72,7 @@ export class PubSubChannel {
           data = parsed.data;
         } catch (error) {
           console.error(`Error parsing pubsub message ${message}:`, error);
-          this.commandHandlers.onNetworkError?.(error);
+          this.commandHandlers.onError?.(error);
           return false;
         }
     
@@ -99,7 +99,7 @@ export class PubSubChannel {
     }
     
     onerror(error) {
-        this.connectionCallbacks?.onNetworkError?.(error);
+        this.connectionCallbacks?.onError?.(error);
     }
 
     onclose() {

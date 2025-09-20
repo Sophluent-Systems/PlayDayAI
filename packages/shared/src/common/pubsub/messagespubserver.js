@@ -12,7 +12,10 @@ export class MessagesPubServer extends PubSubChannel {
         this.initialized = !synchronize;
         this.outgoingQueue = []; // messages to send before initialization
         this.messages = [];
-        this.knownMessages = {};
+    }
+
+    requireSynchronization() {
+        this.initialized = false;
     }
 
     async sendCommand(command, data, params) {
@@ -26,10 +29,11 @@ export class MessagesPubServer extends PubSubChannel {
     }
 
     async drainQueue() {
-        while (this.outgoingQueue.length > 0) {
-            const { command, data, params } = this.outgoingQueue.shift();
+        this.outgoingQueue.forEach(async (message) => {
+            const { command, data, params } = message;
             await this.sendCommand(command, data, params);
-        }
+        });
+        this.outgoingQueue = [];
     }
 
     async enqueueCommand(command, data, params) {
@@ -49,15 +53,13 @@ export class MessagesPubServer extends PubSubChannel {
         this.initialized = false;
 
         this.messages = messageHistory;
-        this.knownMessages = {};
-        for (let i = 0; i < messageHistory.length; i++) {
-            this.knownMessages[messageHistory[i].recordID] = true;
-        }
 
         await this.sendCommand("message:array", messageHistory);
 
         this.initialized = true;
         await this.drainQueue() ;
+        
+        await this.sendCommand("messages_synced", "success");
     }
 
     async sendMessageStart(message, params) {
@@ -65,41 +67,23 @@ export class MessagesPubServer extends PubSubChannel {
             throw new Error("sendMessageStart: message must have a recordID");
         }
 
-        this.knownMessages[message.recordID] = true;
-
         return await this.enqueueCommand('message:start', message, params);
     }
     
     async sendMessageEnd(recordID, params) {
-        if (!this.knownMessages[recordID]) {
-            throw new Error("MessagesPubServer: recordID not found: " + recordID + " in sendMessageEnd");
-        }
-
         return await this.enqueueCommand('message:end', { recordID }, params);
     }
     
-    async sendField(recordID, fieldName, value, params) {
-        if (!this.knownMessages[recordID] && !params?.bypassRecordExistenceCheck) {
-            throw new Error("MessagesPubServer: recordID not found: " + recordID + " in sendField");
-        }
-        
+    async sendField(recordID, fieldName, value, params) {        
         return await this.enqueueCommand('message:field', { recordID, field: fieldName, value: value }, params);
     }
 
     async appendTextContent(recordID, value, params) {
-        if (!this.knownMessages[recordID]) {
-            throw new Error("MessagesPubServer: recordID not found: " + recordID + " in appendTextContent");
-        }
-        
         Constants.debug.logStreamingMessages && console.error(`[appendTextContent]: ${value}`);
         return await this.enqueueCommand('message:appendstring', { recordID, value: value }, params);
     }
 
     async appendDataContent(recordID, value, params) {
-        if (!this.knownMessages[recordID]) {
-            throw new Error("MessagesPubServer: recordID not found: " + recordID + " in appendDataContent");
-        }
-        
         return await this.enqueueCommand('message:appenddata', { recordID, value: value }, params);
     }
 

@@ -1,237 +1,299 @@
-import React, { useState, useEffect, useRef, use } from 'react';
-import { nullUndefinedOrEmpty } from '@src/common/objects';
-import { ImportError } from '@src/common/errors';
-    
-export function useMessagesClient(props) {
-    const { handlers, sessionID } = props;
-    const [messages, setMessages] = useState([]);
-    const messagesRef = useRef([]);
-    const recordIDIndexHash = useRef({});
+"use client";
+import React, { useState, useEffect, useRef } from 'react';
+import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
+import { stateManager } from '@src/client/statemanager';
 
-    function clearMessageHistory() {
-        recordIDIndexHash.current = {};
-        setMessages([]);
+const RECONNECT_THRESHOLDS = [
+  { threshold: 3, delay: 1000 },  // First 3 attempts: retry after 1s
+  { threshold: 6, delay: 5000 },  // Next 3 attempts: retry after 5s
+  { threshold: 10, delay: 30000 } // Final 4 attempts: retry after 30s
+];
+export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMessageComplete, debug }) {
+  const { accessToken, refreshAccessToken } = React.useContext(stateManager);
+  const [messages, setMessages] = useState([]);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const isReloadingRef = useRef(false);
+  const [error, setError] = useState(null);
+  const currentSessionID = useRef(null);
+  const currentAccessToken = useRef(null);
+  const wsRef = useRef(null);
+  const messagesRef = useRef([]);
+  const messageIndexMapRef = useRef({});
+  const reconnectAttemptsRef = useRef(0);
+  const isReconnectingRef = useRef(false);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      isReloadingRef.current = true;
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      console.log("useMessagesClient cleanup --> Disconnecting");
+      disconnect();
+    };
+  }, []);
+  
+  useEffect(() => {
+
+    if (sessionID !== currentSessionID.current ||
+        accessToken !== currentAccessToken.current) {
+
+        console.log("useMessagesClient: sessionID or accessToken changed - disconnecting\sessionID: ", sessionID, "\naccessToken: ", accessToken);
+        disconnect();
+        
+        if (sessionID && accessToken) {
+          currentSessionID.current = sessionID;
+          currentAccessToken.current = accessToken;
+          connect();
+        }
+    }
+  }, [sessionID, accessToken]);
+
+  function getWSUrl() {
+    return process.env.NEXT_PUBLIC_SPARRING_PARTNER_URL;
+  }
+
+  const connect = async () => {
+    if (wsRef.current) {
+      return; // Already connected
     }
 
-    useEffect(() => {
-        return () => {
-            clearMessageHistory();
-        }
-    }, []);
+    try {
+      const ws = new WebSocketChannel();
 
+      ws.setConnectionCallbacks({
+        onError: (error) => {
+          console.warn("WebSockets Network error: ", error);
+        },
+        onClosed: () => {
+          console.warn("WebSockets closed");
+          if (!isReloadingRef.current) {
+            console.log("WebSockets closed - request retry");
+            attemptReconnect();
+          } else {
+            console.log("WebSockets closed but we're reloading so ignoring");
+          }
+        },
+      });
 
-    function subscribeMessageClient(channel) {
-
-        if (!channel) {
+      ws.subscribe({
+        "messages_synced": (command, data) => {
+          console.log("MESSAGE CLIENT INIT COMPLETE");
+          setIsConnected(true);
+          reconnectAttemptsRef.current = 0;
+        },
+        "error": (command, data) => {
+          console.log("ERROR: ", data);
+          setError(data);
+        },
+        "networkError": (command, data) => {
+          console.log("Network error: ", data);
+          setError(data);
+        },
+        "authError": (command, data) => {
+          console.log("Auth error: ", data, " ... refreshing access token.");
+          refreshAccessToken();
+        },
+        "sessionStatusUpdate": (command, data) => {
+          console.log("sessionStatusUpdate: ", data);
+          if (typeof data?.state != 'string') {
+            throw new Error("sessionStatusUpdate: data is not a string: " + JSON.stringify(data));
+          }
+          if (sessionID != data.sessionID) {
+            console.log("Ignoring state machine status update for sessionID ", data.sessionID, " - expected ", sessionID);
             return;
+          }
+          switch(data.state) {
+            case "processing":
+              setIsProcessing(true);
+            break;
+            case "completed":
+              setIsProcessing(false);
+              break;
+            case "error":
+              console.error("sessionStatusUpdate errordetails:", data)
+                setIsProcessing(false);
+                setError(data);
+            break;
+            default:
+                console.error("Unknown state: ", data.state);
+                throw new Error("Unknown state: " + data.state);
+          }
+        },
+        'message:array': (cmd, payload, { verification }) => {
+          if (verification.sessionID !== sessionID) return;
+          replaceMessages(payload);
+          onMessage?.(payload);
+        },
+        'message:start': (cmd, payload, { verification }) => {
+          if (verification.sessionID !== sessionID) return;
+          addMessage(payload);
+          onMessage?.(payload);
+        },
+        'message:field': (cmd, { messageID, field, value }, { verification }) => {
+          if (verification.sessionID !== sessionID) return;
+          updateMessageField(messageID, field, value);
+          onMessageUpdate?.(messageID, field, value);
+        },
+        'message:appendstring': (cmd, { messageID, value }, { verification }) => {
+          if (verification.sessionID !== sessionID) return;
+          appendMessageContent(messageID, value);
+          onMessageUpdate?.(messageID, 'content', value);
+        },
+        'message:end': (cmd, { messageID }, { verification }) => {
+          if (verification.sessionID !== sessionID) return;
+          finalizeMessage(messageID);
+          onMessageComplete?.(messageID);
         }
+      });
 
-        clearMessageHistory();
-        
-        console.log("subscribeMessageClient: sessionID=", sessionID)
+      const wsUrl = getWSUrl();
+      await ws.connect({ url: wsUrl });
+      
+      // Initialize connection with test run ID
+      await ws.sendCommand("command", {type: "initializeConnection", accessToken: accessToken, payload: { sessionID }})
+      
+      wsRef.current = ws;
 
-        const commandHandlers = {
-            "reconnect": (command, payload) => {},
-            "message:array": (command, payload, {verification}) => {
-                if (verification.sessionID !== sessionID) { throw new Error(`sessionID mismatch expected ${sessionID} received ${verification.sessionID}`); }
-                const newMessages = payload;
-                replaceMessages(newMessages);
-                handlers?.replaceMessageList?.(newMessages);
-            },
-            "message:start": (command, payload, {verification}) => {
-                if (verification.sessionID !== sessionID) { throw new Error(`sessionID mismatch expected ${sessionID} received ${verification.sessionID}`); }
-                const message = payload;
-                addMessage(message);
-                handlers?.newMessage?.(message);
-            },
-            "message:field": (command, payload, {verification}) => {
-                if (verification.sessionID !== sessionID) { throw new Error(`sessionID mismatch expected ${sessionID} received ${verification.sessionID}`); }
-                const { recordID, field, value } = payload;
-                const message = updateMessageField(recordID, field, value);
-                handlers?.updateMessage?.(message);
-            },
-            "message:appendstring": (command, payload, {verification}) => {
-                if (verification.sessionID !== sessionID) { throw new Error(`sessionID mismatch expected ${sessionID} received ${verification.sessionID}`); }
-                const { recordID, value } = payload;
-                const message = appendMessageTextContent(recordID, value);
-                handlers?.updateMessage?.(message);
-            },
-            "message:appenddata": (command, payload, {verification}) => {
-                if (verification.sessionID !== sessionID) { throw new Error(`sessionID mismatch expected ${sessionID} received ${verification.sessionID}`); }
-                const { recordID, value } = payload;
-                const message = appendMessageDataContent(recordID, value);
-                handlers?.updateMessage?.(message);
-            },
-            "message:end": (command, payload, {verification}) => {
-                if (verification.sessionID !== sessionID) { throw new Error(`sessionID mismatch expected ${sessionID} received ${verification.sessionID}`); }
-                const { recordID } = payload;
-                const message = finalizeMessageUpdate(recordID);
-                handlers?.messageComplete?.(message);
-            },
-            "message:delete": (command, payload, {verification}) => {
-                if (verification.sessionID !== sessionID) { throw new Error(`sessionID mismatch expected ${sessionID} received ${verification.sessionID}`); }
-                const { recordIDsDeleted } = payload;
-                if (!Array.isArray(recordIDsDeleted)) {
-                    console.error("message:delete: recordIDsDeleted is not an array: ", recordIDsDeleted);
-                    throw new Error("message:delete: recordIDsDeleted is not an array: " + JSON.stringify(recordIDsDeleted));
-                }
-                messagesDeleted(recordIDsDeleted);
-                for (let i=0; i<recordIDsDeleted.length; i++) {
-                    const deletedRecordID = recordIDsDeleted[i];
-                    handlers?.messageDeleted?.(deletedRecordID);
-                }
-            }
-        };
+      console.log("messagesClient: wsRef.current set to ", wsRef.current ? "not null" : "null");
 
-        channel.subscribe(commandHandlers);
+    } catch (error) {
+      console.error('Failed to connect:', error);
+      if (!isReloadingRef.current) {
+        attemptReconnect();
+      }
     }
+  };
 
-    function replaceMessages(newMessages) {
-        recordIDIndexHash.current = {};
-        for (let i=0; i<newMessages.length; i++) {
-            recordIDIndexHash.current[newMessages[i].recordID] = i;
-        }
-        messagesRef.current = newMessages;
-        setMessages(newMessages);
+  const disconnect = () => {
+    if (wsRef.current) {
+      console.log("messagesClient: closing WebSockets connection");
+      wsRef.current.close();
+      wsRef.current = null;
     }
+    setIsConnected(false);
+    setIsProcessing(false);
+  };
 
-    function addMessage(messageToAdd) {
-        let newMessage = {...messageToAdd};
-        if (!nullUndefinedOrEmpty(newMessage.error)) {
-            console.log("addMessage: ImportError: ", newMessage.error)
-            newMessage.error = ImportError(newMessage.error);
-        }
-        const currentIndex = recordIDIndexHash.current[newMessage.recordID];
-        let newMessages = [...messagesRef.current];
-        if (typeof currentIndex == 'number') {
-            // If the message exists, update it without directly mutating the state
-            newMessages[currentIndex] = newMessage;
-        } else {
-            // If the message does not exist, add it to the end of the array
-            newMessages.push(newMessage);
-        }
-        newMessages.sort((a, b) => a.startTime - b.startTime);
-        recordIDIndexHash.current = {};
-        for (let i=0; i<newMessages.length; i++) {
-            recordIDIndexHash.current[newMessages[i].recordID] = i;
-        }
-        setMessages((prevMessages) => newMessages);
-        messagesRef.current = newMessages;
-    }
-
-    function updateMessageField(recordID, field, data) {
-        let index = recordIDIndexHash.current[recordID];
-        if (typeof index === 'undefined') {
-            console.error("updateMessageField: recordID not found: ", recordID, " in ", recordIDIndexHash.current);
-            // Probably just from a now-deleted record or a stopped session
-            // Just ignore it
-            return;
-        }
-        let updatedMessage = {...messagesRef.current[index]};
-        let finalFieldData = data;
-        if (field === "error") {
-            console.log("updateMessageField: ImportError: ", data)
-            finalFieldData = ImportError(data);
-        }
-        updatedMessage[field] = finalFieldData;
-        messagesRef.current[index] = updatedMessage;
-        setMessages((prevMessages) => {
-            let newMessages = [...prevMessages];
-            newMessages[index] = updatedMessage;
-            return newMessages;
-        });
-        return updatedMessage;
-    }
-
-    function appendMessageTextContent(recordID, data) {
-        let index = recordIDIndexHash.current[recordID];
-        if (typeof index === 'undefined') {
-            throw new Error("appendMessageTextContent: recordID not found: " + recordID + " data=" + data);
-        }
-
-        let updatedMessage = {...messagesRef.current[index]};
-        // find the text content field
-        if (nullUndefinedOrEmpty(updatedMessage.content)) {
-            updatedMessage.content = { "text": "" }
-        } else {
-            updatedMessage.content = {...updatedMessage.content};
-
-            if (nullUndefinedOrEmpty(updatedMessage.content.text)) {
-                updatedMessage.content.text = "";
-            }
-        }
-
-        updatedMessage.content.text += data;
-
-        messagesRef.current[index] = updatedMessage;
-        setMessages((prevMessages) => {
-            let newMessages = [...prevMessages];
-            newMessages[index] = updatedMessage;
-            return newMessages;
-        });
-
-        return updatedMessage;
-    }
-
-    function appendMessageDataContent(recordID, data) {
-        let index = recordIDIndexHash.current[recordID];
-        if (typeof index === 'undefined') {
-            throw new Error("appendMessageTextContent: recordID not found: " + recordID);
-        }
-
-        
-        let updatedMessage = {...messagesRef.current[index]};
-        // find the text content field
-        if (nullUndefinedOrEmpty(updatedMessage.content)) {
-            updatedMessage.content = {"data": {}}
-        } else {
-            updatedMessage.content = {...updatedMessage.content}
-
-            if (nullUndefinedOrEmpty(updatedMessage.content.data)) {
-                updatedMessage.content.data = {};
-            }
-        }
-        
-        updatedMessage.content.data = { ...updatedMessage.content.data, ...data}
-
-        messagesRef.current[index] = updatedMessage;
-        setMessages((prevMessages) => {
-            let newMessages = [...prevMessages];
-            newMessages[index] = updatedMessage;
-            return newMessages;
-        });
-
-        return updatedMessage;
-    }
+  const attemptReconnect = () => {
+    if (isReconnectingRef.current || isReloadingRef.current) return;
     
-    function finalizeMessageUpdate(recordID) {
-        let index = recordIDIndexHash.current[recordID];
-        if (typeof index === 'undefined') {
-            throw new Error("finalizeMessageUpdate: recordID not found: " + recordID);
-        }
-        const message = messagesRef.current[index];
-        return message;
+    isReconnectingRef.current = true;
+    reconnectAttemptsRef.current++;
+
+    // Find appropriate delay based on retry attempts
+    let delay = RECONNECT_THRESHOLDS[RECONNECT_THRESHOLDS.length - 1].delay;
+    for (const threshold of RECONNECT_THRESHOLDS) {
+      if (reconnectAttemptsRef.current <= threshold.threshold) {
+        delay = threshold.delay;
+        break;
+      }
     }
 
-    function messagesDeleted(recordIDsDeleted) {
-        let newMessages = [];
-        recordIDIndexHash.current = {};
-        for (let j=0; j<messagesRef.current.length; j++) {
-            const record = messagesRef.current[j];
-            if (recordIDsDeleted.includes(record.recordID)) {
-                continue;
-            }
-            newMessages.push(record);
-            recordIDIndexHash.current[record.recordID] = newMessages.length - 1; 
-        }
-        messagesRef.current = newMessages;
-        setMessages((prevMessages) => [...messagesRef.current]);
+    if (reconnectAttemptsRef.current > RECONNECT_THRESHOLDS[RECONNECT_THRESHOLDS.length - 1].threshold) {
+      console.error('Max reconnection attempts reached');
+      return;
     }
 
-    return {
-        messages: messages,
-        subscribeMessageClient,
-        clearMessageHistory
-    }
-};
+    setTimeout(async () => {
+      try {
+        await connect();
+      } finally {
+        isReconnectingRef.current = false;
+      }
+    }, delay);
+  };
 
+  // Message management methods
+  const replaceMessages = (newMessages) => {
+    messageIndexMapRef.current = {};
+    if (!newMessages || !newMessages.length) {
+      messagesRef.current = [];
+      setMessages([]);
+      return;
+    }
+
+    newMessages.forEach((msg, index) => {
+      messageIndexMapRef.current[msg.messageID] = index;
+    });
+    messagesRef.current = newMessages;
+    setMessages(newMessages);
+  };
+
+  const addMessage = (message) => {
+    const index = messageIndexMapRef.current[message.messageID];
+    if (typeof index === 'number') {
+      // Update existing
+      const newMessages = [...messagesRef.current];
+      newMessages[index] = message;
+      messagesRef.current = newMessages;
+      setMessages(newMessages);
+    } else {
+      // Add new
+      const newMessages = [...messagesRef.current, message];
+      messageIndexMapRef.current[message.messageID] = newMessages.length - 1;
+      messagesRef.current = newMessages;
+      setMessages(newMessages);
+    }
+  };
+
+  const updateMessageField = (messageID, field, value) => {
+    const index = messageIndexMapRef.current[messageID];
+    if (typeof index !== 'number') return;
+
+    const newMessages = [...messagesRef.current];
+    newMessages[index] = {
+      ...newMessages[index],
+      [field]: value
+    };
+    messagesRef.current = newMessages;
+    setMessages(newMessages);
+  };
+
+  const appendMessageContent = (messageID, content) => {
+    const index = messageIndexMapRef.current[messageID];
+    if (typeof index !== 'number') return;
+
+    const newMessages = [...messagesRef.current];
+    newMessages[index] = {
+      ...newMessages[index],
+      content: (newMessages[index].content || '') + content
+    };
+    messagesRef.current = newMessages;
+    setMessages(newMessages);
+  };
+
+  const finalizeMessage = (messageID) => {
+    const index = messageIndexMapRef.current[messageID];
+    if (typeof index !== 'number') return;
+
+    const newMessages = [...messagesRef.current];
+    newMessages[index] = {
+      ...newMessages[index],
+      isComplete: true
+    };
+    messagesRef.current = newMessages;
+    setMessages(newMessages);
+  };
+
+  const sendHalt = async () => {
+    if (!wsRef.current) {
+      console.error("messagesClient: WebSockets not connected trying to send halt command");
+      return;
+    }
+    await wsRef.current.sendCommand("command", {type: "halt", accessToken: accessToken, payload: { sessionID }})
+    console.log("Sent halt command");
+  }
+
+  return {
+    messages,
+    isConnected,
+    isProcessing,
+    error,
+    sendHalt,
+  };
+}

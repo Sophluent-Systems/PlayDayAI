@@ -1,7 +1,7 @@
 // taskWorker.js
 import { claimTask } from '@src/backend/tasks';
 import { runStateMachine } from '../runstatemachine';
-import { openPubSubChannel } from '@src/common/pubsub/pubsubapi.js';
+import { RabbitMQPubSubChannel } from '@src/common/pubsub/rabbitmqpubsub.js';
 import { lookupAccount } from '@src/backend/accounts';
 import ACL from 'acl2';
 import { promisify } from 'util';
@@ -53,12 +53,12 @@ export default async ({ sessionID }) => {
       
       const expirationTimeMS = Constants.config.sessionUpdateTimeout;
 
-      const successful = await threadClaimSession(
+      const successful = await threadClaimSession({
           db, 
           sessionID, 
           machineID, 
           threadID, 
-          expirationTimeMS);
+          expirationTimeMS});
 
       if (!successful) {
         console.error(`[worker ${threadID}] Session already claimed: `, sessionID);
@@ -66,7 +66,6 @@ export default async ({ sessionID }) => {
       }
 
       let activeSession = sessionID;
-
 
       try {
 
@@ -84,7 +83,7 @@ export default async ({ sessionID }) => {
           acl = dbInfo.acl;
 
           let account = await lookupAccount(db, task.accountID, null, null);
-          
+
           channel = new RabbitMQPubSubChannel(`session_${task.sessionID}`, task.sessionID, { inactivityTimeout: 10 * 60 * 1000 });
           await channel.connect();
           

@@ -5,7 +5,7 @@ module.exports = {
       script: 'npm start',
       env: {
         NODE_ENV: process.env.NODE_ENV,
-        PORT: process.env.LOCALHOST_WEBSOCKET_PORT,
+        PORT: process.env.NEXT_PUBLIC_WS_PORT,
       }
     },
   ],

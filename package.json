@@ -5,8 +5,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "start": "next start",
-    "taskserver": "pnpm --filter taskserver dev"
+    "start": "next start"
   },
   "_moduleAliases": {
     "@src": "./packages/shared/src",

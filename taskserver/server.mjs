@@ -75,11 +75,15 @@ async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsC
 
   Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: Got messages");
 
+  console.log("sending messages to wsChannel", JSON.stringify(messages, null, 2));
+
   await wsChannel.initializeAndSendMessageHistory(messages);
   
   workerChannel.subscribe(filterAllHandler);
 
   Constants.debug.logWebSockets && console.error(`WS: Messages synced`);
+
+  wsChannel.sendCommand("initcomplete", "success");
 }
 
 async function clearStaleEntries() {
@@ -129,7 +133,7 @@ export async function startServer() {
 
     Constants.debug.logInit && console.error("INIT: startServer");
   
-    const wsPort = parseInt(process.env.LOCALHOST_WEBSOCKET_PORT, 10) || 3005;
+    const wsPort = parseInt(process.env.NEXT_PUBLIC_WS_PORT, 10) || 3005;
   
     const wsHandlers = {
       "halt": handleHalt,

@@ -312,6 +312,7 @@ function ChatBot(props) {
   }
 
   async function sendContinuationRequest(ignoreSingleStepSetting = false) {
+    console.log("sendContinuationRequest");
     if (isReloadingRef.current) {
       // nevermind
       return;
@@ -340,39 +341,7 @@ function ChatBot(props) {
   }
 
   function getWSUrl() {
-
-    // Check if the host is a variation of localhost
-    if (window.location.hostname.includes("localhost") || 
-        window.location.hostname.includes("127.0.0.1")) {
-
-      // development
-      const protocol = 'ws:';
-      const host = window.location.hostname; // Includes hostname no port
-      const path = ''; // The path to your WebSocket server endpoint
-      const wsPort = parseInt(process.env.LOCALHOST_WEBSOCKET_PORT, 10) || 3005;
-      const url = `${protocol}//${host}:${wsPort}${path}`;
-      return url;
-      
-    } else if (window.location.protocol === 'https:') {
-
-      // prod - HTTPS
-      const protocol = 'wss:';
-      const host = window.location.hostname; // Includes hostname no port
-      const path = '/ws'; // The path to your WebSocket server endpoint
-      const wsPort = parseInt(process.env.EXTERNAL_HTTPS_PORT, 10) || 443;
-      const url = `${protocol}//${host}:${wsPort}${path}`;
-      return url;
-
-    } else {
-
-      // prod - HTTP
-      const protocol = 'ws:';
-      const host = window.location.hostname; // Includes hostname no port
-      const path = ''; // The path to your WebSocket server endpoint
-      const wsPort = parseInt(process.env.EXTERNAL_HTTP_PORT, 10) || 3005;
-      const url = `${protocol}//${host}:${wsPort}${path}`;
-      return url;
-    }
+    return `${process.env.NEXT_PUBLIC_WS_BASE_URL}:${process.env.NEXT_PUBLIC_WS_PORT}/ws`;
   }
 
   async function attemptWebsocketReconnect() {

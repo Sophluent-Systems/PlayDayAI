@@ -1,5 +1,5 @@
 {
-    "watch": ["./server.mjs", "../packages/shared/src", "./nodemon.json"],
+    "watch": ["./server.mjs", "./src", "../packages/shared/src", "./nodemon.json", "./custom-loader.mjs", "./env.mjs"],
     "ext": "js,json,jsx,ts,tsx",
     "ignore": ["node_modules"],
     "exec": "node --experimental-detect-module --import \"data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./custom-loader.mjs', pathToFileURL('./'));\" ./server.mjs"

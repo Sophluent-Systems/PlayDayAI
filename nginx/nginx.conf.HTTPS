@@ -3,10 +3,10 @@ http {
 proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=STATIC:10m inactive=7d use_temp_path=off;
 
 upstream frontend_upstream {
-  server frontend:${LOCALHOST_FRONTEND_PORT};
+  server frontend:${NEXT_PUBLIC_FRONTEND_PORT};
 }
 upstream taskserver_upstream {
-  server taskserver:${LOCALHOST_WEBSOCKET_PORT};  # Assuming taskserver is on the same host
+  server taskserver:${NEXT_PUBLIC_WS_PORT};  # Assuming taskserver is on the same host
 }
 
 server {

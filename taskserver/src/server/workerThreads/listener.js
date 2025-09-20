@@ -36,7 +36,7 @@ async function printActiveThreads(db) {
 }
 
 
-async function getSessionsThatNeedWork(db) {
+async function getSessionsThatNeedWork(db, accountID) {
   const currentTime = new Date();
   
   // First, delete expired tasks
@@ -63,14 +63,17 @@ async function getSessionsThatNeedWork(db) {
     },
     {
       $project: {
-        sessionID: 1,  
+        sessionID: 1,
+        accountID: 1,
+        requestType: 1,
+        params: 1,
         associatedTasks: 1,
         state: 1
       }
     }
   ];
 
-  const sessions = await db.collection('sessions').aggregate(pipeline).toArray();
+  const sessions = await db.collection('gameSessions').aggregate(pipeline).toArray();
 
   let sessionsThatNeedWork = [];
   let createTaskPromises = [];
@@ -83,7 +86,7 @@ async function getSessionsThatNeedWork(db) {
         if (!associatedTask || associatedTask.status === 'complete' || (associatedTask.status === 'queued' && (associatedTask.expirationTime <= currentTime))) {
           console.log("Creating new task for sessionID: ", run.sessionID);
           sessionsThatNeedWork.push(run.sessionID);
-          createTaskPromises.push(enqueueNewTask({ db, sessionID: run.sessionID }));
+          createTaskPromises.push(enqueueNewTask(db, run.accountID, run.sessionID, run.requestType, run.params));
         } else if (associatedTask && associatedTask.status == 'queued' && (associatedTask.expirationTime > currentTime)) {
           console.log("Found session with pending task: ", run.sessionID);
           sessionsThatNeedWork.push(run.sessionID);
@@ -94,7 +97,7 @@ async function getSessionsThatNeedWork(db) {
   await Promise.all(createTaskPromises);
 
   if (sessionsThatNeedWork.length > 0) {
-    console.log("Found sessions that need work: ", sessionsThatNeedWork);
+    console.log(`Found ${sessionsThatNeedWork.length} sessions that need work`);
   }
 
   return sessionsThatNeedWork;
@@ -110,7 +113,7 @@ async function processSessionsThatNeedWork() {
   if (sessionsWithWork && sessionsWithWork.length > 0) {
     for (let i = 0; i < sessionsWithWork.length; i++) {
       const sessionID = sessionsWithWork[i];
-      console.log("Found session with pending tasks: ", sessionID);
+      console.error("Found session with pending tasks: ", sessionID);
       piscina.run({ sessionID });
     }
   }

@@ -103,7 +103,7 @@ async function getSessionsThatNeedWork(db) {
 
 async function processSessionsThatNeedWork() {
 
-  const db = await getMongoDb("sensei");
+  const db = await getMongoDb("pd");
 
   const sessionsWithWork = await getSessionsThatNeedWork(db);
 

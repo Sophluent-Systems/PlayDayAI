@@ -5,49 +5,81 @@ import { hasRight } from '@src/backend/accesscontrol';
 
 
 async function handle(req, res) {
-  const { validationError, db, user, acl, account, isAdmin } = await doAuthAndValidation('POST', req, res, ["service_basicAccess"]);
+  const { validationError, db, user, acl, account, isAdmin } = await doAuthAndValidation('POST', req, res, ['service_basicAccess']);
 
   if (validationError) {
     res.status(validationError.status).json({ error: { message: validationError.message } });
     return;
   }
 
-    if (!req.body.sessionID ||
-      !req.body.sessionID.length || 
-      !req.body.gameID ||
-      !req.body.gameID.length) {
-      res.status(400).json({
-        error: {
-          message: 'Invalid parameters',
-        }
-      });
-      return;
-    }
-    
-    //
-    // PARAMS LOOK GOOD
-    //
+  const { sessionID, gameID } = req.body ?? {};
+  if (!sessionID || !sessionID.length) {
+    res.status(400).json({
+      error: {
+        message: 'Invalid parameters',
+      }
+    });
+    return;
+  }
 
+  const sessionCollection = db.collection('gameSessions');
+  const sessionMetadata = await sessionCollection.findOne(
+    { sessionID },
+    { projection: { accountID: 1, gameID: 1 } }
+  );
 
-    const hasViewSessionPermissions = await hasRight(acl, account.accountID, {resourceType: "game", resource: req.body.gameID, access: "game_viewUserSessions"})
+  if (!sessionMetadata) {
+    res.status(404).json({
+      error: {
+        message: 'Session not found',
+      }
+    });
+    return;
+  }
 
-    const session = await getGameSession(db, account.accountID, req.body.sessionID, hasViewSessionPermissions);
-    if (!session) {
-      res.status(404).json({
-        error: {
-          message: 'Session not found',
-        }
-      });
-      return;
-    }
+  if (gameID && sessionMetadata.gameID && gameID !== sessionMetadata.gameID) {
+    res.status(400).json({
+      error: {
+        message: 'Session does not belong to the specified game',
+      }
+    });
+    return;
+  }
 
-    //
-    // WE HAVE THE SESSION
-    //
-    
+  const targetGameID = sessionMetadata.gameID ?? gameID;
+  if (!targetGameID) {
+    res.status(500).json({
+      error: {
+        message: 'Session is missing associated game information',
+      }
+    });
+    return;
+  }
 
-    var clientSession = generateSessionForSendingToClient(session, hasViewSessionPermissions);
-    res.status(200).json({session: clientSession});
+  const hasViewSessionPermissions = await hasRight(acl, account.accountID, { resourceType: 'game', resource: targetGameID, access: 'game_viewUserSessions' });
+  const isSessionOwner = sessionMetadata.accountID === account.accountID;
+
+  if (!isSessionOwner && !hasViewSessionPermissions) {
+    res.status(403).json({
+      error: {
+        message: 'You do not have permission to view this session',
+      }
+    });
+    return;
+  }
+
+  const session = await getGameSession(db, account.accountID, sessionID, hasViewSessionPermissions);
+  if (!session) {
+    res.status(404).json({
+      error: {
+        message: 'Session not found',
+      }
+    });
+    return;
+  }
+
+  var clientSession = generateSessionForSendingToClient(session, hasViewSessionPermissions);
+  res.status(200).json({ session: clientSession });
 };
   
 

@@ -1,4 +1,4 @@
-import { enqueueNewTask } from '@src/backend/tasks';
+import { enqueueNewTask, notifyServerOnTaskQueued } from '@src/backend/tasks';
 import { openPubSubChannel } from '@src/common/pubsub/pubsubapi';
 import { getGameSession } from '@src/backend/gamesessions';
 import { withApiAuthRequired } from '@src/backend/authWithToken';
@@ -260,13 +260,7 @@ const handler = withApiAuthRequired(async (req, res) => {
 
       const newTask = await enqueueNewTask(db, account.accountID, sessionID, requestType, taskParams);
 
-      //
-      // Signal the work queue to process the task; OK to do async
-      //
-      const taskChannel = await openPubSubChannel('taskQueue', 'taskQueue');
-
-      taskChannel.sendCommand("newTask", "ready");
-      Constants.debug.logTaskSystem && console.error("[next] Sent 'New Task Available' to taskQueue channel.");
+      notifyServerOnTaskQueued();
 
       result = {
         taskID: newTask.taskID

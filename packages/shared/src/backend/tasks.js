@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Config } from "@src/backend/config";
+import { RabbitMQPubSubChannel } from '@src/common/pubsub/rabbitmqpubsub';
 
 export class Task {
     constructor(db, { taskID, queueTime, startTime, completeTime, expirationTime, executionTime, status, sessionID, threadID, machineID, accountID, params }) {

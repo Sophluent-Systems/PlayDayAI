@@ -6,7 +6,7 @@ import {
   saveGameSession, 
  } from '@src/backend/gamesessions.js';
 import { getBestPublishedVersionForGame, getGameVersionDetails } from '@src/backend/gameversions';
-
+import { notifyServerOnTaskQueued } from '@src/backend/tasks';
 import { hasRight } from '@src/backend/accesscontrol';
 
 

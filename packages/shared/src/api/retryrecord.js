@@ -1,4 +1,4 @@
-import { withApiAuthRequired, getSession } from '@src/backend/authWithToken';
+import { withApiAuthRequired } from '@src/backend/authWithToken';
 import { doAuthAndValidation, validateRequiredPermissions } from '@src/backend/validation';
 import { getGameSession } from '@src/backend/gamesessions';
 import { getGameInfoByID } from '@src/backend/games';
@@ -6,7 +6,7 @@ import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { getRecord, deleteRecord } from '@src/backend/records';
 import { openPubSubChannel } from '@src/common/pubsub/pubsubapi';
 import { hasRight } from '@src/backend/accesscontrol';
-import { enqueueNewTask } from '@src/backend/tasks';
+import { enqueueNewTask, notifyServerOnTaskQueued } from '@src/backend/tasks';
 
 async function handle(req, res) {
   const { validationError, db, user, acl, account, Constants } = await doAuthAndValidation('POST', req, res, ['service_basicAccess']);
@@ -143,8 +143,7 @@ async function handle(req, res) {
 
       const newTask = await enqueueNewTask(db, account.accountID, sessionID, "continuation", taskParams);
       
-      taskChannel.sendCommand("newTask", "ready");
-      Constants.debug.logTaskSystem && console.log("[next] Sent 'New Task Available' to taskQueue channel.");
+      notifyServerOnTaskQueued();
 
       res.status(200).json({status: "success"});
       

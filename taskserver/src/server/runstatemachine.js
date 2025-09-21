@@ -13,13 +13,13 @@ import { threadHeartbeat } from './threads';
 export async function runStateMachine(db, acl, account, channel, task, threadID) {
   const { Constants } = Config;
 
-  Constants.debug.logTaskSystem && console.log("runStateMachine starting... ");
+  Constants.debug.logTaskSystem && console.error("runStateMachine starting... ");
   
   const params = task.getParams();
   const { sessionID, seed, singleStep } = params;
 
   if (nullUndefinedOrEmpty(sessionID)) {
-    console.log("Invalid parameters", JSON.stringify(params));
+    console.error("Invalid parameters", JSON.stringify(params));
     await channel.sendCommand("error", 'Invalid parameters');
     return;
   }
@@ -27,7 +27,7 @@ export async function runStateMachine(db, acl, account, channel, task, threadID)
   // Proceed with the rest of the function as before, replacing HTTP responses with WebSocket messages
   let session = await getGameSession(db, account.accountID, sessionID, false);
   if (sessionID && !session) {
-    console.log("Couldn't find session ", sessionID);
+    console.error("Couldn't find session ", sessionID);
     await channel.sendCommand("error", `Session ${sessionID} could not be found.`);
     return;
   }
@@ -65,7 +65,7 @@ export async function runStateMachine(db, acl, account, channel, task, threadID)
     } else {
       session.temp.seed = getRandomInt(1, 99999999);
     }
-    console.log("SEED: ", session.temp.seed);
+    console.error("SEED: ", session.temp.seed);
 
     session.temp.stateMachine = new StateMachine(db, session);
     await session.temp.stateMachine.load();
@@ -179,8 +179,8 @@ export async function runStateMachine(db, acl, account, channel, task, threadID)
       
   } catch(error) {
     const errorMessage = error.message ? error.message : error.response?.status;
-    console.log("runStateMachine error: ", errorMessage);
-    console.log(error.stack);
+    console.error("runStateMachine error: ", errorMessage);
+    console.error(error.stack);
     await channel.sendCommand("error", {message: errorMessage});
   }
 };

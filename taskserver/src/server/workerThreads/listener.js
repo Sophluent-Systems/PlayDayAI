@@ -69,11 +69,13 @@ async function getSessionsThatNeedWork(db) {
     }
   ];
 
-  const result = await db.collection('tasks').aggregate(pipeline).toArray();
+  const queryResult = await db.collection('tasks').aggregate(pipeline).toArray();
 
-  console.error("Query results for sessions with work: ", JSON.stringify(result, null, 2));
+  const sessionIDarray = queryResult.map((result) => result.sessionID);
 
-  return result;
+  console.error("Query results for sessions with work: ", JSON.stringify(sessionIDarray, null, 2));
+
+  return sessionIDarray;
 }
 
 

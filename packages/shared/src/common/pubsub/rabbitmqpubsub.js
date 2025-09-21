@@ -7,10 +7,12 @@ import { nullUndefinedOrEmpty } from '../objects.js';
 
 const DEFAULT_MESSAGE_RETENTION = 5 * 60 * 1000;  // How long to keep individual messages (5 mins)
 const DEFAULT_CLEANUP_INTERVAL = 60 * 1000;       // How often to run cleanup (1 min)
+export const DEFAULT_SESSION_QUEUE_INACTIVITY_TIMEOUT = 10 * 60 * 1000;
 
 export class RabbitMQPubSubChannel extends MessagesPubServer {
     constructor(channelName=null, sessionID=null, options = {}) {
         const synchronize = options.synchronize ? true : false;
+        const inactivityTimeout = (typeof options.inactivityTimeout === 'number') ? options.inactivityTimeout : DEFAULT_SESSION_QUEUE_INACTIVITY_TIMEOUT;
 
         super(channelName, sessionID, synchronize);
         
@@ -24,8 +26,9 @@ export class RabbitMQPubSubChannel extends MessagesPubServer {
         this.isSessionComplete = false;
         this.lastActivityTimestamp = Date.now();
         this.cleanupInterval = null;
+        this.consumerTag = null;
         this.sessionID = sessionID || '';
-        this.inactivityTimeout = options.inactivityTimeout || 0;
+        this.inactivityTimeout = inactivityTimeout;
         
         // Configuration
         this.MESSAGE_RETENTION = options.messageRetention || DEFAULT_MESSAGE_RETENTION;
@@ -192,42 +195,75 @@ export class RabbitMQPubSubChannel extends MessagesPubServer {
             // Bind to the queue
             await this.channel.bindQueue(this.clientID, this.channelName, '');
 
-            this.channel.consume(this.clientID, async (msg) => {
-                if (msg === null) return;
+            let consumeResult;
+            try {
+                consumeResult = await this.channel.consume(this.clientID, async (msg) => {
+                    if (msg === null) return;
 
-                try {
-                    this.updateActivityTimestamp();
-                    const messageContent = msg.content.toString();
-                    const messageData = JSON.parse(messageContent);
-                    Constants.debug.logStreamingMessages && Constants.debug.logRabbitMQ && console.error("[rabbit recv] ", messageContent);
+                    try {
+                        this.updateActivityTimestamp();
+                        const messageContent = msg.content.toString();
+                        const messageData = JSON.parse(messageContent);
+                        Constants.debug.logStreamingMessages && Constants.debug.logRabbitMQ && console.error("[rabbit recv] ", messageContent);
 
-                    if (messageData.command === 'session_complete' && this.inactivityTimeout > 0) {
-                        this.isSessionComplete = true;
-                        await this.checkAndCleanup();
-                        return;
-                    }
-
-                    // Process the message
-                    const consumeResult = await this.onmessage(messageContent);
-
-                    if (!nullUndefinedOrEmpty(msg.properties.correlationId)) {
-                        const ackMessage = JSON.stringify({ acknowledged: true, result: consumeResult });
-                        this.channel.sendToQueue(
-                            msg.properties.replyTo,
-                            Buffer.from(ackMessage),
-                            {
-                                correlationId: msg.properties.correlationId,
-                                result: consumeResult
+                        if (messageData.command === 'session_complete' && this.inactivityTimeout > 0) {
+                            if (this.channel) {
+                                try {
+                                    this.channel.ack(msg);
+                                } catch (ackError) {
+                                    Constants.debug.logRabbitMQ && console.error('Failed to ack session_complete message:', ackError);
+                                }
                             }
-                        );
+                            this.isSessionComplete = true;
+                            await this.checkAndCleanup();
+                            return;
+                        }
+
+                        // Process the message
+                        const handlerResult = await this.onmessage(messageContent);
+
+                        if (!nullUndefinedOrEmpty(msg.properties.correlationId) && this.channel) {
+                            const ackMessage = JSON.stringify({ acknowledged: true, result: handlerResult });
+                            try {
+                                this.channel.sendToQueue(
+                                    msg.properties.replyTo,
+                                    Buffer.from(ackMessage),
+                                    {
+                                        correlationId: msg.properties.correlationId,
+                                        result: handlerResult
+                                    }
+                                );
+                            } catch (sendError) {
+                                Constants.debug.logRabbitMQ && console.error('Failed to send ack message:', sendError);
+                            }
+                        }
+
+                        if (this.channel) {
+                            try {
+                                this.channel.ack(msg);
+                            } catch (ackError) {
+                                Constants.debug.logRabbitMQ && console.error('Failed to ack message:', ackError);
+                            }
+                        }
+
+                    } catch (error) {
+                        Constants.debug.logRabbitMQ && console.error('Error processing message:', error);
+                        if (this.channel) {
+                            try {
+                                this.channel.nack(msg, false, false);
+                            } catch (nackError) {
+                                Constants.debug.logRabbitMQ && console.error('Failed to nack message:', nackError);
+                            }
+                        }
                     }
 
-                    this.channel.ack(msg);
-                } catch (error) {
-                    Constants.debug.logRabbitMQ && console.error('Error processing message:', error);
-                    this.channel.nack(msg, false, false);
-                }
-            }, { noAck: false });
+                }, { noAck: false });
+            } catch (consumeError) {
+                Constants.debug.logRabbitMQ && console.error('Failed to start consumer:', consumeError);
+                throw consumeError;
+            }
+
+            this.consumerTag = consumeResult?.consumerTag ?? null;
             
             this.subscribed = true;
         }
@@ -255,6 +291,7 @@ export class RabbitMQPubSubChannel extends MessagesPubServer {
     }
 
     async internal_closeAndCleanupResources() {
+        console.error("internal_closeAndCleanupResources");
         try {
             // Clear message buffer
             this.messageBuffer?.clear();
@@ -267,14 +304,22 @@ export class RabbitMQPubSubChannel extends MessagesPubServer {
 
             // Close and cleanup channel
             if (this.channel) {
-                const queueName = `${this.channelName}_${this.sessionID}`;
-                try {
-                    await this.channel.deleteQueue(queueName);
-                } catch (error) {
-                    // Queue might already be deleted
+                if (this.consumerTag) {
+                    try {
+                        await this.channel.cancel(this.consumerTag);
+                    } catch (cancelError) {
+                        Constants.debug.logRabbitMQ && console.error('Failed to cancel consumer:', cancelError);
+                    } finally {
+                        this.consumerTag = null;
+                    }
                 }
-                await this.channel.close();
+                try {
+                    await this.channel.close();
+                } catch (error) {
+                    // Channel may already be closed
+                }
                 this.channel = null;
+                this.subscribed = false;
             }
 
             // Close connection
@@ -289,6 +334,7 @@ export class RabbitMQPubSubChannel extends MessagesPubServer {
     }
 
     async close() {
+        console.error("RabbitMQPubSubChannel.close\n", new Error().stack);
         try {
             Constants.debug.logRabbitMQ && console.error("RabbitMQPubSubChannel.close");
             await this.internal_closeAndCleanupResources();
@@ -298,3 +344,4 @@ export class RabbitMQPubSubChannel extends MessagesPubServer {
         }
     }
 }
+

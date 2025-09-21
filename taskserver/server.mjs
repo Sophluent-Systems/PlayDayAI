@@ -23,7 +23,7 @@ const machineID = await getMachineIdentifier();
 async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsChannel, hasViewSourcePermissions }) {
   Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: session=", session.sessionID, " wsChannel=", wsChannel.clientID);
 
-  const workerChannel = new RabbitMQPubSubChannel(`session_${session.sessionID}`, session.sessionID, { inactivityTimeout: 10 * 60 * 1000 });
+  const workerChannel = new RabbitMQPubSubChannel(`session_${session.sessionID}`, session.sessionID);
   await workerChannel.connect();
   
   Constants.debug.logTaskSystem && console.error(`initializeConnectionAndSubscribeForTaskUpdates: Opened channel session_${session.sessionID}`);
@@ -75,8 +75,6 @@ async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsC
 
   Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: Got messages");
 
-  console.log("sending messages to wsChannel", JSON.stringify(messages, null, 2));
-
   await wsChannel.initializeAndSendMessageHistory(messages);
   
   workerChannel.subscribe(filterAllHandler);
@@ -119,7 +117,7 @@ async function handleHalt(params) {
 
   await deleteTasksForSession(db, sessionID);
 
-  const workerChannel = new RabbitMQPubSubChannel(`session_${sessionID}`, sessionID, { inactivityTimeout: 10 * 60 * 1000 }); 
+  const workerChannel = new RabbitMQPubSubChannel(`session_${sessionID}`, sessionID); 
   await workerChannel.connect();
   
   await workerChannel.sendCommand("stateMachineCommand", { command: "halt" });
@@ -311,3 +309,4 @@ try {
 }
 
 Constants.debug.logInit && console.error(" --> Server started <--");
+

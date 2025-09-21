@@ -36,71 +36,44 @@ async function printActiveThreads(db) {
 }
 
 
-async function getSessionsThatNeedWork(db, accountID) {
+async function getSessionsThatNeedWork(db) {
   const currentTime = new Date();
   
-  // First, delete expired tasks
-  await db.collection('tasks').deleteMany({
-    status: 'queued',
-    expirationTime: { $lt: currentTime }
-  });
-
-  // Get all test runs that need work using an aggregation pipeline
+  // Unique sessions with at least one task that is queued or expired
   const pipeline = [
     {
-      $lookup: {
-        from: 'tasks',
-        localField: 'sessionID', 
-        foreignField: 'sessionID',
-        as: 'associatedTasks'
+      $match: {
+        $and: [
+          { status: { $ne: "complete" } }, // Always exclude 'complete' status
+          {
+            $or: [
+              { status: "queued" }, // Include if status is 'queued'
+              { expirationTime: { $lt: currentTime } } // Or include if the task has expired
+            ]
+          }
+        ]
       }
     },
-    // just match them no matter what if the sessionID matches
+
     {
-      $match: {
-        sessionID: { $exists: true }
+      $group: {
+        _id: "$sessionID" // Group by sessionID to get unique sessionIDs
       }
     },
     {
       $project: {
-        sessionID: 1,
-        accountID: 1,
-        requestType: 1,
-        params: 1,
-        associatedTasks: 1,
-        state: 1
+        _id: 0, // Exclude the default _id field
+        sessionID: "$_id" // Include the sessionID in the output
+
       }
     }
   ];
 
-  const sessions = await db.collection('gameSessions').aggregate(pipeline).toArray();
+  const result = await db.collection('tasks').aggregate(pipeline).toArray();
 
-  let sessionsThatNeedWork = [];
-  let createTaskPromises = [];
+  console.error("Query results for sessions with work: ", JSON.stringify(result, null, 2));
 
-  // Create new tasks for test runs that need them
-   sessions.forEach(run => {
-      if (run.state !== 'completed' && run.state !== 'halted') { 
-        const associatedTask = run.associatedTasks[0];
-        
-        if (!associatedTask || associatedTask.status === 'complete' || (associatedTask.status === 'queued' && (associatedTask.expirationTime <= currentTime))) {
-          console.log("Creating new task for sessionID: ", run.sessionID);
-          sessionsThatNeedWork.push(run.sessionID);
-          createTaskPromises.push(enqueueNewTask(db, run.accountID, run.sessionID, run.requestType, run.params));
-        } else if (associatedTask && associatedTask.status == 'queued' && (associatedTask.expirationTime > currentTime)) {
-          console.log("Found session with pending task: ", run.sessionID);
-          sessionsThatNeedWork.push(run.sessionID);
-        }
-      }
-   });
-
-  await Promise.all(createTaskPromises);
-
-  if (sessionsThatNeedWork.length > 0) {
-    console.log(`Found ${sessionsThatNeedWork.length} sessions that need work`);
-  }
-
-  return sessionsThatNeedWork;
+  return result;
 }
 
 

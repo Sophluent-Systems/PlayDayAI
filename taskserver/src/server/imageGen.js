@@ -28,7 +28,7 @@ export async function doImageGeneration(params) {
     const filename = `${uuidv4()}.png`;
     
     // Define the path to save the image
-    const imagefolder = path.join(process.cwd(), 'public', 'gen/images');    
+    const imagefolder = path.join(process.cwd(), '../public', 'gen/images');    
     const imageFullPath = path.join(imagefolder, filename);
 
     // ensure the directory exists

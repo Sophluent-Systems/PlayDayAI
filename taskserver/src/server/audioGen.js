@@ -19,7 +19,7 @@ async function writeAudioFile(buffer, extension="mp3") {
   const subFolder = "gen/audio";
 
   // Define the path to save the image
-  const folderToUse = path.join(process.cwd(), 'public', subFolder);    
+  const folderToUse = path.join(process.cwd(), '../public', subFolder);    
   const fullPath = path.join(folderToUse, filename);
 
   // ensure the directory exists

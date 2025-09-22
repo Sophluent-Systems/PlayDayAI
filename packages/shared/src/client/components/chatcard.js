@@ -141,7 +141,6 @@ export const ChatCard = memo(({
   useEffect(() => {
     const personaForStyling = persona ?? getFallbackPersona(theme);
     const newStyling = getMessageStyling(mediaTypes, personaForStyling);
-    console.log("Chatcard styling: ", newStyling);
     setStyling(newStyling);
     const iconID = personaForStyling?.theme?.icon?.iconID;
     const iconToUse = iconID && PersonaIcons[iconID] ? PersonaIcons[iconID] : PersonaIcons["Person"];

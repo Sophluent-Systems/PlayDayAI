@@ -1,10 +1,10 @@
 import { enqueueNewTask, notifyServerOnTaskQueued } from '@src/backend/tasks';
-import { openPubSubChannel } from '@src/common/pubsub/pubsubapi';
 import { getGameSession } from '@src/backend/gamesessions';
 import { withApiAuthRequired } from '@src/backend/authWithToken';
 import { doAuthAndValidation, validateRequiredPermissions } from '@src/backend/validation';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { hasRight } from '@src/backend/accesscontrol';
+import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub';
 
 const validRequestTypes = [
   "continuation",
@@ -62,71 +62,78 @@ async function handle(req, res) {
   }
 
 
-  const workerChannel = await openPubSubChannel(`session_${sessionID}`, sessionID);
+  try {
+    
+    let workerChannel = new SessionPubSubChannel(sessionID);
+    await workerChannel.connect();
 
-  //
-  // If input was reported, write a record
-  //
-  
-  let result = {};
-  let stateMachineCommand = null;
-
-  let newRecord = null;
-  if (requestType == "continuation") {
-
-    stateMachineCommand = "continuation";
-
-  } else if (requestType == "halt") {
-
-    stateMachineCommand = "halt";
-  }
-
-  // First, attempt to send the request to an active worker
-
-  const stateMachineParams = {
-    seed: typeof seed == "number" ? seed : -1,
-    singleStep: singleStep
-  }
-
-  // give this command up to 1sec to be acknowledged
-  const acknowledgement = await workerChannel.sendCommand("stateMachineCommand", {command: stateMachineCommand}, 500);
-
-  const successfullyNotifiedWorker = acknowledgement && acknowledgement?.acknowledged;
-  const processorIsRunning = acknowledgement?.result;
-  
-if (successfullyNotifiedWorker && processorIsRunning) {
-  console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-  console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-  console.error("   ^^ CAUGHT A CASE WHERE WE WOULD HAVE DOUBLE-PROCESSED^^^");
-  console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-  console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-}
-
-  if ((!successfullyNotifiedWorker || !processorIsRunning) && requestType != "halt") {
-
-    // 
-    // Submit task to the task queue
     //
+    // If input was reported, write a record
+    //
+    
+    let result = {};
+    let stateMachineCommand = null;
 
-    let taskParams = {
+    let newRecord = null;
+    if (requestType == "continuation") {
+
+      stateMachineCommand = "continuation";
+
+    } else if (requestType == "halt") {
+
+      stateMachineCommand = "halt";
+    }
+
+    // First, attempt to send the request to an active worker
+
+    const stateMachineParams = {
       seed: typeof seed == "number" ? seed : -1,
       singleStep: singleStep
-    };
-
-    const newTask = await enqueueNewTask(db, account.accountID, sessionID, requestType, taskParams);
-
-    notifyServerOnTaskQueued();
-
-    result = {
-      taskID: newTask.taskID
-    };
-
-    if (newRecord) {
-      result.record = newRecord;
     }
+
+    // give this command up to 1sec to be acknowledged
+    const acknowledgement = await workerChannel.sendCommand("stateMachineCommand", { command: stateMachineCommand }, { awaitAck: true, timeoutMs: 500 });
+
+    const successfullyNotifiedWorker = acknowledgement && acknowledgement?.acknowledged;
+    const processorIsRunning = acknowledgement?.result;
+    
+  if (successfullyNotifiedWorker && processorIsRunning) {
+    console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+    console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+    console.error("   ^^ CAUGHT A CASE WHERE WE WOULD HAVE DOUBLE-PROCESSED^^^");
+    console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+    console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
   }
 
-  res.status(200).json(result);
+    if ((!successfullyNotifiedWorker || !processorIsRunning) && requestType != "halt") {
+
+      // 
+      // Submit task to the task queue
+      //
+
+      let taskParams = {
+        seed: typeof seed == "number" ? seed : -1,
+        singleStep: singleStep
+      };
+
+      const newTask = await enqueueNewTask(db, account.accountID, sessionID, requestType, taskParams);
+
+      notifyServerOnTaskQueued();
+
+      result = {
+        taskID: newTask.taskID
+      };
+
+      if (newRecord) {
+        result.record = newRecord;
+      }
+    }
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error processing statemachine request: ", error, "\n", error.stack);
+    throw error;
+  }
 };
   
 

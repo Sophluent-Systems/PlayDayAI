@@ -4,9 +4,9 @@ import { getGameSession } from '@src/backend/gamesessions';
 import { getGameInfoByID } from '@src/backend/games';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { getRecord, deleteRecord } from '@src/backend/records';
-import { openPubSubChannel } from '@src/common/pubsub/pubsubapi';
 import { hasRight } from '@src/backend/accesscontrol';
 import { enqueueNewTask, notifyServerOnTaskQueued } from '@src/backend/tasks';
+import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub';
 
 async function handle(req, res) {
   const { validationError, db, user, acl, account, Constants } = await doAuthAndValidation('POST', req, res, ['service_basicAccess']);
@@ -125,7 +125,8 @@ async function handle(req, res) {
       console.error("recordIDsDeleted: ", recordIDsDeleted);
 
       if (recordIDsDeleted) {
-        const channel = await openPubSubChannel(`session_${sessionID}`, sessionID);
+        let workerChannel = new SessionPubSubChannel(sessionID);
+        await workerChannel.connect();
         await channel.deleteMessages(recordIDsDeleted);
       }
 
@@ -134,7 +135,8 @@ async function handle(req, res) {
       // Submit task to the task queue to kick off processing, using
       // the same seed as the original task
       //
-      const taskChannel = await openPubSubChannel('taskQueue', 'taskQueue');
+      let workerChannel = new SessionPubSubChannel(sessionID);
+      await workerChannel.connect();
 
       let taskParams = {
         seed: seed,

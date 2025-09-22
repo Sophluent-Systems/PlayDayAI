@@ -10,7 +10,6 @@ export class PubSubChannel {
         this.commandHandlers = {
         };
         this.connectionCallbacks = {}
-        this.debugReceiveOrderHash = {};
         this.debugging = true;
     }
 
@@ -40,23 +39,6 @@ export class PubSubChannel {
         // no-op for now
     }
 
-    debugReceiveOrder(verification) {
-        const { messageIndex, clientID } = verification;
-        if (typeof messageIndex != 'number' || nullUndefinedOrEmpty(clientID)) {
-            throw new Error(`debugReceiveOrder: Received message with invalid verification: ${verification}`);
-        }
-
-        if (typeof this.debugReceiveOrderHash[clientID] != 'number') {
-            this.debugReceiveOrderHash[clientID] = messageIndex;
-        } else {
-            const expectedIndex = this.debugReceiveOrderHash[clientID] + 1;
-            this.debugReceiveOrderHash[clientID] = messageIndex;
-            if (messageIndex != expectedIndex) {
-                throw new Error(`Received message out of order: ${clientID} -> expected ${expectedIndex} but got ${messageIndex}`);
-            }
-        }
-    }
-
     async onmessage(message) {
         let command = "";
         let data = null;
@@ -67,7 +49,6 @@ export class PubSubChannel {
           other = {
             verification: parsed.verification,
           }
-          this.debugging && this.debugReceiveOrder(other.verification);
           command = parsed.command;
           data = parsed.data;
         } catch (error) {

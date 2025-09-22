@@ -8,7 +8,7 @@ import {
 } from '@src/backend/gamesessions';
 import { rateLLMResponse } from '@src/backend/aiLogging.js';
 import { hasRight } from '@src/backend/accesscontrol.js';
-import { openPubSubChannel } from '@src/common/pubsub/pubsubapi.js';
+import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub';
 
 
 async function handle(req, res) {
@@ -120,8 +120,9 @@ async function handle(req, res) {
         }
         const updates = await rateLLMResponse(db, session.sessionID, req.body.recordID, ratings);
 
-        const workerChannel = await openPubSubChannel(`session_${session.sessionID}`, session.sessionID);
-        
+        let workerChannel = new SessionPubSubChannel(session.sessionID);
+        await workerChannel.connect();
+
         await workerChannel.sendField(req.body.recordID, "ratings", ratings, { bypassRecordExistenceCheck: true });
 
         res.status(200).json({ updates: updates });

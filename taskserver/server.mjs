@@ -8,6 +8,7 @@ import { Constants } from "@src/common/defaultconfig";
 import { doAuthAndValidationToken } from '@src/backend/validation.js';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
 import { RabbitMQPubSubChannel } from '@src/common/pubsub/rabbitmqpubsub.js';
+import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub.js';
 import { getAllThreadsForMachine, deleteAllThreadsForMachine } from './src/server/threads.js';
 import { MongoClient } from 'mongodb';
 import { getMachineIdentifier } from './src/server/machineid';
@@ -23,7 +24,7 @@ const machineID = await getMachineIdentifier();
 async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsChannel, hasViewSourcePermissions }) {
   Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: session=", session.sessionID, " wsChannel=", wsChannel.clientID);
 
-  const workerChannel = new RabbitMQPubSubChannel(`session_${session.sessionID}`, session.sessionID);
+  const workerChannel = new SessionPubSubChannel(session.sessionID);
   await workerChannel.connect();
   
   Constants.debug.logTaskSystem && console.error(`initializeConnectionAndSubscribeForTaskUpdates: Opened channel session_${session.sessionID}`);
@@ -117,7 +118,7 @@ async function handleHalt(params) {
 
   await deleteTasksForSession(db, sessionID);
 
-  const workerChannel = new RabbitMQPubSubChannel(`session_${sessionID}`, sessionID); 
+  const workerChannel = new SessionPubSubChannel(sessionID); 
   await workerChannel.connect();
   
   await workerChannel.sendCommand("stateMachineCommand", { command: "halt" });
@@ -309,4 +310,3 @@ try {
 }
 
 Constants.debug.logInit && console.error(" --> Server started <--");
-

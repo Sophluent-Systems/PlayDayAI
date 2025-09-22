@@ -411,6 +411,9 @@ export const defaultConstants = {
         "sessionUpdateRetryTime": 5000,
         "clientFailureRetryTime": 5000,
         "taskDefaultExpirationTimeMS": 300000,
+        "sessionPubSub": {
+            "inactivityTimeout": 10 * 60 * 1000
+        },
         "sandboxLLMBlockingUrl": "http://127.0.0.1:4000/v1/completions",
         "sandboxLLMStreamingUrl": "http://127.0.0.1:4000/v1/completions"
     }

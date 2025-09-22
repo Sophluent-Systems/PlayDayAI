@@ -1,7 +1,6 @@
-// taskWorker.js
 import { claimTask } from '@src/backend/tasks';
 import { runStateMachine } from '../runstatemachine';
-import { RabbitMQPubSubChannel } from '@src/common/pubsub/rabbitmqpubsub.js';
+import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub.js';
 import { lookupAccount } from '@src/backend/accounts';
 import ACL from 'acl2';
 import { promisify } from 'util';
@@ -12,10 +11,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { workerData } from 'worker_threads';
 import { getMongoDb } from '@src/backend/mongodb.js';
 
-
 const machineID = await getMachineIdentifier();
 const threadID = uuidv4();
-console.error("[taskworker] machineID=", machineID, " threadID=", threadID);
+console.error(`[taskworker] machineID=`, machineID, ` threadID=`, threadID);
 
 const updateDB = async () => {
   const db = await getMongoDb("pd");
@@ -31,102 +29,86 @@ const updateDB = async () => {
   acl.addRoleParentsAsync = promisify(acl.addRoleParents).bind(acl);
 
   return { db, acl };
-}
-async function cleanup(channel, db) {
-  if (channel) {
-    await channel.endSession();
-    await channel.close();
+};
+
+async function cleanup(channel) {
+  if (!channel) {
+    return;
   }
-  // No need to close the db connection as it's managed by the Singleton
+
+  try {
+    await channel.close();
+  } catch (closeError) {
+    console.error('[taskworker] Error closing channel: ', closeError);
+  }
 }
 
 export default async ({ sessionID }) => {
-    
-    console.error(`[worker ${threadID}] Task worker started`);
-    let result = "done";
-    let channel = null;
+  console.error(`[worker ${threadID}] Task worker started`);
+  let result = "done";
+  let channel = null;
+  let activeSession = null;
+  const expirationTimeMS = Constants.config.sessionUpdateTimeout;
 
-    try {
-      let dbInfo = await updateDB();
-      let db = dbInfo.db;
-      let acl = dbInfo.acl;
-      
-      const expirationTimeMS = Constants.config.sessionUpdateTimeout;
+  try {
+    let { db, acl } = await updateDB();
 
-      const successful = await threadClaimSession({
-          db, 
-          sessionID, 
-          machineID, 
-          threadID, 
-          expirationTimeMS});
+    const successful = await threadClaimSession({
+      db,
+      sessionID,
+      machineID,
+      threadID,
+      expirationTimeMS,
+    });
 
-      if (!successful) {
-        console.error(`[worker ${threadID}] Session already claimed: `, sessionID);
-        return;
-      }
-
-      let activeSession = sessionID;
-
-      try {
-
-        //
-        // Claim the task with all the info about what to run
-        //
-
-        let task = await claimTask(db, sessionID, machineID, threadID);
-        
-        while (task) {
-          Constants.debug.logTaskSystem && console.error(`[worker ${threadID}] Task claimed: taskID=`, task.taskID);
-
-          dbInfo = await updateDB();
-          db = dbInfo.db;
-          acl = dbInfo.acl;
-
-          let account = await lookupAccount(db, task.accountID, null, null);
-
-          channel = new RabbitMQPubSubChannel(`session_${task.sessionID}`, task.sessionID, { inactivityTimeout: 10 * 60 * 1000 });
-          await channel.connect();
-          
-          Constants.debug.logTaskSystem && console.error(`[worker ${threadID}] Running state machine`)
-
-          //
-          // Run the actual state machine
-          //
-          
-          await runStateMachine(db, acl, account, channel, task, threadID);
-
-          //
-          // Mark the task as complete
-          //
-
-          await task.setComplete();
-          Constants.debug.logTaskSystem && console.error(`[worker ${threadID}] Task completed: taskID=`, task.taskID);
-
-          task = await claimTask(db, sessionID, machineID, threadID);
-
-          Constants.debug.logTaskSystem && console.error(`[worker ${threadID}] Next task: `, task ? task.taskID : "none");
-        }
-      } catch (e) {
-        console.error("[taskworker] Error running task: ", e);
-        result = "error: " + e.message + "\n\n" + e.stack;
-      }
-
-      if (activeSession) {
-        console.error(`[worker ${threadID}] Setting session inactive: `, activeSession);
-        await threadSetInactive(db, activeSession);
-        activeSession = null;
-      } else {
-        console.error(`[worker ${threadID}] No active session to set inactive`);
-      }
-      
-      await cleanup(channel, db);
-
-    } catch (e) {
-      console.error("[taskworker] Error in taskWorker.js setup code: ", e);
-      result = "error: " + e.message + "\n\n" + e.stack;
+    if (!successful) {
+      console.error(`[worker ${threadID}] Session already claimed: `, sessionID);
+      return;
     }
 
-    
-    return result;
-  };
+    activeSession = sessionID;
 
+    let task = await claimTask(db, sessionID, machineID, threadID);
+
+    channel = new SessionPubSubChannel(sessionID);
+    await channel.connect();
+
+    while (task) {
+      try {
+        Constants.debug.logTaskSystem && console.error(`[worker ${threadID}] Task claimed: taskID=`, task.taskID);
+
+        ({ db, acl } = await updateDB());
+        const account = await lookupAccount(db, task.accountID, null, null);
+
+        await runStateMachine(db, acl, account, channel, task, threadID);
+
+        await task.setComplete();
+        Constants.debug.logTaskSystem && console.error(`[worker ${threadID}] Task completed: taskID=`, task.taskID);
+
+        task = await claimTask(db, sessionID, machineID, threadID);
+        Constants.debug.logTaskSystem && console.error(`[worker ${threadID}] Next task: `, task ? task.taskID : "none");
+      } catch (taskError) {
+        console.error("[taskworker] Error running task: ", taskError);
+        result = "error: " + taskError.message + "\n\n" + taskError.stack;
+        break;
+      }
+    }
+
+    if (activeSession) {
+      console.error(`[worker ${threadID}] Setting session ${activeSession} thread inactive`);
+      await threadSetInactive(db, activeSession);
+      activeSession = null;
+    } else {
+      console.error(`[worker ${threadID}] No active session to set inactive`);
+    }
+  } catch (e) {
+    console.error("[taskworker] Error in taskWorker: ", e);
+    result = "error: " + e.message + "\n\n" + e.stack;
+  } 
+
+  if (channel) {
+    //await cleanup(channel);
+  }
+  
+  return result;
+};

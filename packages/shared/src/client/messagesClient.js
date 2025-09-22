@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
 import { stateManager } from '@src/client/statemanager';
 
@@ -8,7 +8,7 @@ const RECONNECT_THRESHOLDS = [
   { threshold: 6, delay: 5000 },  // Next 3 attempts: retry after 5s
   { threshold: 10, delay: 30000 } // Final 4 attempts: retry after 30s
 ];
-export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMessageComplete, debug }) {
+export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMessageComplete, debug, handlers, autoConnect = true }) {
   const { accessToken, refreshAccessToken } = React.useContext(stateManager);
   const [messages, setMessages] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -21,7 +21,173 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
   const messagesRef = useRef([]);
   const messageIndexMapRef = useRef({});
   const reconnectAttemptsRef = useRef(0);
+  const handlersRef = useRef(handlers);
+  const callbacksRef = useRef({ onMessage, onMessageUpdate, onMessageComplete });
+  const resolveMessageKey = useCallback((item) => {
+    if (!item) return null;
+    const key = item?.messageID ?? item?.recordID ?? null;
+    return key == null ? null : String(key);
+  }, []);
+  const subscribedChannelRef = useRef(null);
+  const channelHandlersRef = useRef(null);
+  const ownedChannelRef = useRef(null);
   const isReconnectingRef = useRef(false);
+
+  // Message management methods
+  const replaceMessages = useCallback((newMessages) => {
+
+    console.log("Replace messages: ", newMessages);
+    if (!Array.isArray(newMessages) || newMessages.length === 0) {
+      messageIndexMapRef.current = {};
+      messagesRef.current = [];
+      setMessages([]);
+      return [];
+    }
+
+    const indexedMessages = [...newMessages];
+    const indexMap = {};
+    indexedMessages.forEach((msg, index) => {
+      const key = resolveMessageKey(msg);
+      if (key) {
+        indexMap[key] = index;
+      }
+    });
+    messageIndexMapRef.current = indexMap;
+    messagesRef.current = indexedMessages;
+    setMessages(indexedMessages);
+    return indexedMessages;
+  }, [resolveMessageKey]);
+
+  const addMessage = useCallback((message) => {
+    const key = resolveMessageKey(message);
+    if (!key) return { message: null, isNew: false };
+
+    const index = messageIndexMapRef.current[key];
+    if (typeof index === 'number') {
+      const newMessages = [...messagesRef.current];
+      newMessages[index] = message;
+      messagesRef.current = newMessages;
+      setMessages(newMessages);
+      return { message: newMessages[index], isNew: false };
+    }
+
+    const newMessages = [...messagesRef.current, message];
+    messageIndexMapRef.current[key] = newMessages.length - 1;
+    messagesRef.current = newMessages;
+    setMessages(newMessages);
+    return { message, isNew: true };
+  }, [resolveMessageKey]);
+
+  const updateMessageField = useCallback((messageID, field, value) => {
+    const key = messageID == null ? null : String(messageID);
+    if (!key) return null;
+
+    const index = messageIndexMapRef.current[key];
+    if (typeof index !== 'number') return null;
+
+    const newMessages = [...messagesRef.current];
+    const updatedMessage = {
+      ...newMessages[index],
+      [field]: value
+    };
+    newMessages[index] = updatedMessage;
+    messagesRef.current = newMessages;
+    setMessages(newMessages);
+    return updatedMessage;
+  }, []);
+
+  const appendMessageContent = useCallback((messageID, content) => {
+    const key = messageID == null ? null : String(messageID);
+    if (!key) return null;
+
+    const index = messageIndexMapRef.current[key];
+    if (typeof index !== 'number') return null;
+
+    const newMessages = [...messagesRef.current];
+    const updatedMessage = {
+      ...newMessages[index],
+      content: (newMessages[index].content || '') + content
+    };
+    newMessages[index] = updatedMessage;
+    messagesRef.current = newMessages;
+    setMessages(newMessages);
+    return updatedMessage;
+  }, []);
+
+  const finalizeMessage = useCallback((messageID) => {
+    const key = messageID == null ? null : String(messageID);
+    if (!key) return null;
+
+    const index = messageIndexMapRef.current[key];
+    if (typeof index !== 'number') return null;
+
+    const newMessages = [...messagesRef.current];
+    const updatedMessage = {
+      ...newMessages[index],
+      isComplete: true
+    };
+    newMessages[index] = updatedMessage;
+    messagesRef.current = newMessages;
+    setMessages(newMessages);
+    return updatedMessage;
+  }, []);
+
+  const removeMessagesByRecordIDs = useCallback((recordIDs) => {
+    if (!Array.isArray(recordIDs) || recordIDs.length === 0) {
+      return { changed: false, messages: messagesRef.current };
+    }
+
+    const idsToDelete = new Set(
+      recordIDs
+        .filter((id) => id !== null && id !== undefined)
+        .map((id) => String(id))
+    );
+
+    if (idsToDelete.size === 0) {
+      return { changed: false, messages: messagesRef.current };
+    }
+
+    const filteredMessages = messagesRef.current.filter((message) => {
+      if (!message) {
+        return true;
+      }
+      const recordKey = message.recordID != null ? String(message.recordID) : null;
+      const messageKey = resolveMessageKey(message);
+      if (recordKey && idsToDelete.has(recordKey)) {
+        return false;
+      }
+      if (messageKey && idsToDelete.has(messageKey)) {
+        return false;
+      }
+      return true;
+    });
+
+    if (filteredMessages.length === messagesRef.current.length) {
+      return { changed: false, messages: messagesRef.current };
+    }
+
+    const newIndexMap = {};
+    filteredMessages.forEach((message, index) => {
+      const key = resolveMessageKey(message);
+      if (key) {
+        newIndexMap[key] = index;
+      }
+    });
+
+    messageIndexMapRef.current = newIndexMap;
+    messagesRef.current = filteredMessages;
+    setMessages(filteredMessages);
+
+    return { changed: true, messages: filteredMessages };
+  }, [resolveMessageKey]);
+
+  useEffect(() => {
+    handlersRef.current = handlers;
+  }, [handlers]);
+
+  useEffect(() => {
+    callbacksRef.current = { onMessage, onMessageUpdate, onMessageComplete };
+  }, [onMessage, onMessageUpdate, onMessageComplete]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -48,22 +214,116 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
         if (sessionID && accessToken) {
           currentSessionID.current = sessionID;
           currentAccessToken.current = accessToken;
-          connect();
+          if (autoConnect) {
+            connect();
+          }
         }
     }
-  }, [sessionID, accessToken]);
+  }, [sessionID, accessToken, autoConnect]);
 
   function getWSUrl() {
-    return process.env.NEXT_PUBLIC_SPARRING_PARTNER_URL;
+    return `${process.env.NEXT_PUBLIC_WS_BASE_URL}:${process.env.NEXT_PUBLIC_WS_PORT}/ws`;
   }
+
+  const buildMessageHandlers = useCallback(() => {
+    const callbacks = callbacksRef.current || {};
+    const externalHandlers = handlersRef.current || {};
+
+    return {
+      'message:array': (cmd, payload, { verification }) => {
+        if (verification?.sessionID !== sessionID) return;
+        const updatedMessages = replaceMessages(payload);
+        callbacks.onMessage?.(payload);
+        externalHandlers.replaceMessageList?.(updatedMessages);
+      },
+      'message:start': (cmd, payload, { verification }) => {
+        if (verification?.sessionID !== sessionID) return;
+        const { message, isNew } = addMessage(payload);
+        if (!message) return;
+        callbacks.onMessage?.(message);
+        if (isNew) {
+          externalHandlers.newMessage?.(message);
+        } else {
+          externalHandlers.updateMessage?.(message);
+        }
+      },
+      'message:field': (cmd, payload, { verification }) => {
+        if (verification?.sessionID !== sessionID) return;
+        const key = resolveMessageKey(payload);
+        if (!key) return;
+        const updatedMessage = updateMessageField(key, payload.field, payload.value);
+        callbacks.onMessageUpdate?.(key, payload.field, payload.value);
+        if (updatedMessage) {
+          externalHandlers.updateMessage?.(updatedMessage);
+        }
+      },
+      'message:appendstring': (cmd, payload, { verification }) => {
+        if (verification?.sessionID !== sessionID) return;
+        const key = resolveMessageKey(payload);
+        if (!key) return;
+        const updatedMessage = appendMessageContent(key, payload.value);
+        callbacks.onMessageUpdate?.(key, 'content', payload.value);
+        if (updatedMessage) {
+          externalHandlers.updateMessage?.(updatedMessage);
+        }
+      },
+      'message:end': (cmd, payload, { verification }) => {
+        if (verification?.sessionID !== sessionID) return;
+        const key = resolveMessageKey(payload);
+        if (!key) return;
+        const updatedMessage = finalizeMessage(key);
+        callbacks.onMessageComplete?.(key);
+        if (updatedMessage) {
+          externalHandlers.messageComplete?.(updatedMessage);
+        }
+      },
+      'message:delete': (cmd, payload, { verification }) => {
+        if (verification?.sessionID !== sessionID) return;
+        const { changed, messages: updatedMessages } = removeMessagesByRecordIDs(payload?.recordIDsDeleted);
+        if (changed) {
+          externalHandlers.replaceMessageList?.(updatedMessages);
+        }
+      }
+    };
+  }, [sessionID, replaceMessages, addMessage, resolveMessageKey, updateMessageField, appendMessageContent, finalizeMessage, removeMessagesByRecordIDs]);
+
+  const subscribeToChannel = useCallback((channel) => {
+    if (!channel) {
+      return () => {};
+    }
+
+    if (subscribedChannelRef.current && channelHandlersRef.current) {
+      subscribedChannelRef.current.unsubscribe(channelHandlersRef.current);
+      if (ownedChannelRef.current === subscribedChannelRef.current) {
+        ownedChannelRef.current = null;
+      }
+    }
+
+    const handlers = buildMessageHandlers();
+    channel.subscribe(handlers);
+    subscribedChannelRef.current = channel;
+    channelHandlersRef.current = handlers;
+
+    return () => {
+      if (channel && handlers) {
+        channel.unsubscribe(handlers);
+      }
+      if (subscribedChannelRef.current === channel) {
+        subscribedChannelRef.current = null;
+        channelHandlersRef.current = null;
+      }
+    };
+  }, [buildMessageHandlers]);
 
   const connect = async () => {
     if (wsRef.current) {
       return; // Already connected
     }
 
+    let ws = null;
+
     try {
-      const ws = new WebSocketChannel();
+      ws = new WebSocketChannel();
 
       ws.setConnectionCallbacks({
         onError: (error) => {
@@ -110,75 +370,65 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
           switch(data.state) {
             case "processing":
               setIsProcessing(true);
-            break;
+              break;
             case "completed":
               setIsProcessing(false);
               break;
             case "error":
-              console.error("sessionStatusUpdate errordetails:", data)
-                setIsProcessing(false);
-                setError(data);
-            break;
+              console.error("sessionStatusUpdate errordetails:", data);
+              setIsProcessing(false);
+              setError(data);
+              break;
             default:
-                console.error("Unknown state: ", data.state);
-                throw new Error("Unknown state: " + data.state);
+              console.error("Unknown state: ", data.state);
+              throw new Error("Unknown state: " + data.state);
           }
-        },
-        'message:array': (cmd, payload, { verification }) => {
-          if (verification.sessionID !== sessionID) return;
-          replaceMessages(payload);
-          onMessage?.(payload);
-        },
-        'message:start': (cmd, payload, { verification }) => {
-          if (verification.sessionID !== sessionID) return;
-          addMessage(payload);
-          onMessage?.(payload);
-        },
-        'message:field': (cmd, { messageID, field, value }, { verification }) => {
-          if (verification.sessionID !== sessionID) return;
-          updateMessageField(messageID, field, value);
-          onMessageUpdate?.(messageID, field, value);
-        },
-        'message:appendstring': (cmd, { messageID, value }, { verification }) => {
-          if (verification.sessionID !== sessionID) return;
-          appendMessageContent(messageID, value);
-          onMessageUpdate?.(messageID, 'content', value);
-        },
-        'message:end': (cmd, { messageID }, { verification }) => {
-          if (verification.sessionID !== sessionID) return;
-          finalizeMessage(messageID);
-          onMessageComplete?.(messageID);
         }
       });
 
+      subscribeToChannel(ws);
+
       const wsUrl = getWSUrl();
       await ws.connect({ url: wsUrl });
-      
-      // Initialize connection with test run ID
-      await ws.sendCommand("command", {type: "initializeConnection", accessToken: accessToken, payload: { sessionID }})
-      
+
+      await ws.sendCommand("command", { type: "initializeConnection", accessToken: accessToken, payload: { sessionID } });
+
       wsRef.current = ws;
+      ownedChannelRef.current = ws;
 
       console.log("messagesClient: wsRef.current set to ", wsRef.current ? "not null" : "null");
-
     } catch (error) {
       console.error('Failed to connect:', error);
+      if (ws && subscribedChannelRef.current === ws && channelHandlersRef.current) {
+        ws.unsubscribe(channelHandlersRef.current);
+        subscribedChannelRef.current = null;
+        channelHandlersRef.current = null;
+      }
+      if (ws && ownedChannelRef.current === ws) {
+        ownedChannelRef.current = null;
+      }
       if (!isReloadingRef.current) {
         attemptReconnect();
       }
     }
   };
-
   const disconnect = () => {
+    if (subscribedChannelRef.current && channelHandlersRef.current) {
+      subscribedChannelRef.current.unsubscribe(channelHandlersRef.current);
+      subscribedChannelRef.current = null;
+      channelHandlersRef.current = null;
+    }
+
     if (wsRef.current) {
       console.log("messagesClient: closing WebSockets connection");
       wsRef.current.close();
       wsRef.current = null;
     }
+
+    ownedChannelRef.current = null;
     setIsConnected(false);
     setIsProcessing(false);
   };
-
   const attemptReconnect = () => {
     if (isReconnectingRef.current || isReloadingRef.current) return;
     
@@ -208,77 +458,15 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     }, delay);
   };
 
-  // Message management methods
-  const replaceMessages = (newMessages) => {
-    messageIndexMapRef.current = {};
-    if (!newMessages || !newMessages.length) {
-      messagesRef.current = [];
-      setMessages([]);
-      return;
-    }
+  const subscribeMessageClient = useCallback((channel) => {
+    return subscribeToChannel(channel);
+  }, [subscribeToChannel]);
 
-    newMessages.forEach((msg, index) => {
-      messageIndexMapRef.current[msg.messageID] = index;
-    });
-    messagesRef.current = newMessages;
-    setMessages(newMessages);
-  };
+  const clearMessageHistory = useCallback(() => {
+    replaceMessages([]);
+    handlersRef.current?.replaceMessageList?.([]);
+  }, [replaceMessages]);
 
-  const addMessage = (message) => {
-    const index = messageIndexMapRef.current[message.messageID];
-    if (typeof index === 'number') {
-      // Update existing
-      const newMessages = [...messagesRef.current];
-      newMessages[index] = message;
-      messagesRef.current = newMessages;
-      setMessages(newMessages);
-    } else {
-      // Add new
-      const newMessages = [...messagesRef.current, message];
-      messageIndexMapRef.current[message.messageID] = newMessages.length - 1;
-      messagesRef.current = newMessages;
-      setMessages(newMessages);
-    }
-  };
-
-  const updateMessageField = (messageID, field, value) => {
-    const index = messageIndexMapRef.current[messageID];
-    if (typeof index !== 'number') return;
-
-    const newMessages = [...messagesRef.current];
-    newMessages[index] = {
-      ...newMessages[index],
-      [field]: value
-    };
-    messagesRef.current = newMessages;
-    setMessages(newMessages);
-  };
-
-  const appendMessageContent = (messageID, content) => {
-    const index = messageIndexMapRef.current[messageID];
-    if (typeof index !== 'number') return;
-
-    const newMessages = [...messagesRef.current];
-    newMessages[index] = {
-      ...newMessages[index],
-      content: (newMessages[index].content || '') + content
-    };
-    messagesRef.current = newMessages;
-    setMessages(newMessages);
-  };
-
-  const finalizeMessage = (messageID) => {
-    const index = messageIndexMapRef.current[messageID];
-    if (typeof index !== 'number') return;
-
-    const newMessages = [...messagesRef.current];
-    newMessages[index] = {
-      ...newMessages[index],
-      isComplete: true
-    };
-    messagesRef.current = newMessages;
-    setMessages(newMessages);
-  };
 
   const sendHalt = async () => {
     if (!wsRef.current) {
@@ -295,5 +483,8 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     isProcessing,
     error,
     sendHalt,
+    subscribeMessageClient,
+    clearMessageHistory,
+    removeMessagesByRecordIDs,
   };
 }

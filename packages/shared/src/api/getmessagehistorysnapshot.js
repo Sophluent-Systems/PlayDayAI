@@ -45,6 +45,8 @@ async function handle(req, res) {
       skipDeleted: true,
       sortNewestFirst: false,
       includeDebugInfo: hasViewSessionPermissions,
+      includeFailed: true,
+      includeWaitingForExternalInput: true,
     });
 
     if (!messages) {

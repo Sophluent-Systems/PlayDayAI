@@ -12,6 +12,7 @@ export class MessagesPubServer extends PubSubChannel {
         this.initialized = !synchronize;
         this.outgoingQueue = []; // messages to send before initialization
         this.messages = [];
+        this.knownMessages = {};
     }
 
     requireSynchronization() {
@@ -54,6 +55,8 @@ export class MessagesPubServer extends PubSubChannel {
 
         this.messages = messageHistory;
 
+        console.error("Initialize and send message history: ",JSON.stringify(messageHistory, null, 2));
+
         await this.sendCommand("message:array", messageHistory);
 
         this.initialized = true;
@@ -88,19 +91,57 @@ export class MessagesPubServer extends PubSubChannel {
     }
 
     async deleteMessages(recordIDsDeleted, params) {
-        //
-        // Don't check IDs for existence here because this is called from
-        // the backend of the server where we haven't initialized the
-        // known messages yet.
-        //
+        if (!Array.isArray(recordIDsDeleted) || recordIDsDeleted.length === 0) {
+            return false;
+        }
 
-        // remove these messages from the hash
-        recordIDsDeleted.map((recordID) => {
-            // should never see this message again
+        const sanitizedIDs = recordIDsDeleted.filter((recordID) => !nullUndefinedOrEmpty(recordID));
+        if (sanitizedIDs.length === 0) {
+            return false;
+        }
+
+        const idsToDelete = new Set(sanitizedIDs.map(String));
+
+        if (Array.isArray(this.messages) && this.messages.length > 0) {
+            this.messages = this.messages.filter((message) => {
+                const candidate = message?.recordID ?? message?.messageID;
+                if (nullUndefinedOrEmpty(candidate)) {
+                    return true;
+                }
+                return !idsToDelete.has(String(candidate));
+            });
+        }
+
+        if (Array.isArray(this.outgoingQueue) && this.outgoingQueue.length > 0) {
+            this.outgoingQueue = this.outgoingQueue.filter(({ command, data }) => {
+                if (!data || command === 'message:delete') {
+                    return true;
+                }
+
+                const candidateIDs = [];
+                if (!nullUndefinedOrEmpty(data.recordID)) {
+                    candidateIDs.push(String(data.recordID));
+                }
+                if (!nullUndefinedOrEmpty(data.messageID)) {
+                    candidateIDs.push(String(data.messageID));
+                }
+                if (Array.isArray(data.recordIDsDeleted)) {
+                    data.recordIDsDeleted.forEach((id) => {
+                        if (!nullUndefinedOrEmpty(id)) {
+                            candidateIDs.push(String(id));
+                        }
+                    });
+                }
+
+                return candidateIDs.every((id) => !idsToDelete.has(id));
+            });
+        }
+
+        sanitizedIDs.forEach((recordID) => {
             delete this.knownMessages[recordID];
         });
-        
-        return await this.enqueueCommand('message:delete', { recordIDsDeleted }, params);
+
+        return await this.enqueueCommand('message:delete', { recordIDsDeleted: Array.from(idsToDelete) }, params);
     }
         
     async sendFullMessage(message, params) {

@@ -113,7 +113,7 @@ function ChatBot(props) {
           }
       },
  };
- const { messages, subscribeMessageClient, clearMessageHistory } = useMessagesClient({handlers: messageUpdateHandlers, sessionID});
+ const { messages, subscribeMessageClient, clearMessageHistory } = useMessagesClient({handlers: messageUpdateHandlers, sessionID, autoConnect: false});
  const reconnectAttemptsRef = useRef(0);
  const reconnectUnderwayRef = useRef(false);
  const [supportsSuggestions, setSupportsSuggestions] = useState(false);

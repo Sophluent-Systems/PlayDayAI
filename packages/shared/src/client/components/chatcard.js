@@ -136,8 +136,6 @@ export const ChatCard = memo(({
   const [styling, setStyling] = useState(null);
   const [Icon, setIcon] = useState(null);
   const mediaTypes = nodeAttributes["mediaTypes"] || [];
-  const mediaTypesKey = Array.isArray(mediaTypes) ? mediaTypes.join('|') : "none";
-
   const hidden = hideOutput || persona?.hideFromEndUsers;
 
   useEffect(() => {
@@ -148,7 +146,7 @@ export const ChatCard = memo(({
     const iconID = personaForStyling?.theme?.icon?.iconID;
     const iconToUse = iconID && PersonaIcons[iconID] ? PersonaIcons[iconID] : PersonaIcons["Person"];
     setIcon(iconToUse);
-  }, [persona, theme, mediaTypesKey]);
+  }, [persona, theme, mediaTypes]);
 
 
   

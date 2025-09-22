@@ -34,10 +34,20 @@ async function parseRequestBody(request) {
     return {};
   }
 
+
   const contentType = request.headers.get("content-type") || "";
 
   if (contentType.includes("application/json")) {
-    const data = await request.json();
+    let data = {};
+    try {
+      data = await request.json();
+      data = data;
+    } catch (error) {
+      console.error("++++ apiRouteAdapter: error parsing json: ", error);
+      // Print the method and the request url
+      console.log("++++ apiRouteAdapter: method: ", method);
+      console.log("++++ apiRouteAdapter: request url: ", request.url);
+    } 
     return { body: data };
   }
 

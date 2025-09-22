@@ -55,8 +55,6 @@ export class MessagesPubServer extends PubSubChannel {
 
         this.messages = messageHistory;
 
-        console.error("Initialize and send message history: ",JSON.stringify(messageHistory, null, 2));
-
         await this.sendCommand("message:array", messageHistory);
 
         this.initialized = true;

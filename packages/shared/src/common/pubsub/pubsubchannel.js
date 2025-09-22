@@ -7,8 +7,7 @@ export class PubSubChannel {
         this.channelName = channelName;
         this.clientID = uuidv4();
         this.messageIndex = 1;
-        this.commandHandlers = {
-        };
+        this.commandHandlers = {};
         this.connectionCallbacks = {}
         this.debugging = true;
     }
@@ -62,11 +61,14 @@ export class PubSubChannel {
           return false;
         }
     
-        Constants.debug.logStreamingMessages && console.log(command, ":", data);
-    
+        const handler = this.commandHandlers[command];  
+        Constants.debug.logStreamingMessages && console.log(`[${this.clientID}] "${command}": `, data);
+
         let result = undefined;
-        if (this.commandHandlers[command]) {
-          result = this.commandHandlers[command](command, data, other);
+        if (handler) {
+          result = handler(command, data, other);
+        } else {
+            Constants.debug.logStreamingMessages && console.log(`[${this.clientID}] Handler not found for ${command} `, JSON.stringify(this.commandHandlers, null, 2));
         }
 
         //

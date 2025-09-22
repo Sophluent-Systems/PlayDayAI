@@ -307,10 +307,10 @@ function renderMarkup(key, markupText) {
         wordBreak: "break-word",
         
         // Base styles
-        '& > *:first-child': {
+        '& > *:first-of-type': {
           marginTop: 0,
         },
-        '& > *:last-child': {
+        '& > *:last-of-type': {
           marginBottom: 0,
         },
         

@@ -11,8 +11,8 @@ async function handle(req, res) {
     res.status(validationError.status).json({ error: { message: validationError.message } });
     return;
   }
-    
 
+  
     if (!req.body.gameID ||
       !req.body.gameID.length) {
       res.status(400).json({
@@ -39,8 +39,14 @@ async function handle(req, res) {
     // WE HAVE AN ACCOUNT AND THE USER IS AN EDITOR
     //
 
-    const savesList = await getAllSessionsForGameEditor(db, req.body.gameID, req.body.versionID, req.body.accountID, isAdmin);
-    res.status(200).json(savesList);
+    try {
+      const savesList = await getAllSessionsForGameEditor(db, req.body.gameID, req.body.versionID, req.body.accountID, isAdmin);
+      res.status(200).json(savesList);
+    } catch (error) {
+      console.error("++++ getAllSessionsForGameEditor: error: ", error);
+      throw error;
+    }
+    
 };
   
 

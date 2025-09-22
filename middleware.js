@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth0, auth0IsSandbox } from "@src/backend/auth0";
 
-const isSandbox = process.env.SANDBOX == 'true';
 
 export async function middleware(request) {
-  if (auth0IsSandbox || isSandbox) {
+
+  if (auth0IsSandbox) {
     return NextResponse.next();
   }
 

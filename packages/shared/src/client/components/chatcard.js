@@ -19,30 +19,13 @@ import { SyncProblem } from "@mui/icons-material";
 import { PrettyDate } from "@src/common/date";
 import { PrettyElapsedTime } from "@src/common/date";
 import { nullUndefinedOrEmpty } from "@src/common/objects";
-import { marked } from "marked";
+import ReactMarkdown from "react-markdown";
 import { ImageWithFallback } from "./standard/imagewithfallback";
 import { CircularProgress } from "@mui/material";
 import { getMessageStyling } from "@src/client/themestyling";
 import { PersonaIcons } from "./versioneditor/personas/icons";
-import DOMPurify from 'dompurify';
 
 
-// Create a custom renderer for marked
-const renderer = new marked.Renderer();
-
-// Override list item rendering to be more compact
-renderer.listitem = (text) => `<li style="margin: 0; padding: 0;">${text}</li>`;
-
-// Override paragraph rendering to remove extra spacing
-renderer.paragraph = (text) => `<p style="margin: 0; padding: 0;">${text}</p>`;
-
-// Configure marked options
-marked.setOptions({
-  renderer: renderer,
-  gfm: true,
-  breaks: true,
-  smartLists: true
-});
 
 const useStyles = makeStyles()((theme, pageTheme) => {
   const { colors, fonts } = pageTheme;
@@ -93,6 +76,33 @@ function ChatBotTypingIndicator(props) {
   );
 }
 
+function getFallbackPersona(theme) {
+  const colors = theme?.colors || {};
+  const fonts = theme?.fonts || {};
+  const messageBackgroundColor = colors.chatbotMessageBackgroundColor || "#f0f0f0";
+  const messageTextColor = colors.chatbotMessageTextColor || "#000000";
+  return {
+    displayName: "System",
+    personaID: "fallback-persona",
+    hideFromEndUsers: false,
+    theme: {
+      colors: {
+        messageBackgroundColor,
+        messageTextColor,
+        audioVisualizationColor: colors.chatbotMessageTextColor || messageTextColor,
+        buttonColor: colors.chatbotMessageBackgroundColor || colors.sendMessageButtonInactiveColor || messageBackgroundColor,
+      },
+      fonts: {
+        fontFamily: fonts.fontFamily || "Roboto, sans-serif",
+      },
+      icon: {
+        iconID: "Person",
+        color: messageTextColor,
+      },
+    },
+  };
+}
+
 export const ChatCard = memo(({
   message,
   deleteAllowed,
@@ -126,21 +136,19 @@ export const ChatCard = memo(({
   const [styling, setStyling] = useState(null);
   const [Icon, setIcon] = useState(null);
   const mediaTypes = nodeAttributes["mediaTypes"] || [];
+  const mediaTypesKey = Array.isArray(mediaTypes) ? mediaTypes.join('|') : "none";
 
   const hidden = hideOutput || persona?.hideFromEndUsers;
 
-
   useEffect(() => {
-    if (persona) {
-      const newStyling = getMessageStyling(mediaTypes, persona);
-      console.log("Chatcard styling: ", newStyling);
-      setStyling(newStyling);
-      const iconToUse = persona?.icon?.iconID
-        ? PersonaIcons[persona.theme.icon.iconID]
-        : PersonaIcons["Person"];
-      setIcon(iconToUse);
-    }
-  }, [persona]);
+    const personaForStyling = persona ?? getFallbackPersona(theme);
+    const newStyling = getMessageStyling(mediaTypes, personaForStyling);
+    console.log("Chatcard styling: ", newStyling);
+    setStyling(newStyling);
+    const iconID = personaForStyling?.theme?.icon?.iconID;
+    const iconToUse = iconID && PersonaIcons[iconID] ? PersonaIcons[iconID] : PersonaIcons["Person"];
+    setIcon(iconToUse);
+  }, [persona, theme, mediaTypesKey]);
 
 
   
@@ -290,9 +298,6 @@ export const ChatCard = memo(({
 
   
 function renderMarkup(key, markupText) {
-  const rawMarkup = marked(markupText);
-  const safeMarkup = DOMPurify.sanitize(rawMarkup);
-
   return (
     <Typography
       key={key}
@@ -301,11 +306,10 @@ function renderMarkup(key, markupText) {
         flex: 1,
         color: styling.color,
         fontFamily: styling.fontFamily,
-        whiteSpace: "pre-wrap",
         direction: "ltr",
         overflowWrap: "break-word",
         wordBreak: "break-word",
-        
+
         // Base styles
         '& > *:first-of-type': {
           marginTop: 0,
@@ -313,52 +317,52 @@ function renderMarkup(key, markupText) {
         '& > *:last-of-type': {
           marginBottom: 0,
         },
-        
+
         // Global reset
         '& *': {
           margin: 0,
           padding: 0,
         },
-        
+
         // Typography
         '& p, & li': {
           lineHeight: 1.4,
           marginBottom: '0.2em',
         },
-        
+
         // Lists
         '& ul, & ol': {
           paddingLeft: '1.5em',
           marginBottom: '0.2em',
         },
-        
+
         // Nested lists
         '& ul ul, & ol ol, & ul ol, & ol ul': {
           marginTop: 0,
           marginBottom: 0,
         },
-        
+
         // Headings
         '& h1, & h2, & h3, & h4, & h5, & h6': {
           lineHeight: 1.2,
           marginTop: '0.5em',
           marginBottom: '0.2em',
-          
-          '&:first-child': {
+
+          '&:first-of-type': {
             marginTop: 0,
           }
         },
-        
+
         // Code blocks
         '& pre': {
           margin: '0.3em 0',
         },
-        
+
         // Inline code
         '& code': {
           padding: '0.1em 0.2em',
         },
-        
+
         // Blockquotes
         '& blockquote': {
           margin: '0.3em 0',
@@ -367,10 +371,12 @@ function renderMarkup(key, markupText) {
         },
       }}
       component="div"
-      dangerouslySetInnerHTML={{ __html: safeMarkup }}
-    />
+    >
+      <ReactMarkdown>{markupText}</ReactMarkdown>
+    </Typography>
   );
 }
+
 
 
   function renderSpinner(key) {
@@ -742,3 +748,4 @@ function renderMarkup(key, markupText) {
     </Box>
   );
 });
+

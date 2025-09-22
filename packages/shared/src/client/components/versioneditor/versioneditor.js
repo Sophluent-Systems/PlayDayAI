@@ -49,7 +49,7 @@ import { VersionTemplates } from "./versiontemplates";
 import { NodeGraphDisplay } from "./graphdisplay/nodegraphdisplay";
 import { v4 as uuidv4 } from "uuid";
 import { ModalMenu } from '@src/client/components/standard/modalmenu';
-import { marked } from 'marked';
+import ReactMarkdown from 'react-markdown';
 import { replacePlaceholderSettingWithFinalValue } from '@src/client/components/settingsmenus/menudatamodel';
 import{ getMetadataForNodeType } from '@src/common/nodeMetadata';
 import { getAddableNodeTypes } from '@src/common/nodeMetadata';
@@ -488,9 +488,10 @@ function VersionEditor(props) {
                   <Typography
                     key={index}
                     style={{ color, display: "block" }}
-                    component="div" 
-                    dangerouslySetInnerHTML={{ __html: marked(part.value + "\n\n") }} 
-                  />
+                    component="div"
+                  >
+                    <ReactMarkdown>{part.value + "\n\n"}</ReactMarkdown>
+                  </Typography>
                 );
               }
             });

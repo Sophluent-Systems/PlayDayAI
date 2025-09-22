@@ -72,7 +72,13 @@ async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsC
 
   Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: Loaded state machine");
  
-  const messages = stateMachine.exportAsMessageList({skipDeleted: true, sortNewestFirst: false, includeDebugInfo: hasViewSourcePermissions});
+  const messages = stateMachine.exportAsMessageList({
+    skipDeleted: true,
+    sortNewestFirst: false,
+    includeDebugInfo: hasViewSourcePermissions,
+    includeFailed: true,
+    includeWaitingForExternalInput: true,
+  });
 
   Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: Got messages");
 

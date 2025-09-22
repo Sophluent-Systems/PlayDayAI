@@ -34,7 +34,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
   const isReconnectingRef = useRef(false);
 
   // Message management methods
-  const replaceMessages = useCallback((newMessages) => {
+  const replaceMessages = (newMessages) => {
 
     console.log("Replace messages: ", newMessages);
     if (!Array.isArray(newMessages) || newMessages.length === 0) {
@@ -56,9 +56,9 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     messagesRef.current = indexedMessages;
     setMessages(indexedMessages);
     return indexedMessages;
-  }, [resolveMessageKey]);
+  };
 
-  const addMessage = useCallback((message) => {
+  const addMessage = (message) => {
     const key = resolveMessageKey(message);
     if (!key) return { message: null, isNew: false };
 
@@ -76,9 +76,9 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     messagesRef.current = newMessages;
     setMessages(newMessages);
     return { message, isNew: true };
-  }, [resolveMessageKey]);
+  };
 
-  const updateMessageField = useCallback((messageID, field, value) => {
+  const updateMessageField = (messageID, field, value) => {
     const key = messageID == null ? null : String(messageID);
     if (!key) return null;
 
@@ -94,9 +94,9 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     messagesRef.current = newMessages;
     setMessages(newMessages);
     return updatedMessage;
-  }, []);
+  };
 
-  const appendMessageContent = useCallback((messageID, content) => {
+  const appendMessageContent = (messageID, content) => {
     const key = messageID == null ? null : String(messageID);
     if (!key) return null;
 
@@ -112,9 +112,9 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     messagesRef.current = newMessages;
     setMessages(newMessages);
     return updatedMessage;
-  }, []);
+  };
 
-  const finalizeMessage = useCallback((messageID) => {
+  const finalizeMessage = (messageID) => {
     const key = messageID == null ? null : String(messageID);
     if (!key) return null;
 
@@ -130,9 +130,9 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     messagesRef.current = newMessages;
     setMessages(newMessages);
     return updatedMessage;
-  }, []);
+  };
 
-  const removeMessagesByRecordIDs = useCallback((recordIDs) => {
+  const removeMessagesByRecordIDs = (recordIDs) => {
     if (!Array.isArray(recordIDs) || recordIDs.length === 0) {
       return { changed: false, messages: messagesRef.current };
     }
@@ -179,7 +179,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     setMessages(filteredMessages);
 
     return { changed: true, messages: filteredMessages };
-  }, [resolveMessageKey]);
+  };
 
   useEffect(() => {
     handlersRef.current = handlers;
@@ -198,8 +198,6 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      console.log("useMessagesClient cleanup --> Disconnecting");
-      disconnect();
     };
   }, []);
   
@@ -208,12 +206,15 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     if (sessionID !== currentSessionID.current ||
         accessToken !== currentAccessToken.current) {
 
-        console.log("useMessagesClient: sessionID or accessToken changed - disconnecting\sessionID: ", sessionID, "\naccessToken: ", accessToken);
-        disconnect();
-        
+        if (currentSessionID.current && currentAccessToken.current) {
+          disconnect();
+        }
+
+        // Set the current sessionID and accessToken
+        currentSessionID.current = sessionID;
+        currentAccessToken.current = accessToken;
+
         if (sessionID && accessToken) {
-          currentSessionID.current = sessionID;
-          currentAccessToken.current = accessToken;
           if (autoConnect) {
             connect();
           }
@@ -225,7 +226,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     return `${process.env.NEXT_PUBLIC_WS_BASE_URL}:${process.env.NEXT_PUBLIC_WS_PORT}/ws`;
   }
 
-  const buildMessageHandlers = useCallback(() => {
+  const buildMessageHandlers = () => {
     const callbacks = callbacksRef.current || {};
     const externalHandlers = handlersRef.current || {};
 
@@ -285,9 +286,9 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
         }
       }
     };
-  }, [sessionID, replaceMessages, addMessage, resolveMessageKey, updateMessageField, appendMessageContent, finalizeMessage, removeMessagesByRecordIDs]);
+  };
 
-  const subscribeToChannel = useCallback((channel) => {
+  const subscribeToChannel = (channel) => {
     if (!channel) {
       return () => {};
     }
@@ -313,7 +314,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
         channelHandlersRef.current = null;
       }
     };
-  }, [buildMessageHandlers]);
+  };
 
   const connect = async () => {
     if (wsRef.current) {
@@ -332,10 +333,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
         onClosed: () => {
           console.warn("WebSockets closed");
           if (!isReloadingRef.current) {
-            console.log("WebSockets closed - request retry");
             attemptReconnect();
-          } else {
-            console.log("WebSockets closed but we're reloading so ignoring");
           }
         },
       });
@@ -420,7 +418,6 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     }
 
     if (wsRef.current) {
-      console.log("messagesClient: closing WebSockets connection");
       wsRef.current.close();
       wsRef.current = null;
     }
@@ -458,14 +455,14 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     }, delay);
   };
 
-  const subscribeMessageClient = useCallback((channel) => {
+  const subscribeMessageClient = (channel) => {
     return subscribeToChannel(channel);
-  }, [subscribeToChannel]);
+  };
 
-  const clearMessageHistory = useCallback(() => {
+  const clearMessageHistory = () => {
     replaceMessages([]);
     handlersRef.current?.replaceMessageList?.([]);
-  }, [replaceMessages]);
+  };
 
 
   const sendHalt = async () => {

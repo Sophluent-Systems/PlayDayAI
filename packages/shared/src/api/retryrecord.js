@@ -127,7 +127,7 @@ async function handle(req, res) {
       if (recordIDsDeleted) {
         let workerChannel = new SessionPubSubChannel(sessionID);
         await workerChannel.connect();
-        await channel.deleteMessages(recordIDsDeleted);
+        await workerChannel.deleteMessages(recordIDsDeleted);
       }
 
       

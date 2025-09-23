@@ -68,7 +68,26 @@ const capabilityTiles = [
     description: 'Learn from curated best-practices and remix templates contributed by the Play Day.AI community.',
     icon: BookOpen,
   },
+]
+
+const quickNavLinks = [
+  {
+    label: 'My experiences',
+    description: 'Jump to the projects you are building right now.',
+    href: '#my-games',
+  },
+  {
+    label: 'Featured gallery',
+    description: 'Browse standout worlds from the community.',
+    href: '#featured-games',
+  },
+  {
+    label: 'Community lab',
+    description: 'Explore the latest experiments to remix.',
+    href: '#community',
+  },
 ];
+
 function RequireAccount({ children }) {
   const { loading, account } = useContext(stateManager);
 
@@ -268,6 +287,9 @@ export default function HomePage() {
     version,
     accountHasRole,
   } = useContext(stateManager);
+  const firstName = account?.displayName?.split(' ')[0];
+  const heroTitle = firstName ? 'Hi ' + firstName : 'Create living AI experiences';
+  const heroSubtitle = firstName ? 'Jump back in and launch something unforgettable.' : 'Build, iterate, and ship immersive AI adventures in minutes.';
   const [games, setGames] = useState([]);
   const [featuredGames, setFeaturedGames] = useState([]);
   const [myGames, setMyGames] = useState([]);
@@ -414,7 +436,6 @@ export default function HomePage() {
     router.push('/editgameversions/' + url);
   };
 
-  const gamesEmpty = !loading && account && games.length === 0;
   return (
     <RequireAccount>
       <main className="relative overflow-hidden pb-24">
@@ -422,12 +443,12 @@ export default function HomePage() {
         <div className="mx-auto w-full max-w-7xl px-4 pt-10 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <span className="tag bg-primary/10 text-primary">Play Day.AI</span>
+              <span className="tag bg-primary/10 text-primary">Play Day.AI Studio</span>
               <h1 className="mt-3 text-4xl font-semibold text-emphasis sm:text-5xl">
-                Welcome back{account ? ', ' + account.displayName : ''}
+                {heroTitle}
               </h1>
               <p className="mt-2 max-w-2xl text-base text-muted sm:text-lg">
-                Build immersive AI-first adventures faster than ever. Prototype ideas, test with players, and scale to production — all in one collaborative studio.
+                {heroSubtitle}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -439,135 +460,32 @@ export default function HomePage() {
               ) : null}
             </div>
           </header>
-          <section className="mt-14 grid gap-6 lg:grid-cols-[1.6fr_1fr]">
+          <section className="mt-10 grid gap-6 lg">
             <div className="glass-panel relative overflow-hidden p-8">
               <div className="absolute inset-y-0 right-0 hidden w-1/2 bg-gradient-to-tr from-primary/20 via-accent/10 to-secondary/10 blur-3xl md:block" aria-hidden="true" />
-              <h2 className="text-3xl font-semibold text-emphasis sm:text-4xl">Create worlds with adaptive AI</h2>
-              <p className="mt-3 max-w-xl text-muted">
-                Move beyond scripted interactions. Play Day.AI lets you orchestrate structured story beats with emergent AI behaviour, so every playthrough feels personal.
+              <h2 className="text-2xl font-semibold text-emphasis sm:text-3xl">Ship faster with a unified studio</h2>
+              <p className="mt-3 max-w-xl text-sm text-muted sm:text-base">
+                Bring structured story beats and adaptive AI into one canvas. Launch tests in minutes, gather feedback, and iterate without losing momentum.
               </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <PrimaryButton icon={Rocket} onClick={() => router.push('/play')}>
-                  Launch studio
-                </PrimaryButton>
-                <SecondaryButton icon={LayoutDashboard} onClick={() => router.push('/sessionlist')}>
-                  View analytics
-                </SecondaryButton>
-              </div>
-              <dl className="mt-10 grid gap-6 sm:grid-cols-3">
+              <dl className="mt-8 grid gap-4 sm:grid-cols-3">
                 {heroHighlights.map((item) => (
                   <div key={item.title} className="rounded-2xl border border-border/70 bg-surface/80 p-4">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
                       <item.icon className="h-5 w-5" aria-hidden="true" />
                     </div>
-                    <dt className="mt-4 text-sm font-semibold text-emphasis">{item.title}</dt>
-                    <dd className="mt-2 text-sm text-muted">{item.description}</dd>
+                    <dt className="mt-3 text-sm font-semibold text-emphasis">{item.title}</dt>
+                    <dd className="mt-1 text-xs text-muted sm:text-sm">{item.description}</dd>
                   </div>
                 ))}
               </dl>
             </div>
-            <div className="glass-panel flex h-full flex-col justify-between p-8">
-              <div>
-                <h3 className="text-2xl font-semibold text-emphasis">Quick start</h3>
-                <p className="mt-2 text-sm text-muted">
-                  Revisit your latest projects or jump into curated templates to accelerate ideation.
-                </p>
-              </div>
-              <div className="mt-6 space-y-4 text-sm">
-                <Link href="/play" className="flex items-center justify-between rounded-2xl border border-border/70 bg-surface/80 px-4 py-3 transition-all hover:-translate-y-1 hover:border-primary">
-                  <div>
-                    <p className="font-medium text-emphasis">Continue last session</p>
-                    <p className="text-xs text-muted">Resume from where you left off with your current build.</p>
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-primary" />
-                </Link>
-                <Link href="/trainingdata" className="flex items-center justify-between rounded-2xl border border-border/70 bg-surface/80 px-4 py-3 transition-all hover:-translate-y-1 hover:border-primary">
-                  <div>
-                    <p className="font-medium text-emphasis">Review training data</p>
-                    <p className="text-xs text-muted">Curate examples to improve conversational quality.</p>
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-primary" />
-                </Link>
-                <Link href="/static/about" className="flex items-center justify-between rounded-2xl border border-border/70 bg-surface/80 px-4 py-3 transition-all hover:-translate-y-1 hover:border-primary">
-                  <div>
-                    <p className="font-medium text-emphasis">Explore the community</p>
-                    <p className="text-xs text-muted">See how other creators experiment with AI design.</p>
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-primary" />
-                </Link>
-              </div>
-            </div>
           </section>
-          <section className="mt-20">
-            <SectionHeader
-              eyebrow="Capabilities"
-              title="Everything you need to orchestrate unforgettable AI journeys"
-              description="Design, deploy, and iterate with confidence using opinionated workflows built for AI-native experiences."
-            />
-            <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-              {capabilityTiles.map((tile) => (
-                <div key={tile.title} className="glass-panel relative overflow-hidden p-6">
-                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                    <tile.icon className="h-6 w-6" aria-hidden="true" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-emphasis">{tile.title}</h3>
-                  <p className="mt-3 text-sm text-muted">{tile.description}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-          <section className="mt-24">
-            <SectionHeader
-              eyebrow="Featured"
-              title="Showcase moments from the community"
-              description="Curated experiences pushing what AI-first gameplay can feel like."
-            />
-            <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {featuredGames.length === 0 ? (
-                <div className="glass-panel p-8 text-center text-muted">
-                  <p>No featured games yet. Mark a project as featured to highlight it here.</p>
-                </div>
-              ) : (
-                featuredGames.map((game) => (
-                  <GameCard
-                    key={game.gameID}
-                    game={game}
-                    accent="from-primary/20 via-surface to-surface"
-                    onPlay={() => handlePlay(game.url)}
-                    onResume={startNewGameSession ? () => handleResume(game.url) : null}
-                    onOpenMenu={handleOpenMenu(game.url)}
-                    menuOpen={!!activeMenu[game.url]}
-                    menuAnchor={(node) => {
-                      if (node && menuRefs.current[game.url] !== node) {
-                        menuRefs.current[game.url] = node;
-                      }
-                    }}
-                    onToggleFeatured={() => handleToggleFeatured(game)}
-                    canFeature={isAdmin}
-                    isFeatured={game.featuredIndex && game.featuredIndex > 0}
-                    featuredOrder={game.featuredIndex}
-                    moveFeatured={(direction) => handleMoveFeatured(game, direction)}
-                  >
-                    <GameMenuDropdown
-                      onMenuClose={() => closeMenu(game.url)}
-                      anchor={activeMenu[game.url] ? menuRefs.current[game.url] : null}
-                      gameUrl={game.url}
-                      gameID={game.gameID}
-                      allowEditOptions
-                      includePlayOption
-                      onToggleFeatured={() => handleToggleFeatured(game)}
-                      isFeatured={game.featuredIndex && game.featuredIndex > 0}
-                    />
-                  </GameCard>
-                ))
-              )}
-            </div>
-          </section>
-          <section className="mt-24">
+
+          <section id="my-games" className="mt-16">
             <SectionHeader
               eyebrow="Your studio"
               title="Continue crafting your universes"
-              description="Jump back into the projects you are actively designing and iterating."
+              description="Resume the experiences you are actively designing."
               cta={isCreator ? (
                 <PrimaryButton icon={Plus} onClick={() => setAddDialogOpen(true)}>
                   Create new project
@@ -615,11 +533,60 @@ export default function HomePage() {
               )}
             </div>
           </section>
-          <section className="mt-24">
+          <section id="featured-games" className="mt-16">
+            <SectionHeader
+              eyebrow="Featured"
+              title="Showcase moments from the community"
+              description="See the community's latest standout worlds."
+            />
+            <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {featuredGames.length === 0 ? (
+                <div className="glass-panel p-8 text-center text-muted">
+                  <p>No featured games yet. Mark a project as featured to highlight it here.</p>
+                </div>
+              ) : (
+                featuredGames.map((game) => (
+                  <GameCard
+                    key={game.gameID}
+                    game={game}
+                    accent="from-primary/20 via-surface to-surface"
+                    onPlay={() => handlePlay(game.url)}
+                    onResume={startNewGameSession ? () => handleResume(game.url) : null}
+                    onOpenMenu={handleOpenMenu(game.url)}
+                    menuOpen={!!activeMenu[game.url]}
+                    menuAnchor={(node) => {
+                      if (node && menuRefs.current[game.url] !== node) {
+                        menuRefs.current[game.url] = node;
+                      }
+                    }}
+                    onToggleFeatured={() => handleToggleFeatured(game)}
+                    canFeature={isAdmin}
+                    isFeatured={game.featuredIndex && game.featuredIndex > 0}
+                    featuredOrder={game.featuredIndex}
+                    moveFeatured={(direction) => handleMoveFeatured(game, direction)}
+                  >
+                    <GameMenuDropdown
+                      onMenuClose={() => closeMenu(game.url)}
+                      anchor={activeMenu[game.url] ? menuRefs.current[game.url] : null}
+                      gameUrl={game.url}
+                      gameID={game.gameID}
+                      allowEditOptions
+                      includePlayOption
+                      onToggleFeatured={() => handleToggleFeatured(game)}
+                      isFeatured={game.featuredIndex && game.featuredIndex > 0}
+                    />
+                  </GameCard>
+                ))
+              )}
+            </div>
+          </section>
+
+
+          <section id="community" className="mt-20">
             <SectionHeader
               eyebrow="Community"
               title="Discover what other creators are building"
-              description="Play, remix, and learn from the latest experiments across the Play Day.AI community."
+              description="Play, remix, and learn from the latest experiments shipping right now."
               cta={communityGames.length > 6 ? (
                 <SecondaryButton icon={ArrowRight} onClick={() => setShowCommunity((prev) => !prev)}>
                   {showCommunity ? 'Show fewer' : 'Show more'}
@@ -667,7 +634,26 @@ export default function HomePage() {
               )}
             </div>
           </section>
-          <section className="mt-24">
+
+          <section className="mt-16">
+            <SectionHeader
+              eyebrow="Capabilities"
+              title="Everything you need to orchestrate unforgettable AI journeys"
+              description="Design, deploy, and iterate with confidence using workflows built for AI-native experiences."
+            />
+            <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {capabilityTiles.map((tile) => (
+                <div key={tile.title} className="glass-panel relative overflow-hidden p-6">
+                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <tile.icon className="h-6 w-6" aria-hidden="true" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-emphasis">{tile.title}</h3>
+                  <p className="mt-3 text-sm text-muted">{tile.description}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section className="mt-20">
             <div className="glass-panel flex flex-col items-center gap-6 px-8 py-12 text-center sm:flex-row sm:text-left">
               <div className="sm:w-2/3">
                 <h3 className="text-2xl font-semibold text-emphasis sm:text-3xl">Bring your next AI experience to life</h3>
@@ -686,7 +672,7 @@ export default function HomePage() {
             </div>
           </section>
 
-          <footer className="mt-24 grid gap-4 text-sm text-muted sm:grid-cols-2 md:grid-cols-4">
+          <footer className="mt-20 grid gap-4 text-sm text-muted sm:grid-cols-2 md:grid-cols-4">
             <Link href="https://docs.google.com/document/d/1FtpERx7EtV0420Gl2h4MGUh1O9lwjccS3S4Owai5yE8" target="_blank" rel="noopener" className="transition-colors hover:text-primary">
               Getting started guide
             </Link>
@@ -708,21 +694,6 @@ export default function HomePage() {
             <p className="sm:col-span-2 md:col-span-4">© {new Date().getFullYear()} Play Day.AI. Crafted for modern storytellers.</p>
           </footer>
         </div>
-        {gamesEmpty ? (
-          <div className="mx-auto mt-12 max-w-3xl px-4">
-            <div className="glass-panel text-center">
-              <h3 className="text-2xl font-semibold text-emphasis">Build your first playable concept</h3>
-              <p className="mt-3 text-muted">
-                You control the narrative, the AI, and the pacing. Spin up a new project and start experimenting today.
-              </p>
-              {isCreator ? (
-                <PrimaryButton icon={Plus} onClick={() => setAddDialogOpen(true)} className="mt-6">
-                  Create your first project
-                </PrimaryButton>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
 
         <Modal
           open={addDialogOpen}

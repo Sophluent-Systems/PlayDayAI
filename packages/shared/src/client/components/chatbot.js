@@ -553,7 +553,6 @@ const handleAudioStateChange = (audioType, newState) => {
 }
 
   const sendMessage = async (mediaTypes) => {
-    console.log("sendMessage ", mediaTypes, " singleStep=", account.preferences?.debugSettings?.singleStep);
     
     setWaitingForInput(false);
     await callSendInputData(

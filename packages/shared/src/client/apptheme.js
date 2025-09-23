@@ -1,135 +1,148 @@
-// In apptheme.js
 import { createTheme } from '@mui/material/styles';
 import { primaryPalette } from '@src/common/theme';
 
-export const theme = createTheme({
-  palette: {
-    mode: 'dark', // Set the theme to dark mode
+const typography = {
+  h1: {
+    fontSize: '3.5rem',
+    fontWeight: 600,
+  },
+  h2: {
+    fontSize: '2.75rem',
+    fontWeight: 600,
+  },
+  h3: {
+    fontSize: '2.125rem',
+    fontWeight: 600,
+  },
+  h4: {
+    fontSize: '1.75rem',
+    fontWeight: 600,
+  },
+  body1: {
+    fontSize: '1rem',
+  },
+  body2: {
+    fontSize: '0.875rem',
+  },
+};
+
+const buildPalette = (mode) => {
+  if (mode === 'light') {
+    return {
+      mode,
+      primary: {
+        main: '#4361ee',
+        contrastText: '#ffffff',
+      },
+      secondary: {
+        main: '#22c55e',
+        contrastText: '#052e16',
+      },
+      background: {
+        default: '#f5f7ff',
+        paper: '#ffffff',
+      },
+      text: {
+        primary: '#111827',
+        secondary: '#475569',
+        disabled: '#9ca3af',
+      },
+      divider: '#e2e8f0',
+    };
+  }
+
+  return {
+    mode,
     primary: {
-      main: primaryPalette["Teal"],
-      contrastText: primaryPalette["Deep Space Blue"],
+      main: primaryPalette['Teal'],
+      contrastText: primaryPalette['Deep Space Blue'],
     },
     secondary: {
-      main: primaryPalette["Amber"],
-      contrastText: primaryPalette["Deep Space Blue"],
+      main: primaryPalette['Amber'],
+      contrastText: primaryPalette['Deep Space Blue'],
     },
     background: {
-      default: primaryPalette["Deep Space Blue"],
-      main: primaryPalette["Deep Space Blue"],
-      paper: primaryPalette["Dark Slate Gray"],
-      immersive: process.env.NODE_ENV === 'production' ? primaryPalette["Deep Space Blue"] : 'magenta',
+      default: primaryPalette['Deep Space Blue'],
+      paper: primaryPalette['Dark Slate Gray'],
     },
     text: {
-      primary: primaryPalette["White Smoke"],
-      secondary: primaryPalette["Cool Gray"],
-      disabled: primaryPalette["Muted Gray"],
+      primary: primaryPalette['White Smoke'],
+      secondary: primaryPalette['Cool Gray'],
+      disabled: primaryPalette['Muted Gray'],
     },
-  },
-  typography: {
-    h1: {
-      fontSize: '5rem',
-      fontWeight: 500,
-      color: primaryPalette["White Smoke"],
-    },
-    h2: {
-      fontSize: '3.5rem',
-      fontWeight: 500,
-      color: primaryPalette["White Smoke"],
-    },
-    h3: {
-      fontSize: '2.5rem',
-      fontWeight: 500,
-      color: primaryPalette["White Smoke"],
-    },
-    h4: {
-      fontSize: '1.5rem',
-      fontWeight: 500,
-      color: primaryPalette["White Smoke"],
-    },
-    body1: {
-      fontSize: '1rem',
-      color: primaryPalette["Cool Gray"],
-    },
-    body2: {
-      fontSize: '0.875rem',
-      color: primaryPalette["Cool Gray"],
-    },
-  },
-  components: {
+    divider: '#243042',
+  };
+};
+
+export const createAppTheme = (mode = 'dark') => {
+  const palette = buildPalette(mode);
+  const baseTheme = createTheme({
+    palette,
+    typography,
+  });
+
+  const primaryAlpha = (alpha) => baseTheme.palette.primary.main + alpha;
+  const secondaryAlpha = (alpha) => baseTheme.palette.secondary.main + alpha;
+
+  baseTheme.components = {
     MuiButton: {
       styleOverrides: {
         root: {
           textTransform: 'none',
+          borderRadius: 999,
+          paddingInline: baseTheme.spacing(2.5),
+          paddingBlock: baseTheme.spacing(1),
+          fontWeight: 600,
         },
         containedPrimary: {
-          backgroundColor: primaryPalette["Teal"],
-          color: primaryPalette["White Smoke"],
+          backgroundColor: baseTheme.palette.primary.main,
+          color: baseTheme.palette.primary.contrastText,
           '&:hover': {
-            backgroundColor: primaryPalette["Light Teal"], // Ensure hover contrast
-            color: primaryPalette["Deep Space Blue"], // Light text on hover
-          },
-          '&:active': {
-            backgroundColor: primaryPalette["Bright Blue"], // Ensure vibrancy
-            color: primaryPalette["White Smoke"],
+            backgroundColor: baseTheme.palette.primary.dark || '#2747c7',
+            color: baseTheme.palette.primary.contrastText,
           },
         },
         containedSecondary: {
-          backgroundColor: primaryPalette["Amber"],
-          color: primaryPalette["Deep Space Blue"],
+          backgroundColor: baseTheme.palette.secondary.main,
+          color: baseTheme.palette.secondary.contrastText,
           '&:hover': {
-            backgroundColor: primaryPalette["Dark Orange"], // More distinct hover color
-            color: primaryPalette["White Smoke"],
-          },
-          '&:active': {
-            backgroundColor: primaryPalette["Bright Blue"], // Ensure vibrancy
-            color: primaryPalette["White Smoke"],
+            backgroundColor: baseTheme.palette.secondary.dark || '#16a34a',
+            color: baseTheme.palette.secondary.contrastText,
           },
         },
         outlinedPrimary: {
-          borderColor: primaryPalette["Teal"],
-          color: primaryPalette["Teal"],
+          borderColor: baseTheme.palette.primary.main,
+          color: baseTheme.palette.primary.main,
           '&:hover': {
-            backgroundColor: primaryPalette["Light Teal"], // Lighter background on hover
-            color: primaryPalette["Deep Space Blue"],
-          },
-          '&:active': {
-            backgroundColor: primaryPalette["Bright Blue"],
-            color: primaryPalette["White Smoke"],
+            backgroundColor: primaryAlpha('1a'),
+            borderColor: baseTheme.palette.primary.main,
           },
         },
         outlinedSecondary: {
-          borderColor: primaryPalette["Amber"],
-          color: primaryPalette["Amber"],
+          borderColor: baseTheme.palette.secondary.main,
+          color: baseTheme.palette.secondary.main,
           '&:hover': {
-            backgroundColor: primaryPalette["Dark Orange"], // Distinct hover color
-            color: primaryPalette["White Smoke"],
-          },
-          '&:active': {
-            backgroundColor: primaryPalette["Bright Blue"],
-            color: primaryPalette["White Smoke"],
+            backgroundColor: secondaryAlpha('1a'),
+            borderColor: baseTheme.palette.secondary.main,
           },
         },
         textPrimary: {
-          color: primaryPalette["White Smoke"],
+          color: baseTheme.palette.primary.main,
           '&:hover': {
-            backgroundColor: primaryPalette["Cool Gray"],
-          },
-          '&:active': {
-            backgroundColor: primaryPalette["Dark Slate Gray"],
+            backgroundColor: primaryAlpha('12'),
           },
         },
         textSecondary: {
-          color: primaryPalette["Cool Gray"],
+          color: baseTheme.palette.secondary.main,
           '&:hover': {
-            backgroundColor: primaryPalette["Light Amber"],
-            color: primaryPalette["White Smoke"],
-          },
-          '&:active': {
-            backgroundColor: primaryPalette["Dark Slate Gray"],
-            color: primaryPalette["White Smoke"],
+            backgroundColor: secondaryAlpha('12'),
           },
         },
       },
     },
-  },
-});
+  };
+
+  return baseTheme;
+};
+
+export const theme = createAppTheme('dark');

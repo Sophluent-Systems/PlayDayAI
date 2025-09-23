@@ -112,7 +112,7 @@ export class AudioManager {
     updateSpeechAndsoundEffectQueues(newMessages) {
         
         if (!newMessages || newMessages.length == 0) {
-            console.log("AudioManager: No messages to process")
+            Constants.debug.logAudioPlayback && console.log("AudioManager: No messages to process")
             return;
         }
 

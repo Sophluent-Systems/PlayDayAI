@@ -312,7 +312,6 @@ function ChatBot(props) {
   }
 
   async function sendContinuationRequest(ignoreSingleStepSetting = false) {
-    console.log("sendContinuationRequest");
     if (isReloadingRef.current) {
       // nevermind
       return;
@@ -391,11 +390,9 @@ function ChatBot(props) {
 
 
   async function subscribeForStateMachineUpdates() {
-    console.log("subscribeForStateMachineUpdates");
 
       const commandHandlers = {
         "initcomplete": (command, data) => {
-          console.log("CHATBOT INIT COMPLETE");
           setProcessingUnderway(false);
           sendContinuationRequest();
         },
@@ -448,7 +445,6 @@ function ChatBot(props) {
             break;
             case "waitingForExternalInput":
               if (data.nodeInstanceID) {
-                console.log("Waiting for user input: ", data.waitingFor.join(", "));
                 setSupportedMediaTypes(data.waitingFor);
                 setInputNodeInstanceID(data.nodeInstanceID);
                 setWaitingForInput(true);
@@ -526,9 +522,8 @@ function ChatBot(props) {
 
       if (newConnection) {
         const url = getWSUrl();
-        console.log("Connecting to: ", url)
         await stateMachineWebsocket.current.connect({url});
-        console.log("Connected to state machine websocket");
+        console.log("Connected to: ", url)
       }
 
       // Assume this process will kick the state machine into action
@@ -537,9 +532,7 @@ function ChatBot(props) {
 
       return new Promise((resolve, reject) => {
         try {
-            console.log("connected")
             stateMachineWebsocket.current.sendCommand("command", {type: "initializeConnection", accessToken: accessToken, payload: {sessionID: sessionID, gameID: game?.gameID}}).then(() => {
-              console.log("sent init command")
               resolve();
             }).catch((error) => {
               console.log("failed to send init command")

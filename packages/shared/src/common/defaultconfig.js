@@ -373,7 +373,7 @@ export const defaultConstants = {
     ],
     "debug": {
         "logAICalls": false,
-        "logAudioPlayback": true,
+        "logAudioPlayback": false,
         "logAssistantPrompts": false,
         "logCode": false,
         "logCodeEditor": false,

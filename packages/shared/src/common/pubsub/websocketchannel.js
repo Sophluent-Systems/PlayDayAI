@@ -52,7 +52,6 @@ export class WebSocketChannel extends MessagesPubServer {
               reject('WebSocketChannel.connect: No URL provided');
               return;
             }
-            console.log(`Connecting to WebSocket at ${url}`);
             ws = new WebSocket(url);
           }
 

@@ -82,7 +82,6 @@ export async function callUpdateGameInfo(gameInfo) {
 
 
 export async function callGetSessionInfo(gameID, sessionID) {
-    console.log("callGetSessionInfo gameID=", gameID, " sessionID=", sessionID);
   
     try {
         const response = await fetch("/api/getsessioninfo", {
@@ -234,15 +233,12 @@ export async function callSendInputData(sessionID, instanceID, mediaTypes, param
 
 
 export async function callStateMachineContinuationRequest(sessionID, params={}) {
-    console.log("callStateMachineContinuationRequest");
     
     let paramsToSend = {
         sessionID: sessionID,
         requestType: "continuation",
         ...params
     };
-
-    console.log("callStateMachineContinuationRequest: ", JSON.stringify(paramsToSend, null, 2));
 
     try {
           const response = await fetch("/api/statemachinerequest", {

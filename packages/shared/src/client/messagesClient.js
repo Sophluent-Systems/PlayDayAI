@@ -36,7 +36,6 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
   // Message management methods
   const replaceMessages = (newMessages) => {
 
-    console.log("Replace messages: ", newMessages);
     if (!Array.isArray(newMessages) || newMessages.length === 0) {
       messageIndexMapRef.current = {};
       messagesRef.current = [];

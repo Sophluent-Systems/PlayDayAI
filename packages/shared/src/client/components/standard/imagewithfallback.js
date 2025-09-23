@@ -1,30 +1,53 @@
 import { nullUndefinedOrEmpty } from '@src/common/objects';
-import React, { useState, useEffect, use } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 export function ImageWithFallback({ primary, fallback, ...props }) {
-    const [internalSrc, setInternalSrc] = useState("");
+  const imgRef = useRef(null);
+  const initialSrc = useMemo(() => {
+    if (!nullUndefinedOrEmpty(primary)) {
+      return primary;
+    }
+    if (!nullUndefinedOrEmpty(fallback)) {
+      return fallback;
+    }
+    return null;
+  }, [primary, fallback]);
+  const [src, setSrc] = useState(initialSrc);
 
-    useEffect(() => {
-        if (!nullUndefinedOrEmpty(primary)) {
-            setInternalSrc(primary);
+  useEffect(() => {
+    if (!nullUndefinedOrEmpty(primary)) {
+      setSrc(primary);
+    } else if (!nullUndefinedOrEmpty(fallback)) {
+      setSrc(fallback);
+    } else {
+      setSrc(null);
+    }
+  }, [primary, fallback]);
+
+  useEffect(() => {
+    const node = imgRef.current;
+    if (!node) {
+      return undefined;
+    }
+
+    function handleError() {
+      setSrc((current) => {
+        if (!nullUndefinedOrEmpty(fallback) && current !== fallback) {
+          return fallback;
         }
-    }, [primary]);
+        return null;
+      });
+    }
 
+    node.addEventListener('error', handleError);
+    return () => {
+      node.removeEventListener('error', handleError);
+    };
+  }, [fallback]);
 
-    useEffect(() => {
-        function setFallbackImg(event) {
-            if (!nullUndefinedOrEmpty(internalSrc)) {
-                setInternalSrc(fallback);
-            }
-        }
-        document.getElementById('mainImage')?.addEventListener('error', setFallbackImg);
-
-        return () => {
-            document.getElementById('mainImage')?.removeEventListener('error', setFallbackImg);
-        }
-    }), [];
-
-    return (
-      <img id="mainImage" src={internalSrc} {...props} />
-    );
+  if (!src) {
+    return null;
   }
+
+  return <img ref={imgRef} src={src} {...props} />;
+}

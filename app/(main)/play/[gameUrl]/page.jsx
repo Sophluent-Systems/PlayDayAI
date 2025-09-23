@@ -1,235 +1,579 @@
 'use client';
 
-import React, { memo, useEffect, useState } from 'react';
+import React, { memo, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import clsx from 'clsx';
+import { createPortal } from 'react-dom';
+import {
+  ChevronDown,
+  Layers,
+  Sparkles,
+  Clock,
+  Users,
+  Pencil,
+  Trash2,
+  Plus,
+  RefreshCcw,
+  X,
+} from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import ChatBot from '@src/client/components/chatbot';
 import { RequireAuthentication } from '@src/client/components/standard/requireauthentication';
-import { DefaultLayout } from '@src/client/components/standard/defaultlayout';
-import { StandardContentArea } from '@src/client/components/standard/standardcontentarea';
-import { InfoBubble } from '@src/client/components/standard/infobubble';
-import { defaultAppTheme } from '@src/common/theme';
-import { useRouter } from 'next/router';
 import { stateManager } from '@src/client/statemanager';
-import GameMenu  from '@src/client/components/gamemenu';
-import { MenuItemList } from '@src/client/components/standard/menuitemlist';
-import { CollapsiblePanelLayout } from '@src/client/components/standard/collapsiblepanellayout';
-import { VersionSelector } from '@src/client/components/versionselector';
-import { callGetAllSessionsForGame } from '@src/client/editor';
-import { PrettyDate } from '@src/common/date';
-import { 
-  Typography, 
-  ListItem,
-} from '@mui/material';
-import { ContextMenu } from '@src/client/components/standard/contextmenu';
+import GameMenu from '@src/client/components/gamemenu';
+import { defaultAppTheme } from '@src/common/theme';
+import { callGetAllSessionsForGame, callAddGameVersion } from '@src/client/editor';
 import { callDeleteGameSession, callRenameSession } from '@src/client/gameplay';
-import { TextDialog } from '@src/client/components/standard/textdialog';
+import { PrettyDate } from '@src/common/date';
+import { analyticsReportEvent } from '@src/client/analytics';
+import { UserProfileMenu } from '@src/client/components/userprofilemenu';
 
+function overlayPortal(content) {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  return createPortal(content, document.body);
+}
 
-function Home(props) {
-  const router = useRouter();
-  const { account, loading, game, versionList, version, session,setAccountPreference, switchVersionByName, gamePermissions, editMode, switchSessionID } = React.useContext(stateManager);
-  const [sessions, setSessions] = useState(null);
-  const [menuItems, setMenuItems] = useState([]);
-  const [renameSession, setRenameSession] = useState(undefined);
-
-  const themeToUse = game ? (game.theme ? game.theme : defaultAppTheme) : defaultAppTheme;
-  
+function SelectionSheet({ open, title, description, onClose, children, footer }) {
   useEffect(() => {
-    if (game && account && versionList && versionList.length > 0 && !version) {
-        // if game.primaryVersion exists and is in the versionList, use that
-        if (game.primaryVersion && versionList.find(v => v.versionName === game.primaryVersion)) {
-          switchVersionByName(game.primaryVersion);
-          return;
-        }
-        
-        // Otherwise find the most recently updated version
-        let sortedVersions = [...versionList];
-        sortedVersions.sort((a, b) => new Date(b.lastUpdatedDate) - new Date(a.lastUpdatedDate));
-        // if no published version, find the first unpublished version
-        switchVersionByName(sortedVersions[0].versionName);
+    if (!open) {
+      return undefined;
     }
-  }, [account, versionList, game]);
-
-  function renderWithFormatting(children) {
-    return (
-      <StandardContentArea>
-          <InfoBubble>
-            {children}
-          </InfoBubble>
-      </StandardContentArea>
-    );
-  }
-
-
-  async function refreshGameSessions() {
-    try {
-      const sessionList = await callGetAllSessionsForGame(game.gameID, version.versionID, account.accountID);
-      setSessions(sessionList);
-      const newMenuItems = sessionList ? sessionList.map((session, index) => printSessionItem(session, index)) : [];
-      setMenuItems(newMenuItems);
-    } catch (error) {
-      console.error('Error fetching game sessions:', error);
+    function handleKey(event) {
+      if (event.key === 'Escape') {
+        onClose();
+      }
     }
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [open, onClose]);
+
+  if (!open) {
+    return null;
   }
 
-async function handleDeleteSession(sessionID) {
-  console.log("Delete session: ", sessionID);
-  await callDeleteGameSession(sessionID);
-  refreshGameSessions();
-}
-
-const handleRenameUpdated = async (newText) => {
-  if (newText && newText != renameSession.assignedName) {
-    console.log("Rename session: ", renameSession.assignedName, " to ", newText);
-    await callRenameSession(game.gameID, renameSession.sessionID, newText);
-    refreshGameSessions();
-  }
-  setRenameSession(undefined);
-}
-
-function beginRename(session) {
-  console.log("Begin rename: ", session)
-  setRenameSession(session);
-}
-
-
-function generateMenuItems(session, index) {
-  let menuItems = [{onClick: () => handleDeleteSession(session.sessionID), label: "Delete"},
-                   { onClick: () => beginRename(session), label: "Rename"}];
-
-  return menuItems;
-}
-  
-function printSessionItem(session, index) {
-  const accountName = session?.account?.email ? session.account.email : session.accountID;
-  const assignedName = session.assignedName ? session.assignedName : null;
-  return (
-    <ListItem key={index} sx={{ padding: '8px 16px' }}> 
-      <ContextMenu menuItems={generateMenuItems(session, index)}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            {assignedName ? (
-              <Typography
-              variant="body1" // Change the variant to adjust font size
-              color="inherit"
-              >
-              {assignedName}
-              </Typography>
-            ): null}
-            {assignedName ? (
-              <Typography
-                variant="body2" // Change the variant to adjust font size
-                color="textSecondary"
-                style={{ marginTop: 1 }}
-              >
-                User: {accountName}
-              </Typography>
-            ) : (
-            <Typography
-              variant="body1" // Change the variant to adjust font size
-              color="inherit"
-            >
-              User: {accountName}
-            </Typography>
-            )}
-            <Typography
-              variant="body2" // Change the variant to adjust font size
-              color="textSecondary"
-              style={{ marginTop: 1 }}
-            >
-              Last played: {PrettyDate(session.latestUpdate)}
-            </Typography>
-            <Typography
-              variant="body2" // Change the variant to adjust font size
-              color="textSecondary"
-              style={{ marginTop: 1 }}
-            >
-              Version: {session.versionInfo.versionName}
-            </Typography>
+  return overlayPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-4 backdrop-blur">
+      <div className="w-full max-w-3xl rounded-3xl border border-border/70 bg-surface p-6 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.6)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-semibold text-emphasis">{title}</h2>
+            {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
           </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-border/70 p-2 text-muted transition-colors hover:border-primary/50 hover:text-primary"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
-      </ContextMenu>
-    </ListItem>
+        <div className="mt-6 max-h-[60vh] overflow-y-auto pr-1">{children}</div>
+        {footer ? <div className="mt-6 flex flex-wrap justify-end gap-3">{footer}</div> : null}
+      </div>
+    </div>
   );
 }
-  
+
+function RenameDialog({ open, initialValue, onSubmit, onCancel }) {
+  const [value, setValue] = useState(initialValue || '');
+
   useEffect(() => {
-    if (version && account) {
-        refreshGameSessions();
+    if (open) {
+      setValue(initialValue || '');
     }
-  }, [version, account]);
-  
+  }, [open, initialValue]);
 
-  const handleMenuItemSelected = (index) => {
-    if (sessions[index].sessionID != session?.sessionID) {
-      switchSessionID(sessions[index].sessionID);
-    }
-  };
+  return (
+    <SelectionSheet
+      open={open}
+      title="Rename session"
+      description="Give your session a friendly name so teammates can find it quickly."
+      onClose={onCancel}
+      footer={[
+        <button
+          key="cancel"
+          type="button"
+          onClick={onCancel}
+          className="rounded-full border border-border px-4 py-2 text-sm font-semibold text-muted transition-colors hover:text-emphasis"
+        >
+          Cancel
+        </button>,
+        <button
+          key="save"
+          type="button"
+          onClick={() => onSubmit(value.trim())}
+          className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 hover:shadow-[0_18px_32px_-18px_rgba(99,102,241,0.6)]"
+          disabled={!value.trim()}
+        >
+          Save name
+        </button>,
+      ]}
+    >
+      <label className="block text-sm font-medium text-emphasis">
+        Session title
+        <input
+          className="mt-2 w-full rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-emphasis focus:border-primary focus:outline-none"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          placeholder="e.g. Playtest with Sam"
+        />
+      </label>
+    </SelectionSheet>
+  );
+}
 
-  function renderWithFormatting(children) {
+function VersionList({
+  versions,
+  activeVersionName,
+  onSelect,
+  allowAdd,
+  onCreate,
+  creating,
+}) {
+  return (
+    <div className="space-y-3">
+      <ul className="space-y-2">
+        {versions.length === 0 ? (
+          <li className="rounded-2xl border border-dashed border-border/70 bg-surface/80 px-4 py-6 text-center text-sm text-muted">
+            No versions yet. Create one to start playtesting.
+          </li>
+        ) : (
+          versions.map((version) => {
+            const isActive = version.versionName === activeVersionName;
+            return (
+              <li key={version.versionID}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(version.versionName)}
+                  className={clsx(
+                    'flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-all duration-200',
+                    isActive
+                      ? 'border-primary/60 bg-primary/10 text-primary'
+                      : 'border-border/60 bg-surface/80 text-emphasis hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10'
+                  )}
+                >
+                  <div>
+                    <p className="text-sm font-semibold">{version.versionName}</p>
+                    <p className="mt-1 text-xs text-muted">Updated {PrettyDate(version.lastUpdatedDate)}</p>
+                  </div>
+                  {version.published ? (
+                    <span className="rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
+                      Live
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })
+        )}
+      </ul>
+      {allowAdd ? (
+        <button
+          type="button"
+          onClick={onCreate}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/60 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
+          disabled={creating}
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          New version
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function SessionList({
+  sessions,
+  activeSessionID,
+  onSelect,
+  onRename,
+  onDelete,
+}) {
+  if (!sessions || sessions.length === 0) {
     return (
-      <StandardContentArea>
-          <InfoBubble>
-            {children}
-          </InfoBubble>
-      </StandardContentArea>
+      <div className="rounded-2xl border border-dashed border-border/70 bg-surface/80 px-6 py-8 text-center text-sm text-muted">
+        No saved sessions yet. Launch the experience to create one.
+      </div>
     );
   }
 
-  function contentComponent() {
-    return <ChatBot url={game?.url} title={game?.title} theme={themeToUse} session={session} version={version} versionList={versionList} />;
+  return (
+    <ul className="space-y-2">
+      {sessions.map((item) => {
+        const assignedName = item.assignedName || 'Untitled session';
+        const accountName = item?.account?.email || item.accountID;
+        const isActive = item.sessionID === activeSessionID;
+        return (
+          <li key={item.sessionID}>
+            <div
+              className={clsx(
+                'flex flex-col gap-3 rounded-2xl border px-4 py-4 transition-all duration-200 sm:flex-row sm:items-center sm:justify-between',
+                isActive
+                  ? 'border-primary/60 bg-primary/10 text-primary'
+                  : 'border-border/60 bg-surface/80 text-emphasis hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10'
+              )}
+            >
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => onSelect(item.sessionID)}
+                  className="text-left"
+                >
+                  <p className="text-sm font-semibold">{assignedName}</p>
+                  <p className="text-xs text-muted">
+                    Player: {accountName} - Last played {PrettyDate(item.latestUpdate)} - Version {item.versionInfo.versionName}
+                  </p>
+                </button>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted">
+                <button
+                  type="button"
+                  onClick={() => onRename(item)}
+                  className="inline-flex items-center gap-1 rounded-full border border-border/60 px-3 py-1 transition-colors hover:border-primary/40 hover:text-primary"
+                >
+                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(item.sessionID)}
+                  className="inline-flex items-center gap-1 rounded-full border border-border/60 px-3 py-1 transition-colors hover:border-red-400 hover:text-red-500"
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  Delete
+                </button>
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+const defaultThemeCard = {
+  gradient: 'linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(56,189,248,0.12) 100%)',
+};
+
+function buildThemeCard(theme) {
+  if (!theme) {
+    return defaultThemeCard;
   }
+  const colors = theme.colors || {};
+  const primary = colors.buttonColor || colors.messageBackgroundColor || '#6366f1';
+  const secondary = colors.messageTextColor || '#14b8a6';
+  return {
+    gradient: `linear-gradient(135deg, ${primary}26 0%, ${secondary}1f 100%)`,
+  };
+}
 
+function Home() {
+  const router = useRouter();
+  const {
+    account,
+    loading,
+    game,
+    versionList,
+    version,
+    session,
+    switchVersionByName,
+    gamePermissions,
+    editMode,
+    switchSessionID,
+  } = useContext(stateManager);
 
-  const panels = editMode ?  [
-    {
-      content: 
-      <DefaultLayout>
-        <StandardContentArea>
-          <VersionSelector />,
-        </StandardContentArea>
-      </DefaultLayout>,
-      width: 200,
-      label: 'Versions',
-      defaultOpen: false
-    },
-    {
-      content: <DefaultLayout theme={defaultAppTheme}><StandardContentArea><MenuItemList menuItems={menuItems} onMenuItemSelected={handleMenuItemSelected} autoSelect /></StandardContentArea></DefaultLayout>,
-      width: 200,
-      label: 'Sessions',
-      defaultOpen: false
-    },
-    {
-      content: contentComponent(),
-      label: 'Play',
-      defaultOpen: true,
-      lockedOpen: true
-    },
-  ] : [];
+  const [sessions, setSessions] = useState([]);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [renameSession, setRenameSession] = useState(null);
+  const [creatingVersion, setCreatingVersion] = useState(false);
+  const [loadingSessions, setLoadingSessions] = useState(false);
 
+  const themeToUse = game?.theme || defaultAppTheme;
+  const themeCard = useMemo(() => buildThemeCard(themeToUse), [themeToUse]);
+  const activeVersionName = version?.versionName;
+  const activeSessionID = session?.sessionID;
+
+  useEffect(() => {
+    if (game && account && versionList && versionList.length > 0 && !version) {
+      if (game.primaryVersion && versionList.find((item) => item.versionName === game.primaryVersion)) {
+        switchVersionByName(game.primaryVersion);
+        return;
+      }
+      const sorted = [...versionList].sort(
+        (a, b) => new Date(b.lastUpdatedDate).getTime() - new Date(a.lastUpdatedDate).getTime()
+      );
+      switchVersionByName(sorted[0].versionName);
+    }
+  }, [account, versionList, game, version, switchVersionByName]);
+
+  const refreshGameSessions = useCallback(async () => {
+    if (!game?.gameID || !version?.versionID || !account?.accountID) {
+      return;
+    }
+    try {
+      setLoadingSessions(true);
+      const sessionList = await callGetAllSessionsForGame(game.gameID, version.versionID, account.accountID);
+      setSessions(sessionList || []);
+    } catch (error) {
+      console.error('Error fetching game sessions:', error);
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, [game?.gameID, version?.versionID, account?.accountID]);
+
+  useEffect(() => {
+    if (version && account) {
+      refreshGameSessions();
+    }
+  }, [version, account, refreshGameSessions]);
+
+  const canPlay = useMemo(() => gamePermissions?.includes('game_play'), [gamePermissions]);
+  const canCreateVersion = useMemo(
+    () => editMode && gamePermissions?.includes('game_edit'),
+    [editMode, gamePermissions]
+  );
+
+  const handleSelectSession = useCallback(
+    (sessionID) => {
+      if (!sessionID || sessionID === session?.sessionID) {
+        return;
+      }
+      switchSessionID(sessionID);
+      setSessionsOpen(false);
+    },
+    [session?.sessionID, switchSessionID]
+  );
+
+  const handleDeleteSession = useCallback(
+    async (sessionID) => {
+      try {
+        await callDeleteGameSession(sessionID);
+        await refreshGameSessions();
+      } catch (error) {
+        console.error('Failed to delete session', error);
+      }
+    },
+    [refreshGameSessions]
+  );
+
+  const handleRenameSession = useCallback(
+    async (newName) => {
+      if (!renameSession || !newName) {
+        setRenameSession(null);
+        return;
+      }
+      if (newName !== renameSession.assignedName) {
+        try {
+          await callRenameSession(game.gameID, renameSession.sessionID, newName);
+          await refreshGameSessions();
+        } catch (error) {
+          console.error('Failed to rename session', error);
+        }
+      }
+      setRenameSession(null);
+    },
+    [renameSession, game?.gameID, refreshGameSessions]
+  );
+
+  const handleCreateVersion = useCallback(async () => {
+    const baseName = `v${(versionList?.length || 0) + 1}`;
+    let proposed = baseName;
+    let suffix = 1;
+    while (versionList?.some((item) => item.versionName === proposed)) {
+      suffix += 1;
+      proposed = `${baseName}-${suffix}`;
+    }
+    try {
+      setCreatingVersion(true);
+      const prototype = version?.versionName;
+      await callAddGameVersion(game.gameID, proposed, prototype);
+      analyticsReportEvent('create_version', {
+        event_category: 'Editor',
+        event_label: 'Create version',
+        gameID: game.gameID,
+        versionName: proposed,
+      });
+      await refreshGameSessions();
+      switchVersionByName(proposed);
+    } catch (error) {
+      console.error('Failed to create version', error);
+    } finally {
+      setCreatingVersion(false);
+    }
+  }, [game?.gameID, versionList, version?.versionName, refreshGameSessions, switchVersionByName]);
+
+  const headerSubtitle = useMemo(() => {
+    if (!game) {
+      return '';
+    }
+    const totalSessions = sessions?.length || 0;
+    return `${totalSessions} saved ${totalSessions === 1 ? 'session' : 'sessions'} - ${versionList?.length || 0} versions`;
+  }, [game, sessions?.length, versionList?.length]);
+
+  const renderContent = () => {
+    if (loading || !account || !gamePermissions) {
+      return (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="text-center text-muted">Loading workspace...</div>
+        </div>
+      );
+    }
+
+    if (!canPlay) {
+      return (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="text-center text-muted">You are not authorised to play this game.</div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-8">
+        <div
+          className="rounded-3xl border border-border/60 bg-surface/95 p-6 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.4)]"
+          style={{ backgroundImage: themeCard.gradient }}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <p className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted">
+                <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                Play Day - Live preview
+              </p>
+              <h1 className="text-3xl font-semibold text-emphasis sm:text-4xl">{game?.title}</h1>
+              <p className="text-sm text-muted">{headerSubtitle}</p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3 sm:pr-2">
+                <button
+                  type="button"
+                  onClick={() => setVersionsOpen(true)}
+                  className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary sm:w-auto"
+                >
+                  <Layers className="h-4 w-4" aria-hidden="true" />
+                  {activeVersionName || 'Select version'}
+                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSessionsOpen(true)}
+                  className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary sm:w-auto"
+                >
+                  <Users className="h-4 w-4" aria-hidden="true" />
+                  {activeSessionID ? 'Switch session' : 'Choose session'}
+                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={refreshGameSessions}
+                  className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted transition-colors hover:border-primary/50 hover:text-primary sm:w-auto"
+                >
+                  <RefreshCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                  Refresh
+                </button>
+              </div>
+              <div className="flex items-center gap-3">
+                <GameMenu
+                  url={game}
+                  theme={themeToUse}
+                  allowEditOptions
+                  includePlayOption
+                />
+                <UserProfileMenu className="shrink-0" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="relative rounded-3xl border border-border/60 bg-surface/95 p-3 shadow-[0_40px_120px_-45px_rgba(15,23,42,0.5)]">
+          <div className="absolute inset-x-6 top-6 flex flex-wrap items-center gap-3 text-xs text-muted">
+            <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1">
+              <Layers className="h-3.5 w-3.5" aria-hidden="true" />
+              {activeVersionName || 'Version TBD'}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1">
+              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+              Updated {version ? PrettyDate(version.lastUpdatedDate) : '--'}
+            </span>
+          </div>
+          <div className="relative mt-16 rounded-3xl border border-border/60 bg-background/95 p-4">
+            <ChatBot
+              url={game?.url}
+              title={game?.title}
+              theme={themeToUse}
+              session={session}
+              version={version}
+              versionList={versionList}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <RequireAuthentication>
-    <DefaultLayout>
-         {(loading || !account || !gamePermissions) ? renderWithFormatting(<h1>Loading...</h1>) 
-          : (!gamePermissions.includes('game_play')) ?
-             renderWithFormatting(<h1>You are not authorized to play this game.</h1>)
-            : (
-              editMode ? 
-              <CollapsiblePanelLayout theme={defaultAppTheme} panels={panels} persistKey={"play"} />
-              :
-              contentComponent()
-        )}
-        <GameMenu 
-              url={game} 
-              theme={defaultAppTheme}
-              allowEditOptions
-              includePlayOption
+      <UserProfileMenu className="fixed right-6 top-6 z-50" />
+      <div className="relative min-h-screen bg-background pb-32 sm:pb-24">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-gradient-to-b from-primary/15 via-background to-transparent" aria-hidden="true" />
+        <div className="relative z-10 mx-auto w-full max-w-7xl px-4 pt-14 sm:px-8 lg:px-12">
+          {renderContent()}
+        </div>
+        <SelectionSheet
+          open={versionsOpen}
+          onClose={() => setVersionsOpen(false)}
+          title="Switch version"
+          description="Pick which build of this experience you want to launch."
+        >
+          <VersionList
+            versions={versionList || []}
+            activeVersionName={activeVersionName}
+            onSelect={(name) => {
+              switchVersionByName(name);
+              setVersionsOpen(false);
+            }}
+            allowAdd={canCreateVersion}
+            onCreate={handleCreateVersion}
+            creating={creatingVersion}
           />
-        <TextDialog shown={renameSession != undefined} label="New save name" currentText={renameSession?.assignedName} onNewText={handleRenameUpdated} />
-    </DefaultLayout>
-  </RequireAuthentication> 
+        </SelectionSheet>
+        <SelectionSheet
+          open={sessionsOpen}
+          onClose={() => setSessionsOpen(false)}
+          title="Play sessions"
+          description={loadingSessions ? 'Syncing latest sessions...' : 'Select a session to resume or manage saves.'}
+        >
+          <SessionList
+            sessions={sessions}
+            activeSessionID={activeSessionID}
+            onSelect={handleSelectSession}
+            onRename={(item) => setRenameSession(item)}
+            onDelete={handleDeleteSession}
+          />
+        </SelectionSheet>
+        <RenameDialog
+          open={!!renameSession}
+          initialValue={renameSession?.assignedName || ''}
+          onSubmit={handleRenameSession}
+          onCancel={() => setRenameSession(null)}
+        />
+      </div>
+    </RequireAuthentication>
   );
 }
 
 export default memo(Home);
+
+
+
+
+
+
+
+
+
+
+
+
 

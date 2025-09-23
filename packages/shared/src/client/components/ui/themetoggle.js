@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React from 'react';
 import clsx from 'clsx';
@@ -33,8 +33,15 @@ export function ThemeToggle({ className }) {
 
   if (!mounted) {
     return (
-      <div className={clsx('flex items-center gap-1 rounded-full border border-border/60 bg-surface/80 px-1 py-1 text-muted shadow-soft', className)}>
-        <div className="h-8 w-8 animate-pulse rounded-full bg-border/80" />
+      <div
+        className={clsx(
+          'flex items-center gap-2 rounded-2xl border border-border/60 bg-surface/80 px-3 py-1.5 text-muted shadow-soft',
+          className
+        )}
+      >
+        <div className="h-3 w-3 animate-pulse rounded-full bg-border/70" />
+        <div className="h-3 w-3 animate-pulse rounded-full bg-border/60" />
+        <div className="h-3 w-3 animate-pulse rounded-full bg-border/50" />
       </div>
     );
   }
@@ -44,7 +51,7 @@ export function ThemeToggle({ className }) {
   return (
     <div
       className={clsx(
-        'flex items-center gap-1 rounded-full border border-border/60 bg-surface/80 px-1 py-1 text-muted shadow-soft backdrop-blur-md',
+        'flex items-center gap-1 rounded-2xl border border-border/60 bg-surface/90 px-1.5 py-1 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur-sm',
         className
       )}
     >
@@ -58,15 +65,20 @@ export function ThemeToggle({ className }) {
             type="button"
             onClick={() => setTheme(value)}
             className={clsx(
-              'flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+              'flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
               displayActive
-                ? 'bg-primary/10 text-emphasis'
+                ? 'bg-primary/15 text-emphasis shadow-[0_10px_24px_-18px_rgba(99,102,241,0.45)]'
                 : 'text-muted hover:text-emphasis'
             )}
             aria-pressed={isActive}
           >
-            <Icon className="h-4 w-4" aria-hidden="true" />
+            <Icon className={clsx('h-4 w-4', displayActive ? 'text-primary' : 'text-muted')} aria-hidden="true" />
             <span className="hidden sm:inline">{label}</span>
+            {displayActive ? (
+              <span className="inline-flex sm:hidden">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+              </span>
+            ) : null}
           </button>
         );
       })}

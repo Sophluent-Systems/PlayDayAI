@@ -1,4 +1,4 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -8,26 +8,26 @@
   --font-display: 'Sora', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   --font-mono: 'IBM Plex Mono', SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 
-  --color-background: 210 40% 98%;
+  --color-background: 218 64% 97%;
   --color-surface: 0 0% 100%;
-  --color-primary: 223 88% 59%;
-  --color-secondary: 168 77% 45%;
-  --color-accent: 280 64% 60%;
-  --color-muted: 218 17% 65%;
-  --color-emphasis: 230 31% 15%;
-  --color-border: 220 16% 85%;
+  --color-primary: 256 90% 64%;
+  --color-secondary: 198 93% 52%;
+  --color-accent: 338 82% 62%;
+  --color-muted: 220 14% 52%;
+  --color-emphasis: 230 39% 16%;
+  --color-border: 220 24% 86%;
 }
 
 .dark {
   color-scheme: dark;
-  --color-background: 226 30% 7%;
-  --color-surface: 228 22% 12%;
-  --color-primary: 198 89% 69%;
-  --color-secondary: 162 73% 52%;
-  --color-accent: 280 65% 60%;
-  --color-muted: 220 16% 55%;
-  --color-emphasis: 218 27% 92%;
-  --color-border: 223 19% 28%;
+  --color-background: 228 45% 7%;
+  --color-surface: 229 34% 13%;
+  --color-primary: 256 92% 70%;
+  --color-secondary: 198 92% 60%;
+  --color-accent: 338 84% 66%;
+  --color-muted: 220 18% 64%;
+  --color-emphasis: 220 32% 95%;
+  --color-border: 228 26% 28%;
 }
 
 html {
@@ -36,8 +36,8 @@ html {
 
 body {
   @apply min-h-screen bg-background text-emphasis antialiased transition-colors duration-300 ease-out;
-  background-image: radial-gradient(circle at 10% 20%, hsla(var(--color-primary) / 0.12), transparent 65%),
-    radial-gradient(circle at 90% 10%, hsla(var(--color-secondary) / 0.08), transparent 55%);
+  background-image: radial-gradient(circle at 10% 20%, hsla(var(--color-primary) / 0.18), transparent 65%),
+    radial-gradient(circle at 90% 10%, hsla(var(--color-secondary) / 0.12), transparent 55%);
 }
 
 a {
@@ -93,3 +93,5 @@ a:hover {
     @apply rounded-3xl border border-border/60 bg-surface/80 p-6 shadow-soft backdrop-blur-xl;
   }
 }
+
+

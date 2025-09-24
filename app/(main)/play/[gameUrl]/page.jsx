@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import React, { memo, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import clsx from 'clsx';
 import { createPortal } from 'react-dom';
 import {
@@ -8,6 +8,7 @@ import {
   Layers,
   Sparkles,
   Clock,
+  ListFilter,
   Users,
   Pencil,
   Trash2,
@@ -46,12 +47,21 @@ function SelectionSheet({ open, title, description, onClose, children, footer })
     return () => document.removeEventListener('keydown', handleKey);
   }, [open, onClose]);
 
+  const handleBackdropClick = (event) => {
+    if (event.target === event.currentTarget) {
+      onClose();
+    }
+  };
+
   if (!open) {
     return null;
   }
 
   return overlayPortal(
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-4 backdrop-blur">
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-4 backdrop-blur"
+      onPointerDown={handleBackdropClick}
+    >
       <div className="w-full max-w-3xl rounded-3xl border border-border/70 bg-surface p-6 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.6)]">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -288,6 +298,8 @@ function Home() {
   const [renameSession, setRenameSession] = useState(null);
   const [creatingVersion, setCreatingVersion] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const chatPanelRef = useRef(null);
+  const [chatPanelHeight, setChatPanelHeight] = useState(null);
 
   const themeToUse = game?.theme || defaultAppTheme;
   const themeCard = useMemo(() => buildThemeCard(themeToUse), [themeToUse]);
@@ -327,6 +339,47 @@ function Home() {
       refreshGameSessions();
     }
   }, [version, account, refreshGameSessions]);
+
+  const headerSubtitle = useMemo(() => {
+    if (!game) {
+      return '';
+    }
+    const totalSessions = sessions?.length || 0;
+    return `${totalSessions} saved ${totalSessions === 1 ? 'session' : 'sessions'} - ${versionList?.length || 0} versions`;
+  }, [game, sessions?.length, versionList?.length]);
+  
+  useEffect(() => {
+    if (!editMode) {
+      setChatPanelHeight(null);
+      return undefined;
+    }
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const updateHeight = () => {
+      if (!chatPanelRef.current) {
+        return;
+      }
+      const { top } = chatPanelRef.current.getBoundingClientRect();
+      const SAFE_MARGIN = 48;
+      const available = window.innerHeight - top - SAFE_MARGIN;
+      setChatPanelHeight(available > 0 ? available : null);
+    };
+
+    const handleResize = () => {
+      updateHeight();
+    };
+
+    updateHeight();
+    const frame = requestAnimationFrame(updateHeight);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [editMode, headerSubtitle, activeVersionName, sessions?.length, version?.lastUpdatedDate]);
+
 
   const canPlay = useMemo(() => gamePermissions?.includes('game_play'), [gamePermissions]);
   const canCreateVersion = useMemo(
@@ -403,14 +456,6 @@ function Home() {
     }
   }, [game?.gameID, versionList, version?.versionName, refreshGameSessions, switchVersionByName]);
 
-  const headerSubtitle = useMemo(() => {
-    if (!game) {
-      return '';
-    }
-    const totalSessions = sessions?.length || 0;
-    return `${totalSessions} saved ${totalSessions === 1 ? 'session' : 'sessions'} - ${versionList?.length || 0} versions`;
-  }, [game, sessions?.length, versionList?.length]);
-
   const renderContent = () => {
     if (loading || !account || !gamePermissions) {
       return (
@@ -428,65 +473,119 @@ function Home() {
       );
     }
 
-    return (
-      <div className="space-y-8">
-        <div
-          className="rounded-3xl border border-border/60 bg-surface/95 p-6 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.4)]"
-          style={{ backgroundImage: themeCard.gradient }}
-        >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <p className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted">
-                <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-                Play Day - Live preview
-              </p>
-              <h1 className="text-3xl font-semibold text-emphasis sm:text-4xl">{game?.title}</h1>
-              <p className="text-sm text-muted">{headerSubtitle}</p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3 sm:pr-2">
-                <button
-                  type="button"
-                  onClick={() => setVersionsOpen(true)}
-                  className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary sm:w-auto"
-                >
-                  <Layers className="h-4 w-4" aria-hidden="true" />
-                  {activeVersionName || 'Select version'}
-                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSessionsOpen(true)}
-                  className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary sm:w-auto"
-                >
-                  <Users className="h-4 w-4" aria-hidden="true" />
-                  {activeSessionID ? 'Switch session' : 'Choose session'}
-                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  onClick={refreshGameSessions}
-                  className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted transition-colors hover:border-primary/50 hover:text-primary sm:w-auto"
-                >
-                  <RefreshCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                  Refresh
-                </button>
+    const headerPrimary = (
+      <div className="space-y-1">
+        <p className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted">
+          <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          Play Day - Live preview
+        </p>
+        <h1 className="text-3xl font-semibold text-emphasis sm:text-4xl">{game?.title}</h1>
+        <p className="text-sm text-muted">{headerSubtitle}</p>
+      </div>
+    );
+
+    const headerActions = (
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3 sm:pr-2">
+          <button
+            type="button"
+            onClick={() => setVersionsOpen(true)}
+            className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary sm:w-auto"
+          >
+            <Layers className="h-4 w-4" aria-hidden="true" />
+            {activeVersionName || 'Select version'}
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setSessionsOpen(true)}
+            className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary sm:w-auto"
+          >
+            <Users className="h-4 w-4" aria-hidden="true" />
+            {activeSessionID ? 'Switch session' : 'Choose session'}
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={refreshGameSessions}
+            className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted transition-colors hover:border-primary/50 hover:text-primary sm:w-auto"
+          >
+            <RefreshCcw className="h-3.5 w-3.5" aria-hidden="true" />
+            Refresh
+          </button>
+        </div>
+      </div>
+    );
+
+    const headerSection = (
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        {headerPrimary}
+        {headerActions}
+      </div>
+    );
+
+    const renderInfoBadges = () => (
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+        {game?.url ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1 font-medium text-emphasis">
+            <ListFilter className="h-3 w-3" aria-hidden="true" />
+            {game.url}
+          </span>
+        ) : null}
+        <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1 font-medium text-emphasis">
+          <Layers className="h-3 w-3" aria-hidden="true" />
+          {activeVersionName || 'Version TBD'}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1 font-medium text-emphasis">
+          <Clock className="h-3 w-3" aria-hidden="true" />
+          Updated {version ? PrettyDate(version.lastUpdatedDate) : '--'}
+        </span>
+      </div>
+    );
+
+    if (!editMode) {
+      return (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="relative flex flex-1 min-h-0 flex-col bg-background">
+            <div className="absolute inset-x-0 top-0 z-30 flex justify-center px-4 pt-6 sm:px-8 lg:px-12">
+              <div className="flex w-full max-w-5xl flex-col gap-4 rounded-3xl border border-border/60 bg-background/85 p-5 shadow-[0_24px_60px_-18px_rgba(15,23,42,0.5)] backdrop-blur">
+                {headerPrimary}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  {renderInfoBadges()}
+                  {headerActions}
+                </div>
               </div>
+            </div>
+            <div className="flex flex-1 min-h-0 flex-col pt-40 lg:pt-48">
+              <ChatBot
+                url={game?.url}
+                title={game?.title}
+                theme={themeToUse}
+                session={session}
+                version={version}
+                versionList={versionList}
+              />
             </div>
           </div>
         </div>
-        <div className="relative rounded-3xl border border-border/60 bg-surface/95 p-3 shadow-[0_40px_120px_-45px_rgba(15,23,42,0.5)]">
-          <div className="absolute inset-x-6 top-6 flex flex-wrap items-center gap-3 text-xs text-muted">
-            <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1">
-              <Layers className="h-3.5 w-3.5" aria-hidden="true" />
-              {activeVersionName || 'Version TBD'}
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1">
-              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-              Updated {version ? PrettyDate(version.lastUpdatedDate) : '--'}
-            </span>
-          </div>
-          <div className="relative mt-16 rounded-3xl border border-border/60 bg-background/95 p-4">
+      );
+    }
+
+    const editPanel = (
+      <div
+        ref={chatPanelRef}
+        className="mx-auto w-full max-w-6xl flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-border/60 bg-surface/95 shadow-[0_40px_120px_-45px_rgba(15,23,42,0.5)]"
+        style={{
+          backgroundImage: themeCard.gradient,
+          height: chatPanelHeight ? `${chatPanelHeight}px` : undefined,
+        }}
+      >
+        <div className="px-6 py-4 space-y-4">
+          {headerSection}
+          {renderInfoBadges()}
+        </div>
+        <div className="flex flex-1 min-h-0 flex-col px-6 pb-6">
+          <div className="flex flex-1 min-h-0 overflow-hidden rounded-2xl border border-border/60 bg-background/95">
             <ChatBot
               url={game?.url}
               title={game?.title}
@@ -499,13 +598,32 @@ function Home() {
         </div>
       </div>
     );
+
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {editPanel}
+      </div>
+    );
   };
+
 
   return (
     <RequireAuthentication>
-      <div className="relative min-h-screen bg-background pb-32 sm:pb-24">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-gradient-to-b from-primary/15 via-background to-transparent" aria-hidden="true" />
-        <div className="relative z-10 mx-auto w-full max-w-7xl px-4 pt-8 sm:px-8 lg:px-12">
+      <div
+        className={clsx(
+          'relative flex h-screen flex-col overflow-hidden bg-background'
+        )}
+      >
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-gradient-to-b from-primary/15 via-background to-transparent"
+          aria-hidden="true"
+        />
+        <div
+          className={clsx(
+            'relative z-10 flex w-full flex-1 flex-col min-h-0',
+            editMode ? 'mx-auto max-w-7xl px-4 pt-8 sm:px-8 lg:px-12' : ''
+          )}
+        >
           {renderContent()}
         </div>
         <SelectionSheet

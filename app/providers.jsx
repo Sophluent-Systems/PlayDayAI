@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { CacheProvider } from "@emotion/react";
 import { ThemeProvider as MuiThemeProvider, CssBaseline } from "@mui/material";
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
@@ -14,10 +14,17 @@ import { ConfigProvider } from "@src/client/configprovider";
 
 function ThemedProviders({ children, isSandbox, queryClient }) {
   const { resolvedTheme } = useTheme();
-  const muiTheme = useMemo(
-    () => createAppTheme(resolvedTheme === "light" ? "light" : "dark"),
-    [resolvedTheme]
-  );
+  const [muiMode, setMuiMode] = useState("dark");
+
+  useEffect(() => {
+    if (!resolvedTheme) {
+      return;
+    }
+
+    setMuiMode(resolvedTheme === "light" ? "light" : "dark");
+  }, [resolvedTheme]);
+
+  const muiTheme = useMemo(() => createAppTheme(muiMode), [muiMode]);
 
   return (
     <MuiThemeProvider theme={muiTheme}>

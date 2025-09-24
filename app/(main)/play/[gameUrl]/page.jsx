@@ -19,13 +19,11 @@ import { useRouter } from 'next/navigation';
 import ChatBot from '@src/client/components/chatbot';
 import { RequireAuthentication } from '@src/client/components/standard/requireauthentication';
 import { stateManager } from '@src/client/statemanager';
-import GameMenu from '@src/client/components/gamemenu';
 import { defaultAppTheme } from '@src/common/theme';
 import { callGetAllSessionsForGame, callAddGameVersion } from '@src/client/editor';
 import { callDeleteGameSession, callRenameSession } from '@src/client/gameplay';
 import { PrettyDate } from '@src/common/date';
 import { analyticsReportEvent } from '@src/client/analytics';
-import { UserProfileMenu } from '@src/client/components/userprofilemenu';
 
 function overlayPortal(content) {
   if (typeof document === 'undefined') {
@@ -474,15 +472,6 @@ function Home() {
                   Refresh
                 </button>
               </div>
-              <div className="flex items-center gap-3">
-                <GameMenu
-                  url={game}
-                  theme={themeToUse}
-                  allowEditOptions
-                  includePlayOption
-                />
-                <UserProfileMenu className="shrink-0" />
-              </div>
             </div>
           </div>
         </div>
@@ -516,7 +505,7 @@ function Home() {
     <RequireAuthentication>
       <div className="relative min-h-screen bg-background pb-32 sm:pb-24">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-gradient-to-b from-primary/15 via-background to-transparent" aria-hidden="true" />
-        <div className="relative z-10 mx-auto w-full max-w-7xl px-4 pt-14 sm:px-8 lg:px-12">
+        <div className="relative z-10 mx-auto w-full max-w-7xl px-4 pt-8 sm:px-8 lg:px-12">
           {renderContent()}
         </div>
         <SelectionSheet
@@ -563,16 +552,4 @@ function Home() {
 }
 
 export default memo(Home);
-
-
-
-
-
-
-
-
-
-
-
-
 

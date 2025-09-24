@@ -20,6 +20,12 @@ import { stateManager } from '@src/client/statemanager';
 const baseButtonClasses =
   'group relative inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary';
 
+const bugButtonClasses = [
+  'group relative inline-flex h-11 items-center overflow-hidden rounded-full border border-border/70 bg-surface/90 text-sm font-semibold text-emphasis shadow-soft transition-all duration-300 ease-out',
+  'w-11 justify-center px-0',
+  'group-hover/profile:w-[14rem] group-hover/profile:justify-start group-hover/profile:gap-3 group-hover/profile:px-4 group-hover/profile:border-primary/60 group-hover/profile:text-primary',
+].join(' ');
+
 function AvatarBubble({ account }) {
   const displayName = account?.profile?.displayName || account?.email || '';
   const fallback = displayName ? displayName.charAt(0).toUpperCase() : '?';
@@ -109,7 +115,7 @@ function ToggleRow({ checked, onToggle, label, description }) {
   );
 }
 
-export function UserProfileMenu({ className }) {
+export function UserProfileMenu({ className, variant = "standard" }) {
   const {
     loading,
     account,
@@ -118,7 +124,7 @@ export function UserProfileMenu({ className }) {
     hasServicePerms,
   } = useContext(stateManager);
   const [open, setOpen] = useState(false);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: undefined, right: undefined });
   const containerRef = useRef(null);
   const triggerRef = useRef(null);
   const router = useRouter();
@@ -156,19 +162,49 @@ export function UserProfileMenu({ className }) {
     if (open && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
       const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
       const dropdownWidth = 320; // w-80 = 20rem = 320px
+      const dropdownHeight = 500; // approximate max height
 
-      // Calculate position to ensure dropdown stays within viewport
-      let rightOffset = viewportWidth - rect.right;
+      // Calculate horizontal position
+      let left = rect.left;
+      let right = 'auto';
 
-      // If dropdown would overflow left side, adjust position
-      if (rect.right - dropdownWidth < 0) {
-        rightOffset = viewportWidth - dropdownWidth - 16; // 16px margin
+      // If button is on the right side of screen, align dropdown to right edge of button
+      if (rect.right > viewportWidth / 2) {
+        right = viewportWidth - rect.right;
+        left = 'auto';
+
+        // Ensure dropdown doesn't go off left edge
+        if (rect.right - dropdownWidth < 16) {
+          right = 'auto';
+          left = 16;
+        }
+      } else {
+        // Button is on left side, align dropdown to left edge of button
+        // Ensure dropdown doesn't go off right edge
+        if (left + dropdownWidth > viewportWidth - 16) {
+          left = viewportWidth - dropdownWidth - 16;
+        }
+      }
+
+      // Calculate vertical position
+      let top = rect.bottom + 12; // 12px gap below button
+
+      // If dropdown would go off bottom of viewport, position it above the button
+      if (top + dropdownHeight > viewportHeight - 16) {
+        top = rect.top - dropdownHeight - 12;
+
+        // If still doesn't fit, just position at top with margin
+        if (top < 16) {
+          top = 16;
+        }
       }
 
       setDropdownPosition({
-        top: rect.bottom + 12, // 12px gap (mt-3)
-        right: rightOffset,
+        top,
+        left: left !== 'auto' ? left : undefined,
+        right: right !== 'auto' ? right : undefined,
       });
     }
   }, [open]);
@@ -216,25 +252,58 @@ export function UserProfileMenu({ className }) {
     [hasServicePerms]
   );
 
+  const wrapperClasses = clsx(
+    'relative',
+    variant === 'bug' ? 'group/profile isolate' : null,
+    className
+  );
+
+  const triggerClasses =
+    variant === 'bug'
+      ? clsx(
+          bugButtonClasses,
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
+          open ? 'w-[14rem] justify-start gap-3 px-4 border-primary/60 text-primary' : null
+        )
+      : clsx(baseButtonClasses, open ? 'border-primary/60 text-primary' : null);
+
+  const chevronClasses = clsx(
+    'h-4 w-4 text-muted transition-transform group-aria-expanded:rotate-180',
+    variant === 'bug' ? (open ? 'inline-flex' : 'hidden group-hover/profile:inline-flex') : null
+  );
+
+  const labelClasses =
+    variant === 'bug'
+      ? clsx(
+          'hidden max-w-[9rem] overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold text-emphasis transition-all duration-200 ease-out',
+          open
+            ? 'inline ml-3 opacity-100'
+            : 'opacity-0 group-hover/profile:inline group-hover/profile:ml-3 group-hover/profile:opacity-100'
+        )
+      : 'hidden sm:inline';
+
+  const editChipClasses =
+    variant === 'bug'
+      ? clsx('hidden rounded-full bg-primary/20 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary', open ? 'inline' : null)
+      : 'hidden rounded-full bg-primary/20 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary sm:inline';
+
   return (
-    <div className={clsx('relative', className)}>
+    <div className={wrapperClasses}>
       <button
         type="button"
         ref={triggerRef}
         onClick={() => setOpen((prev) => !prev)}
-        className={clsx(baseButtonClasses, open ? 'border-primary/60 text-primary' : null)}
+        className={triggerClasses}
         aria-expanded={open}
         aria-haspopup="true"
       >
         {isLoggedIn ? <AvatarBubble account={account} /> : <Users className="h-4 w-4" aria-hidden="true" />}
-        <span className="hidden sm:inline">
+        <span className={labelClasses}>
           {isLoggedIn ? account.profile?.displayName || account.email : 'Account'}
         </span>
-        <ChevronDown className="h-4 w-4 text-muted transition-transform group-aria-expanded:rotate-180" aria-hidden="true" />
+        <ChevronDown className={chevronClasses} aria-hidden="true" />
         {showEditToggle && editMode ? (
-          <span className="hidden rounded-full bg-primary/20 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary sm:inline">
-            Edit mode
-          </span>
+          <span className={editChipClasses}>Edit mode</span>
         ) : null}
       </button>
 
@@ -244,7 +313,8 @@ export function UserProfileMenu({ className }) {
           className="fixed z-[60] w-80 min-w-[18rem] origin-top-right rounded-3xl border border-border/70 bg-surface/95 p-4 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.6)] backdrop-blur"
           style={{
             top: `${dropdownPosition.top}px`,
-            right: `${dropdownPosition.right}px`,
+            ...(dropdownPosition.left !== undefined && { left: `${dropdownPosition.left}px` }),
+            ...(dropdownPosition.right !== undefined && { right: `${dropdownPosition.right}px` }),
           }}
         >
           {isLoggedIn ? (
@@ -339,4 +409,5 @@ export function UserProfileMenu({ className }) {
 }
 
 export default UserProfileMenu;
+
 

@@ -29,7 +29,6 @@ import { stateManager } from '@src/client/statemanager';
 import { callGetGamesList, callCreateNewGame, callUpdateGameInfo } from '@src/client/gameplay';
 import { ThemeToggle } from '@src/client/components/ui/themetoggle';
 import { GameMenuDropdown } from '@src/client/components/gamemenudropdown';
-import { UserProfileMenu } from '@src/client/components/userprofilemenu';
 
 const heroHighlights = [
   {
@@ -689,10 +688,7 @@ export default function HomePage() {
     <RequireAccount>
       <main className="relative overflow-hidden pb-28">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-gradient-to-b from-primary/12 via-transparent to-transparent" aria-hidden="true" />
-        <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-20 px-4 pt-16 sm:px-8 lg:px-12">
-          <div className="flex justify-end pb-4 pr-2 sm:pb-6 sm:pr-0">
-            <UserProfileMenu className="z-30 shrink-0" />
-          </div>
+        <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-20 px-4 pt-10 sm:px-8 lg:px-12">
           <header className="flex flex-col gap-12 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-2xl space-y-7">
               <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-primary">

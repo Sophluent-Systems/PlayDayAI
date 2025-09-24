@@ -1,6 +1,8 @@
 import "../styles/globals.css";
 import Providers from "./providers";
 import Script from "next/script";
+import { UserProfileMenu } from "@src/client/components/userprofilemenu";
+import GameMenu from "@src/client/components/gamemenu";
 import { IBM_Plex_Mono, Inter, Sora } from "next/font/google";
 
 const inter = Inter({
@@ -61,8 +63,35 @@ export default function RootLayout({ children }) {
             />
           </>
         ) : null}
-        <Providers isSandbox={isSandbox}>{children}</Providers>
+        <Providers isSandbox={isSandbox}>
+          <div className="relative flex min-h-screen flex-col">
+            <header className="sticky top-0 z-50 border-b border-border/60 bg-background/90 backdrop-blur">
+              <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4 sm:px-8 lg:px-12">
+                <div className="pointer-events-auto">
+                  <div className="group/gear inline-flex">
+                    <div className="inline-flex h-11 items-center gap-0 rounded-full border border-border/60 bg-surface/90 px-2 text-muted shadow-soft transition-all duration-300 ease-out group-hover/gear:gap-3 group-hover/gear:border-primary/60 group-hover/gear:px-4 group-hover/gear:text-primary">
+                      <GameMenu
+                        placement="inline"
+                        allowEditOptions
+                        includePlayOption
+                        className="!h-9 !w-9 !rounded-full !border-none !bg-transparent !text-current !shadow-none !hover:translate-y-0 transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                      />
+                      <span className="pointer-events-none hidden whitespace-nowrap text-xs font-semibold uppercase tracking-wide transition-all duration-200 ease-out group-focus-within/gear:inline group-hover/gear:inline">Project menu</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="pointer-events-auto">
+                  <UserProfileMenu variant="bug" />
+                </div>
+              </div>
+            </header>
+            <div className="flex-1">
+              {children}
+            </div>
+          </div>
+        </Providers>
       </body>
     </html>
   );
 }
+

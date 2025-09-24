@@ -362,7 +362,7 @@ function Home() {
         return;
       }
       const { top } = chatPanelRef.current.getBoundingClientRect();
-      const SAFE_MARGIN = 48;
+      const SAFE_MARGIN = 100;
       const available = window.innerHeight - top - SAFE_MARGIN;
       setChatPanelHeight(available > 0 ? available : null);
     };
@@ -372,10 +372,8 @@ function Home() {
     };
 
     updateHeight();
-    const frame = requestAnimationFrame(updateHeight);
     window.addEventListener('resize', handleResize);
     return () => {
-      cancelAnimationFrame(frame);
       window.removeEventListener('resize', handleResize);
     };
   }, [editMode, headerSubtitle, activeVersionName, sessions?.length, version?.lastUpdatedDate]);
@@ -545,18 +543,18 @@ function Home() {
 
     if (!editMode) {
       return (
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <div className="relative flex flex-1 min-h-0 flex-col bg-background">
-            <div className="absolute inset-x-0 top-0 z-30 flex justify-center px-4 pt-6 sm:px-8 lg:px-12">
-              <div className="flex w-full max-w-5xl flex-col gap-4 rounded-3xl border border-border/60 bg-background/85 p-5 shadow-[0_24px_60px_-18px_rgba(15,23,42,0.5)] backdrop-blur">
-                {headerPrimary}
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  {renderInfoBadges()}
-                  {headerActions}
-                </div>
+        <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+          <div className="flex justify-center px-4 pt-6 sm:px-8 lg:px-12">
+            <div className="flex w-full max-w-5xl flex-col gap-4 overflow-hidden rounded-3xl border border-border/60 bg-background/85 p-5 shadow-[0_24px_60px_-18px_rgba(15,23,42,0.5)] backdrop-blur">
+              {headerPrimary}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {renderInfoBadges()}
+                {headerActions}
               </div>
             </div>
-            <div className="flex flex-1 min-h-0 flex-col pt-40 lg:pt-48">
+          </div>
+          <div className="flex flex-1 min-h-0 flex-col px-4 pb-6 pt-6 sm:px-8 lg:px-12">
+            <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 min-h-0 overflow-hidden rounded-3xl border border-border/60 bg-surface/95 shadow-[0_40px_120px_-45px_rgba(15,23,42,0.5)] backdrop-blur">
               <ChatBot
                 url={game?.url}
                 title={game?.title}
@@ -670,4 +668,3 @@ function Home() {
 }
 
 export default memo(Home);
-

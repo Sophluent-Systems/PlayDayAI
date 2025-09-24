@@ -305,6 +305,8 @@ function Home() {
   const [chatPanelHeight, setChatPanelHeight] = useState(null);
   const [viewportHeight, setViewportHeight] = useAtom(vhState);
   const lastMeasuredViewportHeight = useRef(null);
+  const lastMeasuredViewportWidth = useRef(null);
+  const [viewportSize, setViewportSize] = useState({ height: null, width: null });
 
   const themeToUse = game?.theme || defaultAppTheme;
   const themeCard = useMemo(() => buildThemeCard(themeToUse), [themeToUse]);
@@ -399,14 +401,33 @@ function Home() {
       }
       const rect = chatBotViewportRef.current.getBoundingClientRect();
       const measuredHeight = Math.floor(rect.height);
+      const measuredWidth = Math.floor(rect.width);
       if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) {
         return;
       }
-      if (lastMeasuredViewportHeight.current === measuredHeight) {
-        return;
+      const hasHeightChanged = lastMeasuredViewportHeight.current !== measuredHeight;
+      const hasWidthChanged =
+        Number.isFinite(measuredWidth) && measuredWidth > 0 && lastMeasuredViewportWidth.current !== measuredWidth;
+
+      if (hasHeightChanged) {
+        lastMeasuredViewportHeight.current = measuredHeight;
+        setViewportHeight(measuredHeight);
       }
-      lastMeasuredViewportHeight.current = measuredHeight;
-      setViewportHeight(measuredHeight);
+
+      if (hasHeightChanged || hasWidthChanged) {
+        const nextWidth = hasWidthChanged ? measuredWidth : lastMeasuredViewportWidth.current || measuredWidth;
+        if (hasWidthChanged) {
+          lastMeasuredViewportWidth.current = nextWidth;
+        }
+        setViewportSize((prev) => {
+          const prevHeight = Math.floor(prev.height ?? 0);
+          const prevWidth = Math.floor(prev.width ?? 0);
+          if (prevHeight === measuredHeight && prevWidth === nextWidth) {
+            return prev;
+          }
+          return { height: measuredHeight, width: nextWidth };
+        });
+      }
     };
 
     const scheduleMeasure = () => {
@@ -437,20 +458,39 @@ function Home() {
         window.cancelAnimationFrame(frame);
       }
     };
-  }, [chatBotViewportRef, lastMeasuredViewportHeight, setViewportHeight, viewportHeight, editMode]);
+  }, [chatBotViewportRef, lastMeasuredViewportHeight, lastMeasuredViewportWidth, setViewportHeight, setViewportSize, viewportHeight, editMode]);
 
   const chatBotViewportStyle = useMemo(() => {
+    const { height, width } = viewportSize;
+    const hasHeight = Number.isFinite(height) && height > 0;
+    const hasWidth = Number.isFinite(width) && width > 0;
+
+    if (hasHeight || hasWidth) {
+      return {
+        height: hasHeight ? `${height}px` : '100%',
+        width: hasWidth ? `${width}px` : '100%',
+      };
+    }
+
     if (typeof viewportHeight === 'number' && viewportHeight > 0) {
       return {
         height: `${viewportHeight}px`,
         width: '100%',
       };
     }
+
     return {
       height: '100%',
       width: '100%',
     };
-  }, [viewportHeight]);
+  }, [viewportHeight, viewportSize]);
+
+  const chatBotFullScreenStyle = useMemo(() => {
+    return {
+      height: '100%',
+      width: '100%',
+    };
+  }, []);
 
   const canPlay = useMemo(() => gamePermissions?.includes('game_play'), [gamePermissions]);
   const canCreateVersion = useMemo(
@@ -616,29 +656,20 @@ function Home() {
 
     if (!editMode) {
       return (
-        <div className="relative flex min-h-0 flex-1 flex-col bg-background">
-          <div className="flex flex-none flex-col gap-4 border-b border-border/60 bg-background/90 px-6 py-6 text-emphasis shadow-[0_18px_40px_-32px_rgba(15,23,42,0.55)] backdrop-blur-sm sm:px-8 lg:px-12">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              {headerPrimary}
-              {headerActions}
-            </div>
-            {renderInfoBadges()}
-          </div>
-          <div className="flex min-h-0 flex-1">
-            <div
-              ref={chatBotViewportRef}
-              className="flex min-h-0 w-full flex-1 flex-col"
-              style={chatBotViewportStyle}
-            >
-              <ChatBot
-                url={game?.url}
-                title={game?.title}
-                theme={themeToUse}
-                session={session}
-                version={version}
-                versionList={versionList}
-              />
-            </div>
+        <div className="relative flex min-h-0 flex-1 bg-background">
+          <div
+            ref={chatBotViewportRef}
+            className="flex min-h-0 w-full flex-1"
+            style={chatBotFullScreenStyle}
+          >
+            <ChatBot
+              url={game?.url}
+              title={game?.title}
+              theme={themeToUse}
+              session={session}
+              version={version}
+              versionList={versionList}
+            />
           </div>
         </div>
       );

@@ -514,7 +514,6 @@ function Home() {
 
   return (
     <RequireAuthentication>
-      <UserProfileMenu className="fixed right-6 top-6 z-50" />
       <div className="relative min-h-screen bg-background pb-32 sm:pb-24">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-gradient-to-b from-primary/15 via-background to-transparent" aria-hidden="true" />
         <div className="relative z-10 mx-auto w-full max-w-7xl px-4 pt-14 sm:px-8 lg:px-12">

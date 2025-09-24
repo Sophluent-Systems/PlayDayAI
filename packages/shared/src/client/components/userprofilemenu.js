@@ -118,6 +118,7 @@ export function UserProfileMenu({ className }) {
     hasServicePerms,
   } = useContext(stateManager);
   const [open, setOpen] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
   const containerRef = useRef(null);
   const triggerRef = useRef(null);
   const router = useRouter();
@@ -148,6 +149,28 @@ export function UserProfileMenu({ className }) {
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  // Calculate dropdown position when opening
+  useEffect(() => {
+    if (open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const dropdownWidth = 320; // w-80 = 20rem = 320px
+
+      // Calculate position to ensure dropdown stays within viewport
+      let rightOffset = viewportWidth - rect.right;
+
+      // If dropdown would overflow left side, adjust position
+      if (rect.right - dropdownWidth < 0) {
+        rightOffset = viewportWidth - dropdownWidth - 16; // 16px margin
+      }
+
+      setDropdownPosition({
+        top: rect.bottom + 12, // 12px gap (mt-3)
+        right: rightOffset,
+      });
+    }
   }, [open]);
 
   const closeMenu = useCallback(() => setOpen(false), []);
@@ -218,7 +241,11 @@ export function UserProfileMenu({ className }) {
       {open ? (
         <div
           ref={containerRef}
-          className="absolute right-0 top-full mt-3 w-80 min-w-[18rem] origin-top-right rounded-3xl border border-border/70 bg-surface/95 p-4 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.6)] backdrop-blur"
+          className="fixed z-[60] w-80 min-w-[18rem] origin-top-right rounded-3xl border border-border/70 bg-surface/95 p-4 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.6)] backdrop-blur"
+          style={{
+            top: `${dropdownPosition.top}px`,
+            right: `${dropdownPosition.right}px`,
+          }}
         >
           {isLoggedIn ? (
             <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-surface/80 px-3 py-3">

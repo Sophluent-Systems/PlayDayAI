@@ -3,6 +3,7 @@
 import React, { memo, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import clsx from 'clsx';
 import { createPortal } from 'react-dom';
+import { useAtom } from 'jotai';
 import {
   ChevronDown,
   Layers,
@@ -20,6 +21,7 @@ import { useRouter } from 'next/navigation';
 import ChatBot from '@src/client/components/chatbot';
 import { RequireAuthentication } from '@src/client/components/standard/requireauthentication';
 import { stateManager } from '@src/client/statemanager';
+import { vhState } from '@src/client/states';
 import { defaultAppTheme } from '@src/common/theme';
 import { callGetAllSessionsForGame, callAddGameVersion } from '@src/client/editor';
 import { callDeleteGameSession, callRenameSession } from '@src/client/gameplay';
@@ -299,7 +301,10 @@ function Home() {
   const [creatingVersion, setCreatingVersion] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const chatPanelRef = useRef(null);
+  const chatBotViewportRef = useRef(null);
   const [chatPanelHeight, setChatPanelHeight] = useState(null);
+  const [viewportHeight, setViewportHeight] = useAtom(vhState);
+  const lastMeasuredViewportHeight = useRef(null);
 
   const themeToUse = game?.theme || defaultAppTheme;
   const themeCard = useMemo(() => buildThemeCard(themeToUse), [themeToUse]);
@@ -378,6 +383,74 @@ function Home() {
     };
   }, [editMode, headerSubtitle, activeVersionName, sessions?.length, version?.lastUpdatedDate]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    lastMeasuredViewportHeight.current =
+      typeof viewportHeight === 'number' ? Math.floor(viewportHeight) : null;
+
+    let frame = null;
+
+    const measureViewport = () => {
+      if (!chatBotViewportRef.current) {
+        return;
+      }
+      const rect = chatBotViewportRef.current.getBoundingClientRect();
+      const measuredHeight = Math.floor(rect.height);
+      if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) {
+        return;
+      }
+      if (lastMeasuredViewportHeight.current === measuredHeight) {
+        return;
+      }
+      lastMeasuredViewportHeight.current = measuredHeight;
+      setViewportHeight(measuredHeight);
+    };
+
+    const scheduleMeasure = () => {
+      if (frame) {
+        return;
+      }
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        measureViewport();
+      });
+    };
+
+    measureViewport();
+    window.addEventListener('resize', scheduleMeasure);
+
+    let resizeObserver = null;
+    if (typeof ResizeObserver !== 'undefined' && chatBotViewportRef.current) {
+      resizeObserver = new ResizeObserver(scheduleMeasure);
+      resizeObserver.observe(chatBotViewportRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', scheduleMeasure);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [chatBotViewportRef, lastMeasuredViewportHeight, setViewportHeight, viewportHeight, editMode]);
+
+  const chatBotViewportStyle = useMemo(() => {
+    if (typeof viewportHeight === 'number' && viewportHeight > 0) {
+      return {
+        height: `${viewportHeight}px`,
+        width: '100%',
+      };
+    }
+    return {
+      height: '100%',
+      width: '100%',
+    };
+  }, [viewportHeight]);
 
   const canPlay = useMemo(() => gamePermissions?.includes('game_play'), [gamePermissions]);
   const canCreateVersion = useMemo(
@@ -544,17 +617,19 @@ function Home() {
     if (!editMode) {
       return (
         <div className="relative flex min-h-0 flex-1 flex-col bg-background">
-          <div className="flex justify-center px-4 pt-6 sm:px-8 lg:px-12">
-            <div className="flex w-full max-w-5xl flex-col gap-4 overflow-hidden rounded-3xl border border-border/60 bg-background/85 p-5 shadow-[0_24px_60px_-18px_rgba(15,23,42,0.5)] backdrop-blur">
+          <div className="flex flex-none flex-col gap-4 border-b border-border/60 bg-background/90 px-6 py-6 text-emphasis shadow-[0_18px_40px_-32px_rgba(15,23,42,0.55)] backdrop-blur-sm sm:px-8 lg:px-12">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               {headerPrimary}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                {renderInfoBadges()}
-                {headerActions}
-              </div>
+              {headerActions}
             </div>
+            {renderInfoBadges()}
           </div>
-          <div className="flex flex-1 min-h-0 flex-col px-4 pb-6 pt-6 sm:px-8 lg:px-12">
-            <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 min-h-0 overflow-hidden rounded-3xl border border-border/60 bg-surface/95 shadow-[0_40px_120px_-45px_rgba(15,23,42,0.5)] backdrop-blur">
+          <div className="flex min-h-0 flex-1">
+            <div
+              ref={chatBotViewportRef}
+              className="flex min-h-0 w-full flex-1 flex-col"
+              style={chatBotViewportStyle}
+            >
               <ChatBot
                 url={game?.url}
                 title={game?.title}
@@ -583,7 +658,11 @@ function Home() {
           {renderInfoBadges()}
         </div>
         <div className="flex flex-1 min-h-0 flex-col px-6 pb-6">
-          <div className="flex flex-1 min-h-0 overflow-hidden rounded-2xl border border-border/60 bg-background/95">
+          <div
+            ref={chatBotViewportRef}
+            className="flex flex-1 min-h-0 w-full overflow-hidden rounded-2xl border border-border/60 bg-background/95"
+            style={chatBotViewportStyle}
+          >
             <ChatBot
               url={game?.url}
               title={game?.title}

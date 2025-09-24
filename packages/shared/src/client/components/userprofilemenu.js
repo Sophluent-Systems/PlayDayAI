@@ -21,7 +21,7 @@ const baseButtonClasses =
   'group relative inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary';
 
 const bugButtonClasses = [
-  'group relative inline-flex h-11 items-center overflow-hidden rounded-full border border-border/70 bg-surface/90 text-sm font-semibold text-emphasis shadow-soft transition-all duration-300 ease-out',
+  'group relative inline-flex h-11 items-center overflow-hidden rounded-full border border-border/60 bg-surface/95 text-sm font-semibold text-emphasis transition-all duration-300 ease-out',
   'w-11 justify-center px-0',
   'group-hover/profile:w-[14rem] group-hover/profile:justify-start group-hover/profile:gap-3 group-hover/profile:px-4 group-hover/profile:border-primary/60 group-hover/profile:text-primary',
 ].join(' ');

@@ -65,11 +65,11 @@ export default function RootLayout({ children }) {
         ) : null}
         <Providers isSandbox={isSandbox}>
           <div className="relative flex min-h-screen flex-col">
-            <header className="sticky top-0 z-50 border-b border-border/60 bg-background/90 backdrop-blur">
-              <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4 sm:px-8 lg:px-12">
+            <header className="sticky top-0 z-50 pointer-events-none">
+              <div className="pointer-events-auto mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4 sm:px-8 lg:px-12">
                 <div className="pointer-events-auto">
                   <div className="group/gear inline-flex">
-                    <div className="inline-flex h-11 items-center gap-0 rounded-full border border-border/60 bg-surface/90 px-2 text-muted shadow-soft transition-all duration-300 ease-out group-hover/gear:gap-3 group-hover/gear:border-primary/60 group-hover/gear:px-4 group-hover/gear:text-primary">
+                    <div className="inline-flex h-11 items-center justify-center gap-0 rounded-full border border-border/50 bg-surface/95 px-2 text-muted shadow-soft transition-all duration-300 ease-out group-hover/gear:gap-3 group-hover/gear:justify-start group-hover/gear:border-primary/60 group-hover/gear:px-4 group-hover/gear:text-primary group-focus-within/gear:justify-start">
                       <GameMenu
                         placement="inline"
                         allowEditOptions

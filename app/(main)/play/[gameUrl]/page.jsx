@@ -3,7 +3,6 @@
 import React, { memo, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import clsx from 'clsx';
 import { createPortal } from 'react-dom';
-import { useAtom } from 'jotai';
 import {
   ChevronDown,
   Layers,
@@ -21,7 +20,7 @@ import { useRouter } from 'next/navigation';
 import ChatBot from '@src/client/components/chatbot';
 import { RequireAuthentication } from '@src/client/components/standard/requireauthentication';
 import { stateManager } from '@src/client/statemanager';
-import { vhState } from '@src/client/states';
+import { useViewportDimensions } from '@src/client/hooks/useViewportDimensions';
 import { defaultAppTheme } from '@src/common/theme';
 import { callGetAllSessionsForGame, callAddGameVersion } from '@src/client/editor';
 import { callDeleteGameSession, callRenameSession } from '@src/client/gameplay';
@@ -300,13 +299,8 @@ function Home() {
   const [renameSession, setRenameSession] = useState(null);
   const [creatingVersion, setCreatingVersion] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(false);
-  const chatPanelRef = useRef(null);
-  const chatBotViewportRef = useRef(null);
-  const [chatPanelHeight, setChatPanelHeight] = useState(null);
-  const [viewportHeight, setViewportHeight] = useAtom(vhState);
-  const lastMeasuredViewportHeight = useRef(null);
-  const lastMeasuredViewportWidth = useRef(null);
-  const [viewportSize, setViewportSize] = useState({ height: null, width: null });
+  const chatContainerRef = useRef(null);
+  const { width: viewportWidth, height: viewportHeight } = useViewportDimensions();
 
   const themeToUse = game?.theme || defaultAppTheme;
   const themeCard = useMemo(() => buildThemeCard(themeToUse), [themeToUse]);
@@ -354,143 +348,38 @@ function Home() {
     const totalSessions = sessions?.length || 0;
     return `${totalSessions} saved ${totalSessions === 1 ? 'session' : 'sessions'} - ${versionList?.length || 0} versions`;
   }, [game, sessions?.length, versionList?.length]);
-  
-  useEffect(() => {
+
+  // Calculate concrete dimensions for ChatBot
+  const chatBotDimensions = useMemo(() => {
     if (!editMode) {
-      setChatPanelHeight(null);
-      return undefined;
-    }
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-
-    const updateHeight = () => {
-      if (!chatPanelRef.current) {
-        return;
-      }
-      const { top } = chatPanelRef.current.getBoundingClientRect();
-      const SAFE_MARGIN = 100;
-      const available = window.innerHeight - top - SAFE_MARGIN;
-      setChatPanelHeight(available > 0 ? available : null);
-    };
-
-    const handleResize = () => {
-      updateHeight();
-    };
-
-    updateHeight();
-    window.addEventListener('resize', handleResize);
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [editMode, headerSubtitle, activeVersionName, sessions?.length, version?.lastUpdatedDate]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-
-    lastMeasuredViewportHeight.current =
-      typeof viewportHeight === 'number' ? Math.floor(viewportHeight) : null;
-
-    let frame = null;
-
-    const measureViewport = () => {
-      if (!chatBotViewportRef.current) {
-        return;
-      }
-      const rect = chatBotViewportRef.current.getBoundingClientRect();
-      const measuredHeight = Math.floor(rect.height);
-      const measuredWidth = Math.floor(rect.width);
-      if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) {
-        return;
-      }
-      const hasHeightChanged = lastMeasuredViewportHeight.current !== measuredHeight;
-      const hasWidthChanged =
-        Number.isFinite(measuredWidth) && measuredWidth > 0 && lastMeasuredViewportWidth.current !== measuredWidth;
-
-      if (hasHeightChanged) {
-        lastMeasuredViewportHeight.current = measuredHeight;
-        setViewportHeight(measuredHeight);
-      }
-
-      if (hasHeightChanged || hasWidthChanged) {
-        const nextWidth = hasWidthChanged ? measuredWidth : lastMeasuredViewportWidth.current || measuredWidth;
-        if (hasWidthChanged) {
-          lastMeasuredViewportWidth.current = nextWidth;
-        }
-        setViewportSize((prev) => {
-          const prevHeight = Math.floor(prev.height ?? 0);
-          const prevWidth = Math.floor(prev.width ?? 0);
-          if (prevHeight === measuredHeight && prevWidth === nextWidth) {
-            return prev;
-          }
-          return { height: measuredHeight, width: nextWidth };
-        });
-      }
-    };
-
-    const scheduleMeasure = () => {
-      if (frame) {
-        return;
-      }
-      frame = window.requestAnimationFrame(() => {
-        frame = null;
-        measureViewport();
-      });
-    };
-
-    measureViewport();
-    window.addEventListener('resize', scheduleMeasure);
-
-    let resizeObserver = null;
-    if (typeof ResizeObserver !== 'undefined' && chatBotViewportRef.current) {
-      resizeObserver = new ResizeObserver(scheduleMeasure);
-      resizeObserver.observe(chatBotViewportRef.current);
-    }
-
-    return () => {
-      window.removeEventListener('resize', scheduleMeasure);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-      if (frame) {
-        window.cancelAnimationFrame(frame);
-      }
-    };
-  }, [chatBotViewportRef, lastMeasuredViewportHeight, lastMeasuredViewportWidth, setViewportHeight, setViewportSize, viewportHeight, editMode]);
-
-  const chatBotViewportStyle = useMemo(() => {
-    const { height, width } = viewportSize;
-    const hasHeight = Number.isFinite(height) && height > 0;
-    const hasWidth = Number.isFinite(width) && width > 0;
-
-    if (hasHeight || hasWidth) {
+      // Full screen mode - use full viewport
       return {
-        height: hasHeight ? `${height}px` : '100%',
-        width: hasWidth ? `${width}px` : '100%',
+        width: viewportWidth,
+        height: viewportHeight,
       };
     }
 
-    if (typeof viewportHeight === 'number' && viewportHeight > 0) {
-      return {
-        height: `${viewportHeight}px`,
-        width: '100%',
-      };
-    }
+    // Edit mode - calculate available space
+    // Account for: page padding (96px total), header area (~180px), panel padding (48px total)
+    const horizontalPadding = 96; // 48px each side for page padding
+    const verticalReserved = 180 + 48; // header + panel padding
+    
+    const availableWidth = Math.max(viewportWidth - horizontalPadding, 320);
+    const availableHeight = Math.max(viewportHeight - verticalReserved, 300);
 
     return {
-      height: '100%',
-      width: '100%',
+      width: Math.min(availableWidth, 1152), // max-w-6xl equivalent
+      height: availableHeight,
     };
-  }, [viewportHeight, viewportSize]);
+  }, [editMode, viewportWidth, viewportHeight]);
 
-  const chatBotFullScreenStyle = useMemo(() => {
+  // Style for ChatBot container with concrete dimensions
+  const chatBotContainerStyle = useMemo(() => {
     return {
-      height: '100%',
-      width: '100%',
+      width: `${chatBotDimensions.width}px`,
+      height: `${chatBotDimensions.height}px`,
     };
-  }, []);
+  }, [chatBotDimensions]);
 
   const canPlay = useMemo(() => gamePermissions?.includes('game_play'), [gamePermissions]);
   const canCreateVersion = useMemo(
@@ -656,11 +545,11 @@ function Home() {
 
     if (!editMode) {
       return (
-        <div className="relative flex min-h-0 flex-1 bg-background">
+        <div className="relative flex min-h-0 flex-1 bg-background items-center justify-center">
           <div
-            ref={chatBotViewportRef}
-            className="flex min-h-0 w-full flex-1"
-            style={chatBotFullScreenStyle}
+            ref={chatContainerRef}
+            style={chatBotContainerStyle}
+            className="flex"
           >
             <ChatBot
               url={game?.url}
@@ -676,23 +565,20 @@ function Home() {
     }
 
     const editPanel = (
-      <div
-        ref={chatPanelRef}
-        className="mx-auto w-full max-w-6xl flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-border/60 bg-surface/95 shadow-[0_40px_120px_-45px_rgba(15,23,42,0.5)]"
+      <div className="mx-auto w-full max-w-6xl flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-border/60 bg-surface/95 shadow-[0_40px_120px_-45px_rgba(15,23,42,0.5)]"
         style={{
           backgroundImage: themeCard.gradient,
-          height: chatPanelHeight ? `${chatPanelHeight}px` : undefined,
         }}
       >
         <div className="px-6 py-4 space-y-4">
           {headerSection}
           {renderInfoBadges()}
         </div>
-        <div className="flex flex-1 min-h-0 flex-col px-6 pb-6">
+        <div className="flex flex-1 min-h-0 flex-col px-6 pb-6 items-center justify-center">
           <div
-            ref={chatBotViewportRef}
-            className="flex flex-1 min-h-0 w-full overflow-hidden rounded-2xl border border-border/60 bg-background/95"
-            style={chatBotViewportStyle}
+            ref={chatContainerRef}
+            style={chatBotContainerStyle}
+            className="overflow-hidden rounded-2xl border border-border/60 bg-background/95"
           >
             <ChatBot
               url={game?.url}

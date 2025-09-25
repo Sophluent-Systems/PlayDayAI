@@ -12,8 +12,6 @@ import { MessagesContainer } from './messagescontainer';
 import { makeStyles } from 'tss-react/mui';
 import { useConfig } from '@src/client/configprovider';
 import { getMostRecentMessageOfType,getMostRecentMessageOfTypeSincePreviousTypes } from '@src/common/messages';
-import { vhState } from '@src/client/states';
-import { useAtom } from 'jotai';
 import { RawHTMLBox } from './standard/rawhtmlbox';
 import { CircularProgress } from '@mui/material';
 import { MultimediaInput } from './multimediainput';
@@ -168,34 +166,44 @@ function ChatBotView(props) {
     const [messageAreaHeight, setMessageAreaHeight] = useState(0);
     const [suggestionsDrawerOpen, setSuggestionssuggestionsDrawerOpen] = useState(true);
     const inputAreaRef = useRef(null);
-    const [vh, setVh] = useAtom(vhState);
+    const containerRef = useRef(null);
 
   useEffect(() => {
     
-  // Function to update width
-  const updateIntputAreaHeight = () => {
-    if (inputAreaRef.current) {
+  // Function to update message area height based on container size
+  const updateMessageAreaHeight = () => {
+    if (inputAreaRef.current && containerRef.current) {
+      const containerHeight = containerRef.current.offsetHeight;
       const inputAreaHeight = inputAreaRef.current.offsetHeight;
-      const newMessageAreaHeight = vh - inputAreaHeight-1;
-      if (messageAreaHeight != newMessageAreaHeight) {
+      const newMessageAreaHeight = Math.max(containerHeight - inputAreaHeight - 1, 0);
+      if (messageAreaHeight !== newMessageAreaHeight) {
         setMessageAreaHeight(newMessageAreaHeight);
       }
     }
   };
 
-  // Call once to set initial width
-  updateIntputAreaHeight();
+  // Call once to set initial height
+  updateMessageAreaHeight();
 
-  // Add resize event listener
-  window.addEventListener('resize', updateIntputAreaHeight);
+  // Use ResizeObserver to watch for container size changes
+  let resizeObserver = null;
+  if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+    resizeObserver = new ResizeObserver(updateMessageAreaHeight);
+    resizeObserver.observe(containerRef.current);
+  }
+
+  // Fallback to window resize if ResizeObserver not available
+  window.addEventListener('resize', updateMessageAreaHeight);
 
   // Clean up
   return () => {
-    window.removeEventListener('resize', updateIntputAreaHeight);
+    window.removeEventListener('resize', updateMessageAreaHeight);
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+    }
   };
 
-
-  }), [];
+  }, [messageAreaHeight]); // Include messageAreaHeight to avoid stale closure
 
   useEffect(() => {
     if (messages) {
@@ -234,7 +242,7 @@ function ChatBotView(props) {
         }
       }
     }
-  }, [messages, vh]);
+  }, [messages]);
 
   
   function handleDrawerToggle()  {
@@ -243,12 +251,14 @@ function ChatBotView(props) {
 
 
     return (
-      <Box sx={{
+      <Box 
+        ref={containerRef}
+        sx={{
           top: 0,  
           width: '100%',
           height: '100%',
           backgroundColor: theme.colors.messagesAreaBackgroundColor,
-      }}>
+        }}>
             <Box sx={{ 
               height: messageAreaHeight, 
               top: 0,  

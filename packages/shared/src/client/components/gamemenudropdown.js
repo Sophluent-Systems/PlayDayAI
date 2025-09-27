@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Eye,
+  Home,
   Layers,
   Palette,
   Play,
@@ -220,6 +221,11 @@ export function GameMenuDropdown({
     onMenuClose?.();
   };
 
+  const handleGoHome = useCallback(() => {
+    navigateTo('/', undefined, true);
+    onMenuClose?.();
+  }, [navigateTo, onMenuClose]);
+
   const handleSetVersion = (newVersionName, sourceGameID) => {
     const switchingGames = gameUrl !== game?.url;
     if (switchingGames) {
@@ -231,11 +237,22 @@ export function GameMenuDropdown({
   };
 
   const actions = useMemo(() => {
-    if (!menuOpen || !gamePermissionsToUse) {
+    if (!menuOpen) {
       return [];
     }
 
     const items = [];
+    items.push({
+      key: 'home',
+      label: 'Back to home',
+      description: 'Return to the workspace overview.',
+      icon: Home,
+      onSelect: handleGoHome,
+    });
+    if (!gamePermissionsToUse) {
+      return items;
+    }
+
 
     if (includePlayOption && gamePermissionsToUse.includes('game_play')) {
       items.push({
@@ -334,6 +351,7 @@ export function GameMenuDropdown({
     gameID,
     customMenuItems,
     handleNavigation,
+    handleGoHome,
   ]);
   useEffect(() => {
     if (actions && onMenuUpdated) {

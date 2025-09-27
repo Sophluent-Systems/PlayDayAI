@@ -4,6 +4,7 @@ import React, { memo, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { RequireAuthentication } from "@src/client/components/standard/requireauthentication";
 import { stateManager } from "@src/client/statemanager";
+import { MessagesDebugControls } from "@src/client/components/messagesdebugcontrols";
 import { callUpdateGameInfo } from "@src/client/gameplay";
 import { callDeleteGameAndAllData } from "@src/client/editor";
 import {
@@ -142,8 +143,8 @@ function ThemeEditor({ theme, onChange }) {
 
   if (!draft) {
     return (
-      <section className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg backdrop-blur">
-        <div className="flex items-center gap-3 text-white/70">
+      <section className="rounded-3xl border border-border/60 bg-surface/80 p-6 shadow-lg backdrop-blur">
+        <div className="flex items-center gap-3 text-emphasis">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm uppercase tracking-[0.35em]">Loading theme</span>
         </div>
@@ -154,17 +155,17 @@ function ThemeEditor({ theme, onChange }) {
   const selectedPreset = draft.meta?.preset ?? "custom";
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.05] p-6 shadow-xl backdrop-blur-xl">
+    <section className="rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-xl backdrop-blur-xl">
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.35em] text-white/70">Theme System</h2>
-              <p className="text-xs text-white/50">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.35em] text-emphasis">Theme System</h2>
+              <p className="text-xs text-muted">
                 Choose a preset foundation, then fine-tune palette and typography.
               </p>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.35em] text-white/60">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-surface/80 px-3 py-1 text-[10px] uppercase tracking-[0.35em] text-muted">
               <Palette className="h-4 w-4" />
               {selectedPreset === "custom" ? "Custom" : selectedPreset}
             </div>
@@ -180,12 +181,12 @@ function ThemeEditor({ theme, onChange }) {
                     onClick={() => applyPreset(preset.id)}
                     className={`group flex min-w-[140px] flex-1 cursor-pointer flex-col rounded-2xl border px-4 py-3 transition ${
                       isActive
-                        ? "border-sky-400/70 bg-sky-400/15 text-white"
-                        : "border-white/10 bg-white/5 text-white/80 hover:border-white/30 hover:bg-white/10"
+                        ? "border-sky-400/70 bg-sky-400/15 text-emphasis"
+                        : "border-border/60 bg-surface/80 text-emphasis hover:border-primary/50 hover:bg-surface/80"
                     }`}
                   >
                     <span className="text-xs font-semibold uppercase tracking-[0.3em]">{preset.name}</span>
-                    <span className="mt-1 text-[11px] leading-relaxed text-white/60">
+                    <span className="mt-1 text-[11px] leading-relaxed text-muted">
                       {preset.description}
                     </span>
                   </button>
@@ -196,15 +197,15 @@ function ThemeEditor({ theme, onChange }) {
         </header>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
-            <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.35em] text-white/60">
+          <div className="rounded-2xl border border-border/60 bg-surface/95 p-5">
+            <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.35em] text-muted">
               Theme name
               <input
                 type="text"
                 value={draft.meta?.name ?? ""}
                 onChange={(event) => handleNameChange(event.target.value)}
                 placeholder="Give this look a label"
-                className="mt-2 w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white shadow-inner focus:border-sky-400 focus:outline-none"
+                className="mt-2 w-full rounded-2xl border border-border/50 bg-surface/80 px-4 py-2 text-sm text-emphasis shadow-inner focus:border-sky-400 focus:outline-none"
               />
             </label>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -214,20 +215,20 @@ function ThemeEditor({ theme, onChange }) {
                 return (
                   <div
                     key={field.key}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner"
+                    className="rounded-2xl border border-border/60 bg-surface/80 p-4 shadow-inner"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/70">
+                        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emphasis">
                           {field.label}
                         </p>
-                        <p className="text-[11px] text-white/50">{field.helper}</p>
+                        <p className="text-[11px] text-muted">{field.helper}</p>
                       </div>
                       <input
                         type="color"
                         value={swatchValue}
                         onChange={(event) => handlePaletteColorChange(field.key, event.target.value)}
-                        className="h-10 w-10 cursor-pointer rounded-full border border-white/20 bg-transparent p-0"
+                        className="h-10 w-10 cursor-pointer rounded-full border border-border/50 bg-transparent p-0"
                         aria-label={`Choose ${field.label} color`}
                       />
                     </div>
@@ -235,7 +236,7 @@ function ThemeEditor({ theme, onChange }) {
                       type="text"
                       value={paletteValue}
                       onChange={(event) => handlePaletteTextChange(field.key, event.target.value)}
-                      className="mt-3 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white/80 focus:border-sky-400 focus:outline-none"
+                      className="mt-3 w-full rounded-xl border border-border/60 bg-surface/80 px-3 py-2 text-xs text-emphasis focus:border-sky-400 focus:outline-none"
                       placeholder="#000000FF"
                     />
                   </div>
@@ -245,8 +246,8 @@ function ThemeEditor({ theme, onChange }) {
           </div>
 
           <div className="flex flex-col gap-4">
-            <div className="rounded-2xl border border-white/10 bg-black/30 p-5 shadow-inner">
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">
+            <div className="rounded-2xl border border-border/60 bg-surface/95 p-5 shadow-inner">
+              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-muted">
                 Typography
               </p>
               <div className="mt-4 flex flex-col gap-4">
@@ -254,13 +255,13 @@ function ThemeEditor({ theme, onChange }) {
                   const typographyValue = draft.typography?.[field.key] ?? "";
                   return (
                     <div key={field.key} className="flex flex-col gap-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white/60">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-muted">
                         {field.label}
                       </label>
                       <select
                         value={typographyValue}
                         onChange={(event) => handleFontChange(field.key, event.target.value)}
-                        className="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none"
+                        className="rounded-xl border border-border/60 bg-surface/80 px-3 py-2 text-sm text-emphasis focus:border-sky-400 focus:outline-none"
                       >
                         <option value="">Custom�</option>
                         {FONT_OPTIONS.map((option) => (
@@ -273,10 +274,10 @@ function ThemeEditor({ theme, onChange }) {
                         type="text"
                         value={typographyValue}
                         onChange={(event) => handleFontChange(field.key, event.target.value)}
-                        className="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white/80 focus:border-sky-400 focus:outline-none"
+                        className="rounded-xl border border-border/60 bg-surface/80 px-3 py-2 text-xs text-emphasis focus:border-sky-400 focus:outline-none"
                         placeholder="Custom font stack"
                       />
-                      <span className="text-[10px] text-white/40">{field.helper}</span>
+                      <span className="text-[10px] text-muted">{field.helper}</span>
                     </div>
                   );
                 })}
@@ -374,11 +375,11 @@ function ThemePreview({ theme, gameTitle }) {
   const previewMessages = useMemo(() => buildPreviewMessages(theme, gameTitle), [theme, gameTitle]);
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-xl">
+    <section className="rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-xl backdrop-blur-xl">
       <header className="mb-4 flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.35em] text-white/70">Live preview</h3>
-          <p className="text-xs text-white/50">Chat cards adapt instantly to your palette & typography mix.</p>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.35em] text-emphasis">Live preview</h3>
+          <p className="text-xs text-muted">Chat cards adapt instantly to your palette & typography mix.</p>
         </div>
       </header>
       <div className="flex flex-col gap-4">
@@ -403,7 +404,7 @@ function ThemePreview({ theme, gameTitle }) {
 
 function PageState({ icon: Icon, tone = "info", children }) {
   const toneClasses = {
-    info: "border-white/15 bg-white/5 text-white/80",
+    info: "border-border/50 bg-surface/80 text-emphasis",
     warn: "border-amber-400/40 bg-amber-500/15 text-amber-100",
     danger: "border-rose-500/40 bg-rose-500/15 text-rose-100",
   };
@@ -418,7 +419,7 @@ function PageState({ icon: Icon, tone = "info", children }) {
 
 function ActionButton({ children, icon: Icon, tone = "neutral", className = "", ...rest }) {
   const toneClasses = {
-    neutral: "border-white/15 bg-white/10 text-white hover:border-white/30 hover:bg-white/20",
+    neutral: "border-border/50 bg-surface/80 text-emphasis hover:border-primary/50 hover:bg-primary/10",
     primary: "border-sky-400/50 bg-sky-500 text-slate-900 hover:border-sky-300 hover:bg-sky-400",
     accent: "border-emerald-400/40 bg-emerald-500 text-emerald-950 hover:border-emerald-300 hover:bg-emerald-400",
     danger: "border-rose-500/50 bg-rose-500 text-rose-950 hover:border-rose-300 hover:bg-rose-400",
@@ -426,12 +427,17 @@ function ActionButton({ children, icon: Icon, tone = "neutral", className = "", 
   const toneClass = toneClasses[tone] ?? toneClasses.neutral;
   const baseClass = "inline-flex items-center gap-2 rounded-full px-5 py-2 text-xs font-semibold uppercase tracking-[0.35em] transition";
   return (
-    <button type="button" className={`${baseClass}`} {...rest}>
+    <button
+      type="button"
+      className={`${baseClass} ${toneClass} ${className}`.trim()}
+      {...rest}
+    >
       {Icon && <Icon className="h-4 w-4" />}
       {children}
     </button>
   );
 }
+
 
 function Home() {
   const router = useRouter();
@@ -444,6 +450,8 @@ function Home() {
     setAccountPreference,
     gamePermissions,
   } = React.useContext(stateManager);
+
+  const editModeActive = Boolean(account?.preferences?.editMode);
 
   const [gameInfo, setGameInfo] = useState(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -607,8 +615,8 @@ function Home() {
       return null;
     }
     return (
-      <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-xl">
-        <p className="mb-4 text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Persona cards</p>
+      <div className="rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-xl backdrop-blur-xl">
+        <p className="mb-4 text-xs font-semibold uppercase tracking-[0.35em] text-muted">Persona cards</p>
         <div className="grid gap-6 md:grid-cols-2">
           {personaShowcase.map((persona) => {
             const message = {
@@ -655,14 +663,14 @@ function Home() {
               <span className="text-xs font-semibold uppercase tracking-[0.4em] text-sky-300/80">
                 Builder Studio
               </span>
-              <h1 className="text-3xl font-semibold text-white lg:text-4xl">{pageTitle}</h1>
-              <p className="max-w-2xl text-sm text-white/60">
+              <h1 className="text-3xl font-semibold text-emphasis lg:text-4xl">{pageTitle}</h1>
+              <p className="max-w-2xl text-sm text-muted">
                 Craft the face of your experience with a mid-2025 design language that puts the conversation first.
                 Tune palettes, typography, and structure while previewing the live card system.
               </p>
             </div>
             {toneBadge && (
-              <div className="inline-flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[11px] uppercase tracking-[0.35em] text-white/80">
+              <div className="inline-flex items-center gap-2 self-start rounded-full border border-border/60 bg-surface/80 px-4 py-1.5 text-[11px] uppercase tracking-[0.35em] text-emphasis">
                 <toneBadge.icon className="h-3.5 w-3.5" />
                 {toneBadge.text}
               </div>
@@ -698,46 +706,46 @@ function Home() {
             <div className="flex flex-col gap-10">
               <section className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <div className="flex flex-col gap-6">
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-xl">
+                  <div className="rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-xl backdrop-blur-xl">
                     <div className="grid gap-5">
                       <label className="flex flex-col gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Title</span>
+                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-muted">Title</span>
                         <input
                           name="title"
                           value={gameInfo.title ?? ""}
                           onChange={handleTopLevelInputChange}
-                          className="rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-sm text-white focus:border-sky-400 focus:outline-none"
+                          className="rounded-2xl border border-border/50 bg-surface/80 px-4 py-3 text-sm text-emphasis focus:border-sky-400 focus:outline-none"
                           placeholder="Experience name"
                         />
                       </label>
                       <label className="flex flex-col gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">URL slug</span>
+                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-muted">URL slug</span>
                         <input
                           name="url"
                           value={gameInfo.url ?? ""}
                           onChange={handleTopLevelInputChange}
-                          className="rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-sm text-white focus:border-sky-400 focus:outline-none"
+                          className="rounded-2xl border border-border/50 bg-surface/80 px-4 py-3 text-sm text-emphasis focus:border-sky-400 focus:outline-none"
                           placeholder="playday.ai/your-app"
                         />
                       </label>
                       <label className="flex flex-col gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Description</span>
+                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-muted">Description</span>
                         <textarea
                           name="description"
                           value={gameInfo.description ?? ""}
                           onChange={handleTopLevelInputChange}
                           rows={3}
-                          className="rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-sm text-white focus:border-sky-400 focus:outline-none"
+                          className="rounded-2xl border border-border/50 bg-surface/80 px-4 py-3 text-sm text-emphasis focus:border-sky-400 focus:outline-none"
                           placeholder="Share what makes this experience unique."
                         />
                       </label>
                       <label className="flex flex-col gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Primary version</span>
+                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-muted">Primary version</span>
                         <select
                           name="primaryVersion"
                           value={gameInfo.primaryVersion ?? ""}
                           onChange={handleTopLevelInputChange}
-                          className="rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-sm text-white focus:border-sky-400 focus:outline-none"
+                          className="rounded-2xl border border-border/50 bg-surface/80 px-4 py-3 text-sm text-emphasis focus:border-sky-400 focus:outline-none"
                         >
                           <option value="">Select a version...</option>
                           {versionList?.map((version) => (
@@ -767,8 +775,18 @@ function Home() {
                 </div>
 
                 <aside className="flex flex-col gap-6">
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-xl">
-                    <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Actions</p>
+                  {editModeActive ? (
+                    <div className="rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-xl backdrop-blur-xl">
+                      <MessagesDebugControls
+                        theme={gameInfo.theme}
+                        variant="inline"
+                        onDebugSingleStep={() => {}}
+                        onToggleSingleStep={() => {}}
+                      />
+                    </div>
+                  ) : null}
+                  <div className="rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-xl backdrop-blur-xl">
+                    <p className="text-xs font-semibold uppercase tracking-[0.35em] text-muted">Actions</p>
                     <div className="mt-4 flex flex-col gap-3">
                       <ActionButton
                         icon={Save}

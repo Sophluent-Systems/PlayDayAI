@@ -426,9 +426,12 @@ export function topLevelStateController(props) {
 
     function setAccountPreference(key, value) {
       Constants.debug.logStateManager && console.log("setAccountPreference: ", key, value)
-      let newAccount = {...localAccount}
-      newAccount.preferences = {...newAccount.preferences}
-      newAccount.preferences[key] = value;
+      if (!localAccount) {
+        return;
+      }
+      const nextPreferences = { ...(localAccount.preferences || {}) };
+      nextPreferences[key] = value;
+      const newAccount = { ...localAccount, preferences: nextPreferences };
       setOptimisticAccount(newAccount);
       debouncedUpdateAccount(newAccount);
     }
@@ -611,6 +614,3 @@ export function topLevelStateController(props) {
         hasServicePerms,
       };
 }
-
-
-

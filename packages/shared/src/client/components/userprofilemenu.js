@@ -16,6 +16,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { stateManager } from '@src/client/statemanager';
+import { ThemeToggle } from '@src/client/components/ui/themetoggle';
 
 const baseButtonClasses =
   'group relative inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary';
@@ -348,6 +349,10 @@ export function UserProfileMenu({ className, variant = "standard" }) {
             />
           </MenuSection>
 
+          <MenuSection title="Appearance">
+            <ThemeToggle className="w-full justify-between" />
+          </MenuSection>
+
           {showEditToggle ? (
             <MenuSection title="Workspace">
               <ToggleRow
@@ -357,6 +362,7 @@ export function UserProfileMenu({ className, variant = "standard" }) {
                 description={editMode ? 'Developer tools and draft content visible' : 'Show builder controls and draft nodes'}
               />
             </MenuSection>
+
           ) : null}
 
           {showAdminLinks ? (
@@ -409,5 +415,3 @@ export function UserProfileMenu({ className, variant = "standard" }) {
 }
 
 export default UserProfileMenu;
-
-

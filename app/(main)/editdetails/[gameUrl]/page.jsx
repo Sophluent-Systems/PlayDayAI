@@ -1,601 +1,800 @@
-'use client';
+"use client";
 
-// pages/play/[game].js
-import { useRouter } from 'next/router';
-import React, { memo, useState, useEffect } from 'react';
-import { RequireAuthentication } from '@src/client/components/standard/requireauthentication';
-import { DefaultLayout } from '@src/client/components/standard/defaultlayout';
-import { StandardContentArea } from '@src/client/components/standard/standardcontentarea';
-import { InfoBubble } from '@src/client/components/standard/infobubble';
-import { defaultAppTheme } from '@src/common/theme';
-import { callUpdateGameInfo } from '@src/client/gameplay';
-import { Error as ErrorIcon } from '@mui/icons-material';
-import { makeStyles } from 'tss-react/mui';
-import { CheckCircle } from '@mui/icons-material';
-import { Save } from '@mui/icons-material';
-import { PlayArrow } from '@mui/icons-material';
-import { isEqual } from 'lodash';
+import React, { memo, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
+import { RequireAuthentication } from "@src/client/components/standard/requireauthentication";
+import { stateManager } from "@src/client/statemanager";
+import { callUpdateGameInfo } from "@src/client/gameplay";
+import { callDeleteGameAndAllData } from "@src/client/editor";
 import {
-  TextField,
-  Button,
-  Tooltip,
-  Box,
-  Typography,
-  Grid,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-} from '@mui/material';
-import { MuiColorInput } from 'mui-color-input';
-import Title from '@src/client/components/standard/title';
-import { Warning } from '@mui/icons-material';
-import GameMenu  from '@src/client/components/gamemenu';
-import { callDeleteGameAndAllData } from '@src/client/editor';
-import { stateManager } from '@src/client/statemanager';
-import ChatBotView from '@src/client/components/chatbotview';
-import { PersonaPreview } from '@src/client/components/versioneditor/personas/personapreview';
-import { BuiltInPersonas } from '@src/common/builtinpersonas';
-import { FontChooser } from '@src/client/components/standard/fontchooser';
-import { nullUndefinedOrEmpty } from '@src/common/objects';
+  themePresetsCatalog,
+  createThemeFromPreset,
+  normalizeTheme,
+} from "@src/common/theme";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
+import { BuiltInPersonas } from "@src/common/builtinpersonas";
+import { ChatCard } from "@src/client/components/chatcard";
+import {
+  Save,
+  Play,
+  Trash2,
+  Palette,
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+} from "lucide-react";
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const {
-    colors,
-    fonts,
-  } = pageTheme;
-  return ({
-  inputField: {
-    marginTop: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-  },
-  themeEditorContainer: {
-    padding: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-    borderWidth: 1,
-    borderColor: theme.palette.primary.main,
-    borderStyle: 'solid',
-    borderRadius: theme.shape.borderRadius,
-    backgroundColor:  theme.palette.background.main , 
-    marginTop: theme.spacing(4), 
-    width: '100%',
-  },
-  themePreviewContainer: {
-    padding: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-    borderWidth: 1,
-    borderColor: theme.palette.primary.main,
-    borderStyle: 'solid',
-    borderRadius: theme.shape.borderRadius,
-    backgroundColor: theme.palette.background.main, 
-    marginTop: theme.spacing(4), 
-    width: '100%',
-    alignContent: 'center',
-    justifyContent: 'center',
-  },
-  themeEditorTitle: {
-    marginBottom: theme.spacing(2),
-  },
-  themeEditorField: {
-    marginBottom: theme.spacing(2),
-    padding: theme.spacing(1),
-  },
-  scenarioStyle: {
-    padding: '8px',
-    marginBottom: '8px',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    backgroundColor: colors.inputAreaTextEntryBackgroundColor, 
-  },
-})});
+const FONT_OPTIONS = [
+  { label: "Satoshi", value: '"Satoshi", "Plus Jakarta Sans", "Space Grotesk", sans-serif' },
+  { label: "Inter", value: '"Inter", "Geist", "SF Pro Text", sans-serif' },
+  { label: "Geist", value: '"Geist", "Inter", "SF Pro", sans-serif' },
+  { label: "Montserrat", value: 'Montserrat, sans-serif' },
+  { label: "Raleway", value: 'Raleway, sans-serif' },
+  { label: "Playfair Display", value: '"Playfair Display", serif' },
+  { label: "Space Grotesk", value: '"Space Grotesk", sans-serif' },
+  { label: "Kanit", value: 'Kanit, sans-serif' },
+  { label: "DM Sans", value: '"DM Sans", sans-serif' },
+  { label: "Source Code Pro", value: '"Source Code Pro", monospace' },
+  { label: "JetBrains Mono", value: '"JetBrains Mono", monospace' },
+];
 
+const PALETTE_FIELDS = [
+  { key: "background", label: "Background", helper: "Viewport and canvas backdrop" },
+  { key: "surface", label: "Surface", helper: "Primary container panels" },
+  { key: "surfaceAlt", label: "Surface Alt", helper: "Secondary surfaces & modals" },
+  { key: "card", label: "Card", helper: "Chat card body" },
+  { key: "accent", label: "Accent", helper: "Buttons & highlights" },
+  { key: "accentSoft", label: "Accent Soft", helper: "Hover & soft glows" },
+  { key: "textPrimary", label: "Primary Text", helper: "Headlines & strong copy" },
+  { key: "textSecondary", label: "Secondary Text", helper: "Metadata & captions" },
+  { key: "border", label: "Border", helper: "Outline & dividers" },
+  { key: "info", label: "Info", helper: "Informational accents" },
+  { key: "success", label: "Success", helper: "Positive state" },
+  { key: "danger", label: "Danger", helper: "Errors" },
+];
 
-function ThemePreview(props) {
-  const { gameInfo, primaryVersion } = props;
-  const [appliedTheme, setAppliedTheme] = useState(defaultAppTheme);
-  const { classes } = useStyles(appliedTheme);
+const FONT_FIELDS = [
+  { key: "display", label: "Display font", helper: "Hero headings and large titles" },
+  { key: "body", label: "Body font", helper: "Core copy and interactive text" },
+  { key: "mono", label: "Mono font", helper: "Code, metrics, and stacks" },
+];
 
+const cloneTheme = (theme) => JSON.parse(JSON.stringify(theme ?? {}));
+
+const toColorHex = (value) => {
+  if (!value) {
+    return "#000000";
+  }
+  const hex = value.replace("#", "");
+  if (hex.length === 3) {
+    return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+  }
+  if (hex.length >= 6) {
+    return `#${hex.slice(0, 6)}`.toUpperCase();
+  }
+  return "#000000";
+};
+
+const mergeAlpha = (base, next) => {
+  const alpha = base?.length === 9 ? base.slice(7) : "";
+  return `${next}${alpha}`.replace(/#+/, "#").toUpperCase();
+};
+
+function ThemeEditor({ theme, onChange }) {
+  const [draft, setDraft] = useState(theme);
   useEffect(() => {
-    if (gameInfo && gameInfo.theme) {
-      const themeToSet = {
-        colors: {...defaultAppTheme.colors, ...gameInfo.theme.colors},
-        fonts: {...defaultAppTheme.fonts, ...gameInfo.theme.fonts},
-      };
-      setAppliedTheme(themeToSet);
-    }
-  }, [gameInfo]);
+    setDraft(theme);
+  }, [theme]);
 
+  const commit = (nextTheme) => {
+    const normalized = normalizeTheme(nextTheme);
+    setDraft(normalized);
+    onChange?.(normalized);
+  };
 
-  async function handleCardActionSelected(props) {
-     // does nothing
-     return;
+  const updateDraft = (mutator) => {
+    const base = cloneTheme(draft);
+    const updated = mutator(base);
+    updated.meta = {
+      ...updated.meta,
+      preset: "custom",
+    };
+    commit(updated);
+  };
+
+  const handlePaletteColorChange = (key, value) => {
+    updateDraft((next) => {
+      next.palette = { ...next.palette, [key]: mergeAlpha(next.palette?.[key], value) };
+      return next;
+    });
+  };
+
+  const handlePaletteTextChange = (key, value) => {
+    updateDraft((next) => {
+      next.palette = { ...next.palette, [key]: value };
+      return next;
+    });
+  };
+
+  const handleFontChange = (key, value) => {
+    updateDraft((next) => {
+      next.typography = { ...next.typography, [key]: value };
+      const fonts = { ...next.fonts };
+      if (key === "display") fonts.titleFont = value;
+      if (key === "body") fonts.fontFamily = value;
+      if (key === "mono") fonts.mono = value;
+      next.fonts = fonts;
+      return next;
+    });
+  };
+
+  const handleNameChange = (value) => {
+    updateDraft((next) => {
+      next.meta = { ...next.meta, name: value };
+      return next;
+    });
+  };
+
+  const applyPreset = (presetId) => {
+    const presetTheme = createThemeFromPreset(presetId);
+    commit(presetTheme);
+  };
+
+  if (!draft) {
+    return (
+      <section className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg backdrop-blur">
+        <div className="flex items-center gap-3 text-white/70">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm uppercase tracking-[0.35em]">Loading theme</span>
+        </div>
+      </section>
+    );
   }
 
-  if (!gameInfo) {
-    return null;
-  }
+  const selectedPreset = draft.meta?.preset ?? "custom";
 
   return (
-    <div width="50%">
-        <Box className={classes.themePreviewContainer}>
-          <Typography variant="h6" className={classes.themeEditorTitle}>
-            Preview
-          </Typography>
-            <ChatBotView   
-                theme={appliedTheme}
-                title={gameInfo?.title}
-                waitingForProcessingToComplete={false}
-                waitingForInput={true}
-                inputLength={100}
-                editMode={true}
-                supportsSuggestions={true}
-            >
-                <Box sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  width: '100%',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  justifyItems: 'center',
-                  }}>
-                
-                    {!nullUndefinedOrEmpty(primaryVersion?.personas) && primaryVersion.personas.map(persona =>
-                      <PersonaPreview
-                          theme={appliedTheme}
-                          persona={persona}
-                          mediaTypes={['text', 'image', 'audio']}
-                          extended={true}
-                          key={persona.personaID}
-                      />
-                    )}
-                    {BuiltInPersonas.map(persona => 
-                        <PersonaPreview 
-                            theme={appliedTheme}
-                            persona={persona} 
-                            mediaTypes={['text', 'image', 'audio']}
-                            extended={true}
-                            key={persona.personaID}
-                        />
-                    )}
-                </Box>
+    <section className="rounded-3xl border border-white/10 bg-white/[0.05] p-6 shadow-xl backdrop-blur-xl">
+      <div className="flex flex-col gap-6">
+        <header className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.35em] text-white/70">Theme System</h2>
+              <p className="text-xs text-white/50">
+                Choose a preset foundation, then fine-tune palette and typography.
+              </p>
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.35em] text-white/60">
+              <Palette className="h-4 w-4" />
+              {selectedPreset === "custom" ? "Custom" : selectedPreset}
+            </div>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-1 flex-wrap gap-2">
+              {themePresetsCatalog.map((preset) => {
+                const isActive = preset.id === selectedPreset;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset.id)}
+                    className={`group flex min-w-[140px] flex-1 cursor-pointer flex-col rounded-2xl border px-4 py-3 transition ${
+                      isActive
+                        ? "border-sky-400/70 bg-sky-400/15 text-white"
+                        : "border-white/10 bg-white/5 text-white/80 hover:border-white/30 hover:bg-white/10"
+                    }`}
+                  >
+                    <span className="text-xs font-semibold uppercase tracking-[0.3em]">{preset.name}</span>
+                    <span className="mt-1 text-[11px] leading-relaxed text-white/60">
+                      {preset.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </header>
 
-            </ChatBotView>
-        </Box>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
+            <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.35em] text-white/60">
+              Theme name
+              <input
+                type="text"
+                value={draft.meta?.name ?? ""}
+                onChange={(event) => handleNameChange(event.target.value)}
+                placeholder="Give this look a label"
+                className="mt-2 w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white shadow-inner focus:border-sky-400 focus:outline-none"
+              />
+            </label>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              {PALETTE_FIELDS.map((field) => {
+                const paletteValue = draft.palette?.[field.key] ?? "";
+                const swatchValue = toColorHex(paletteValue);
+                return (
+                  <div
+                    key={field.key}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/70">
+                          {field.label}
+                        </p>
+                        <p className="text-[11px] text-white/50">{field.helper}</p>
+                      </div>
+                      <input
+                        type="color"
+                        value={swatchValue}
+                        onChange={(event) => handlePaletteColorChange(field.key, event.target.value)}
+                        className="h-10 w-10 cursor-pointer rounded-full border border-white/20 bg-transparent p-0"
+                        aria-label={`Choose ${field.label} color`}
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={paletteValue}
+                      onChange={(event) => handlePaletteTextChange(field.key, event.target.value)}
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white/80 focus:border-sky-400 focus:outline-none"
+                      placeholder="#000000FF"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-5 shadow-inner">
+              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">
+                Typography
+              </p>
+              <div className="mt-4 flex flex-col gap-4">
+                {FONT_FIELDS.map((field) => {
+                  const typographyValue = draft.typography?.[field.key] ?? "";
+                  return (
+                    <div key={field.key} className="flex flex-col gap-2">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white/60">
+                        {field.label}
+                      </label>
+                      <select
+                        value={typographyValue}
+                        onChange={(event) => handleFontChange(field.key, event.target.value)}
+                        className="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none"
+                      >
+                        <option value="">Custom�</option>
+                        {FONT_OPTIONS.map((option) => (
+                          <option key={`${field.key}-${option.value}`} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={typographyValue}
+                        onChange={(event) => handleFontChange(field.key, event.target.value)}
+                        className="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white/80 focus:border-sky-400 focus:outline-none"
+                        placeholder="Custom font stack"
+                      />
+                      <span className="text-[10px] text-white/40">{field.helper}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const buildPreviewMessages = (theme, gameTitle) => {
+  const assistantPersona = {
+    displayName: "Sky Guide",
+    theme: {
+      colors: {
+        messageBackgroundColor: theme.colors?.chatbotMessageBackgroundColor,
+        messageTextColor: theme.colors?.chatbotMessageTextColor,
+        buttonColor: theme.colors?.sendMessageButtonActiveColor,
+      },
+      fonts: {
+        fontFamily: theme.fonts?.fontFamily,
+      },
+      icon: {
+        iconID: "Sparkles",
+        color: theme.palette?.accent,
+      },
+    },
+  };
+
+  const userPersona = {
+    displayName: "Player",
+    theme: {
+      colors: {
+        messageBackgroundColor: theme.colors?.userMessageBackgroundColor,
+        messageTextColor: theme.colors?.userMessageTextColor,
+        buttonColor: theme.colors?.sendMessageButtonActiveColor,
+      },
+      fonts: {
+        fontFamily: theme.fonts?.fontFamily,
+      },
+      icon: {
+        iconID: "Smile",
+        color: theme.palette?.info,
+      },
+    },
+  };
+
+  const now = new Date().toISOString();
+
+  return [
+    {
+      recordID: "preview-assistant-1",
+      completionTime: now,
+      persona: assistantPersona,
+      nodeAttributes: {
+        mediaTypes: ["text"],
+        isAIResponse: true,
+      },
+      content: {
+        text: `### ${gameTitle || "Experience"}\nWelcome to your adaptive story space. This preview reacts to your palette and typography selections in real time.`,
+      },
+      state: "complete",
+    },
+    {
+      recordID: "preview-assistant-2",
+      completionTime: now,
+      persona: assistantPersona,
+      nodeAttributes: {
+        mediaTypes: ["image"],
+        isAIResponse: true,
+      },
+      content: {
+        image: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=1200&q=80",
+      },
+      state: "complete",
+    },
+    {
+      recordID: "preview-user-1",
+      completionTime: now,
+      persona: userPersona,
+      nodeAttributes: {
+        mediaTypes: ["text"],
+      },
+      content: {
+        text: "This ambience feels perfect � let's go live!",
+      },
+      state: "complete",
+    },
+  ];
+};
+
+function ThemePreview({ theme, gameTitle }) {
+  const previewMessages = useMemo(() => buildPreviewMessages(theme, gameTitle), [theme, gameTitle]);
+
+  return (
+    <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-xl">
+      <header className="mb-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.35em] text-white/70">Live preview</h3>
+          <p className="text-xs text-white/50">Chat cards adapt instantly to your palette & typography mix.</p>
+        </div>
+      </header>
+      <div className="flex flex-col gap-4">
+        {previewMessages.map((message) => (
+          <ChatCard
+            key={message.recordID}
+            message={message}
+            theme={theme}
+            deleteAllowed={false}
+            waitingForProcessingToComplete={false}
+            editMode={false}
+            responseFeedbackMode={{ user: "readonly", admin: "readonly" }}
+            sessionID="preview"
+            playbackState={{}}
+            onRequestAudioControl={() => {}}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PageState({ icon: Icon, tone = "info", children }) {
+  const toneClasses = {
+    info: "border-white/15 bg-white/5 text-white/80",
+    warn: "border-amber-400/40 bg-amber-500/15 text-amber-100",
+    danger: "border-rose-500/40 bg-rose-500/15 text-rose-100",
+  };
+  const classes = toneClasses[tone] ?? toneClasses.info;
+  return (
+    <div className={`flex flex-col items-center gap-3 rounded-3xl border px-6 py-8 text-center shadow-xl backdrop-blur ${classes}`}>
+      {Icon && <Icon className="h-6 w-6" />}
+      <div className="max-w-lg text-sm leading-relaxed">{children}</div>
     </div>
   );
 }
 
-const fontStrings = {
-  titleFont: "Title font (large text)",
-  fontFamily: "Main font family",
-}
-
-const colorStrings = {
-  titleBackgroundColor: "Title background",
-  titleFontColor: "Title text",
-  menuButtonColor: "Menu button color",
-  chatbotMessageBackgroundColor: "Chatbot message background",
-  chatbotMessageTextColor: " Default chatbot message text",
-  userMessageBackgroundColor: "Default user message background",
-  userMessageTextColor: "Default user message text",
-  debugMessageBackgroundColor: "Default debug message background",
-  debugMessageTextColor: "Default debug message text",
-  messagesAreaBackgroundColor: "Messages area background",
-  inputAreaBackgroundColor: "Input area background",
-  inputAreaTextEntryBackgroundColor: "Input area text entry background",
-  inputTextEnabledColor: "Input text enabled",
-  inputTextDisabledColor: "Input text disabled",
-  inputAreaInformationTextColor: "Input area information text",
-  sendMessageButtonInactiveColor: "Send message button inactive",
-  sendMessageButtonActiveColor: "Send message button active color",
-  sendMessageButtonActiveHoverColor: "Send message button active hover",
-  suggestionsButtonColor: "Suggestions button",
-  suggestionsButtonTextColor: "Suggestions button text",
-  suggestionsButtonHoverColor: "Suggestions button hover",
-  suggestionsButtonHoverTextColor: "Suggestions button hover text",
-  imageBackgroundColor: "Image background",
-};
-
-function ThemeEditor(props) {
-  const { classes } = useStyles(defaultAppTheme);
-  const { onChange, gameInfo } = props;
-  const [appliedTheme, setAppliedTheme] = useState(null);
-  
-  useEffect(() => {
-    if (gameInfo && gameInfo.theme) {
-      const themeToSet = {
-        colors: {...defaultAppTheme.colors, ...gameInfo.theme.colors},
-        fonts: {...defaultAppTheme.fonts, ...gameInfo.theme.fonts},
-      };
-      setAppliedTheme(themeToSet);
-    } else if (gameInfo) {
-      setAppliedTheme(defaultAppTheme);
-    }
-  }, [gameInfo]);
-
-  useEffect(() => {
-    if (appliedTheme && !isEqual(appliedTheme, gameInfo.theme)){ 
-      onChange(appliedTheme);
-    }
-  }, [appliedTheme]);
-
-  const handleColorChange = (field, value) => {
-    setAppliedTheme((prevTheme) => ({
-      ...prevTheme,
-      colors: {
-        ...prevTheme.colors,
-        [field]: value,
-      },
-    }));
+function ActionButton({ children, icon: Icon, tone = "neutral", className = "", ...rest }) {
+  const toneClasses = {
+    neutral: "border-white/15 bg-white/10 text-white hover:border-white/30 hover:bg-white/20",
+    primary: "border-sky-400/50 bg-sky-500 text-slate-900 hover:border-sky-300 hover:bg-sky-400",
+    accent: "border-emerald-400/40 bg-emerald-500 text-emerald-950 hover:border-emerald-300 hover:bg-emerald-400",
+    danger: "border-rose-500/50 bg-rose-500 text-rose-950 hover:border-rose-300 hover:bg-rose-400",
   };
-
-  const handleFontChange = (field, value) => {
-    setAppliedTheme((prevTheme) => ({
-      ...prevTheme,
-      fonts: {
-        ...prevTheme.fonts,
-        [field]: value,
-      },
-    }));
-  };
-
-  if (!appliedTheme) {
-
-    return (
-    <Box className={classes.themeEditorContainer}>
-      <Typography variant="h6" className={classes.themeEditorTitle}>
-        Theme
-      </Typography>
-      </Box>
-    );
-  }
-
+  const toneClass = toneClasses[tone] ?? toneClasses.neutral;
+  const baseClass = "inline-flex items-center gap-2 rounded-full px-5 py-2 text-xs font-semibold uppercase tracking-[0.35em] transition";
   return (
-    <Box className={classes.themeEditorContainer}>
-      <Typography variant="h6" className={classes.themeEditorTitle}>
-        Theme
-      </Typography>
-
-
-      <Grid container spacing={2} alignItems="flex-start">
-        {Object.keys(defaultAppTheme.fonts).map((fontKey) => (
-          <Grid item xs={12} sm={4} key={fontKey}>
-            <Box key={fontKey} className={classes.themeEditorField}>
-              <Typography variant="subtitle1">{fontStrings[fontKey]}</Typography>
-              <FontChooser
-                value={appliedTheme.fonts?.[fontKey]}
-                defaultValue={ defaultAppTheme.fonts[fontKey]}
-                onChange={(nextFont) => handleFontChange(fontKey, nextFont)}
-              />
-            </Box>
-            </Grid>))}
-        {Object.keys(defaultAppTheme.colors).map((colorKey) => (
-          <Grid item xs={12} sm={4} key={colorKey}>
-            <Box key={colorKey} className={classes.themeEditorField}>
-              <Typography variant="subtitle1">{colorStrings[colorKey]}</Typography>
-              <MuiColorInput
-                value={(appliedTheme.colors?.[colorKey]) ? appliedTheme.colors?.[colorKey] : defaultAppTheme.colors[colorKey]}
-                onChange={(newValue) => handleColorChange(colorKey, newValue)}
-                format={'hex8'}
-              />
-            </Box>
-          </Grid>))}
-      </Grid>
-    </Box>
+    <button type="button" className={`${baseClass}`} {...rest}>
+      {Icon && <Icon className="h-4 w-4" />}
+      {children}
+    </button>
   );
 }
 
-function Home(props) {
-  const { loading, account, game, versionList, switchGameByUrl,setAccountPreference, gamePermissions , editMode } = React.useContext(stateManager);
+function Home() {
   const router = useRouter();
-  const { classes } = useStyles(defaultAppTheme);
+  const {
+    loading,
+    account,
+    game,
+    versionList,
+    switchGameByUrl,
+    setAccountPreference,
+    gamePermissions,
+  } = React.useContext(stateManager);
+
+  const [gameInfo, setGameInfo] = useState(null);
   const [isDirty, setIsDirty] = useState(false);
   const [isUpdated, setIsUpdated] = useState(false);
-  const [gameInfo, setGameInfo] = useState(null);
-  const [automaticallyModifiedPrimaryVersion, setAutomaticallyModifiedPrimaryVersion] = useState(false);
-  const [noQualifiedPrimaryVersion, setNoQualifiedPrimaryVersion ] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [primaryVersion, setPrimaryVersion] = useState(null);
+  const [legacyThemeMigrated, setLegacyThemeMigrated] = useState(false);
+  const [primaryVersionMissing, setPrimaryVersionMissing] = useState(false);
+  const [noPublishedVersions, setNoPublishedVersions] = useState(false);
 
   useEffect(() => {
-    // turn on edit mode by defualt when editing
-    if (!loading && !editMode) {
-      setAccountPreference("editMode", true);
+    if (loading) {
+      return;
     }
-  }, [loading]);
+    const canEdit = Boolean(gamePermissions?.includes("game_edit"));
+    const current = Boolean(account?.preferences?.editMode);
+    if (current === canEdit) {
+      return;
+    }
+    setAccountPreference?.("editMode", canEdit);
+  }, [loading, gamePermissions, account?.preferences?.editMode, setAccountPreference]);
 
   useEffect(() => {
-      let newGameInfo = null;
-      if (game && !gameInfo) {
-        newGameInfo = JSON.parse(JSON.stringify(game));
-      } else if (gameInfo) {
-        newGameInfo = JSON.parse(JSON.stringify(gameInfo));
+    if (!game) {
+      return;
+    }
+
+    setGameInfo((previous) => {
+      if (previous) {
+        return previous;
       }
-      
-      if (newGameInfo && versionList) {
-        if (nullUndefinedOrEmpty(newGameInfo?.primaryVersion) && !nullUndefinedOrEmpty(versionList)) {
 
-          // Choose the best primary version to set
+      const hydrated = cloneTheme(game);
+      const normalizedTheme = normalizeTheme(hydrated.theme);
+      const schemaChanged = hydrated.theme?.meta?.schemaVersion !== normalizedTheme.meta?.schemaVersion;
+      if (schemaChanged) {
+        setLegacyThemeMigrated(true);
+      }
+      hydrated.theme = normalizedTheme;
 
-          let candidates = versionList.filter((version) => version.published);
-
-          if (candidates.length == 0) {
-            candidates = versionList;
-          }
-
-          // get the most recently edited version, highest lastUpdatedDate
-          let primaryVersion = candidates.reduce((prev, current) => (prev.lastUpdatedDate > current.lastUpdatedDate) ? prev : current);
-          newGameInfo.primaryVersion = primaryVersion?.versionName;
-          setPrimaryVersion(primaryVersion);
+      if ((!hydrated.primaryVersion || nullUndefinedOrEmpty(hydrated.primaryVersion)) && versionList?.length) {
+        const published = versionList.filter((version) => version.published);
+        const candidates = published.length > 0 ? published : versionList;
+        if (candidates.length) {
+          const chosen = candidates.reduce((latest, current) => {
+            const latestDate = new Date(latest.lastUpdatedDate || 0).getTime();
+            const currentDate = new Date(current.lastUpdatedDate || 0).getTime();
+            return currentDate > latestDate ? current : latest;
+          });
+          hydrated.primaryVersion = chosen?.versionName;
         }
-     }
-     
-     setGameInfo(newGameInfo);
+      }
+
+      return hydrated;
+    });
   }, [game, versionList]);
 
   useEffect(() => {
-    if (versionList) {
-      
-      let newGameInfo = JSON.parse(JSON.stringify(game));
-      if (newGameInfo) {
-        setPrimaryVersion(versionList.find((version) => version.versionName == newGameInfo.primaryVersion));
-      }
+    if (!gameInfo || !versionList) {
+      return;
     }
-  }, [versionList]);
 
-  useEffect(() => {
-    const handleBeforeUnload = (event) => {
-      if (isDirty) {
-        // Display a confirmation dialog
-        event.preventDefault();
-        event.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
-      }
-    };
+    const hasPrimary = versionList.some((version) => version.versionName === gameInfo.primaryVersion);
+    setPrimaryVersionMissing(Boolean(gameInfo.primaryVersion && !hasPrimary));
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    const publishedCount = versionList.filter((version) => version.published).length;
+    setNoPublishedVersions(publishedCount === 0);
+  }, [gameInfo, versionList]);
 
-    return () => {
-      // Clean up the listener when the component unmounts
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [isDirty]);
-
-  const handleTopLevelInputChange = (e) => {
-    const { name, value } = e.target;
-    setGameInfo((prevState) => ({
-      ...prevState,
+  const handleTopLevelInputChange = (event) => {
+    const { name, value } = event.target;
+    setGameInfo((previous) => ({
+      ...previous,
       [name]: value,
     }));
     setIsDirty(true);
+    setIsUpdated(false);
   };
 
-
-  const handleThemeChange = (newTheme) => {
-    var newGameInfo = {...gameInfo};
-    newGameInfo.theme = newTheme;
-    setGameInfo(newGameInfo);
+  const handleThemeChange = (nextTheme) => {
+    setGameInfo((previous) => ({
+      ...previous,
+      theme: nextTheme,
+    }));
     setIsDirty(true);
+    setIsUpdated(false);
   };
 
-
-  async function submitNewGameInfo() {
+  const submitNewGameInfo = async () => {
+    if (!gameInfo) {
+      return;
+    }
     try {
       await callUpdateGameInfo(gameInfo);
       setIsDirty(false);
       setIsUpdated(true);
-      await switchGameByUrl(gameInfo.url, true);
+      await switchGameByUrl?.(gameInfo.url, true);
     } catch (error) {
-      alert("Error saving updates: " + error);
+      alert(`Error saving updates: ${error}`);
     }
-  }
-
-  const handleDeleteVersion = () => {
-    setDeleteDialogOpen(true);
   };
 
-  const handleConfirmDelete = () => {
-    console.log("handleConfirmDelete");
-    callDeleteGameAndAllData(gameInfo.gameID);
-    setDeleteDialogOpen(false); // Close the dialog
-    router.replace('/');
-  };
-
-  const handleCancelDelete = () => {
-    setDeleteDialogOpen(false); // Close the dialog
-  };
-  
-
-
-  function renderWithFormatting(children) {
-    return (
-      <StandardContentArea>
-          <InfoBubble>
-            {children}
-          </InfoBubble>
-      </StandardContentArea>
+  const handleDeleteGame = async () => {
+    if (!gameInfo) {
+      return;
+    }
+    const confirmed = window.confirm(
+      "This will permanently remove the game and all of its data. This action cannot be undone. Continue?",
     );
-  }
+    if (!confirmed) {
+      return;
+    }
 
-  if (!gameInfo) {
-    return renderWithFormatting(<h1>Loading...</h1>);
-  }
+    try {
+      await callDeleteGameAndAllData(gameInfo.gameID);
+      router.replace("/");
+    } catch (error) {
+      alert(`Error deleting game: ${error}`);
+    }
+  };
+
+  const handlePlay = () => {
+    if (gameInfo?.url) {
+      router.push(`/play/${gameInfo.url}`);
+    }
+  };
+
+  const loadingState = loading || !account || !gamePermissions;
+  const unauthorized = !loadingState && !gamePermissions?.includes("game_edit");
+
+  const toneBadge = isDirty
+    ? { icon: AlertTriangle, text: "Unsaved changes", tone: "warn" }
+    : isUpdated
+    ? { icon: CheckCircle2, text: "Changes saved", tone: "accent" }
+    : null;
+
+  const personaShowcase = useMemo(() => {
+    if (!gameInfo?.theme) {
+      return [];
+    }
+    return BuiltInPersonas.slice(0, 2).map((persona, index) => ({
+      ...persona,
+      personaID: persona.personaID || `built-in-${index}`,
+      theme: persona.theme || {
+        colors: {
+          messageBackgroundColor: gameInfo.theme.colors?.chatbotMessageBackgroundColor,
+          messageTextColor: gameInfo.theme.colors?.chatbotMessageTextColor,
+          buttonColor: gameInfo.theme.colors?.sendMessageButtonActiveColor,
+        },
+        fonts: {
+          fontFamily: gameInfo.theme.fonts?.fontFamily,
+        },
+        icon: {
+          iconID: persona?.theme?.icon?.iconID || "Sparkles",
+          color: persona?.theme?.icon?.color || gameInfo.theme.palette?.accent,
+        },
+      },
+    }));
+  }, [gameInfo?.theme]);
+
+  const renderPersonaPreview = () => {
+    if (!personaShowcase.length || !gameInfo?.theme) {
+      return null;
+    }
+    return (
+      <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-xl">
+        <p className="mb-4 text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Persona cards</p>
+        <div className="grid gap-6 md:grid-cols-2">
+          {personaShowcase.map((persona) => {
+            const message = {
+              recordID: `persona-preview-${persona.personaID}`,
+              completionTime: new Date().toISOString(),
+              persona,
+              nodeAttributes: {
+                mediaTypes: ["text"],
+                isAIResponse: true,
+              },
+              content: {
+                text: `I am ${persona.displayName}. This preview respects your current card styling and typography.`,
+              },
+              state: "complete",
+            };
+            return (
+              <ChatCard
+                key={persona.personaID}
+                message={message}
+                theme={gameInfo.theme}
+                deleteAllowed={false}
+                waitingForProcessingToComplete={false}
+                editMode={false}
+                responseFeedbackMode={{ user: "readonly", admin: "readonly" }}
+                sessionID="persona-preview"
+                playbackState={{}}
+                onRequestAudioControl={() => {}}
+              />
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const pageTitle = game ? `Edit ${game.title}` : "Loading";
 
   return (
     <RequireAuthentication>
-      <DefaultLayout title={!game ? "Loading" : `Edit ${game.title}`} theme={defaultAppTheme} >
-          {(loading || !account || !gamePermissions) ? renderWithFormatting(<h1>Loading...</h1>) 
-          : (!gamePermissions.includes('game_edit') ?
-             renderWithFormatting(<h1>You are not authorized to edit this app.</h1>)
-            : (
-              <StandardContentArea>
-                  <TextField
-                    label="Title"
-                    name="title"
-                    value={gameInfo.title}
-                    onChange={handleTopLevelInputChange}
-                    className={classes.inputfield}
-                    variant="filled"
-                    fullWidth
-                  />
-                  <TextField
-                    label="URL"
-                    name="url"
-                    value={gameInfo.url}
-                    onChange={handleTopLevelInputChange}
-                    className={classes.inputfield}
-                    variant="filled"
-                    fullWidth
-                  />
-                  <TextField
-                    label="Description"
-                    name="description"
-                    value={gameInfo.description}
-                    onChange={handleTopLevelInputChange}
-                    className={classes.inputfield}
-                    variant="filled"
-                    fullWidth
-                  />
-              <FormControl
-                className={classes.inputfield}
-                variant="filled"
-                fullWidth
-              >
-                <InputLabel id="primaryVersion-label">
-                  Primary Version
-                </InputLabel>
-                <Select
-                  labelId="primaryVersion"
-                  value={gameInfo.primaryVersion || ""}
-                  onChange={handleTopLevelInputChange}
-                  name="primaryVersion"
-                >
-                  {versionList?.map((version) => (
-                    <MenuItem key={version.versionName} value={version.versionName}>
-                      {version.versionName}
-                    </MenuItem>
-                  ))}
-                </Select>
-                {automaticallyModifiedPrimaryVersion && (
-                <Tooltip title="Primary version not in the list">
-                  <Box display="flex" alignItems="center">
-                    <Warning color="error" />
-                    <Typography
-                      variant="body1"
-                      color="error"
-                      style={{ marginLeft: '4px' }}
-                    >
-                      The previous Primary Version is no longer published
-                    </Typography>
-                  </Box>
-                </Tooltip>
-              )}
-              {noQualifiedPrimaryVersion && (
-              <Tooltip title="No published versions available!">
-                <Box display="flex" alignItems="center">
-                  <Warning color="error" />
-                  <Typography
-                    variant="body1"
-                    color="error"
-                    style={{ marginLeft: '4px' }}
-                  >
-                    No published versions available!
-                  </Typography>
-                </Box>
-              </Tooltip>
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-930 to-slate-950 text-slate-100">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 pb-16 pt-12 sm:px-6 lg:px-8">
+          <header className="flex flex-col gap-6">
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.4em] text-sky-300/80">
+                Builder Studio
+              </span>
+              <h1 className="text-3xl font-semibold text-white lg:text-4xl">{pageTitle}</h1>
+              <p className="max-w-2xl text-sm text-white/60">
+                Craft the face of your experience with a mid-2025 design language that puts the conversation first.
+                Tune palettes, typography, and structure while previewing the live card system.
+              </p>
+            </div>
+            {toneBadge && (
+              <div className="inline-flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[11px] uppercase tracking-[0.35em] text-white/80">
+                <toneBadge.icon className="h-3.5 w-3.5" />
+                {toneBadge.text}
+              </div>
             )}
-              </FormControl>
-                  <ThemeEditor gameInfo={gameInfo} onChange={handleThemeChange} />
-                  <ThemePreview gameInfo={gameInfo} primaryVersion={primaryVersion} />
+            {legacyThemeMigrated && (
+              <PageState icon={AlertTriangle} tone="warn">
+                <strong className="block font-semibold">Legacy theme detected.</strong>
+                We applied the Celestial Tide preset to migrate your app onto the new token system. Feel free to swap
+                presets or fine-tune the palette below.
+              </PageState>
+            )}
+          </header>
 
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    className={classes.inputfield}
-                    onClick={submitNewGameInfo}
-                    disabled={!isDirty}
-                    startIcon={<Save />}
-                  >
-                    Save changes
-                    {isDirty ? (
-                      <Tooltip title="Unsaved changes">
-                        <Box marginLeft={1}>
-                          <ErrorIcon color="error" />
-                        </Box>
-                      </Tooltip>
-                    ) : isUpdated ? (
-                      <Tooltip title="Changes saved">
-                        <Box marginLeft={1}>
-                          <CheckCircle color="action" />
-                        </Box>
-                      </Tooltip>
-                    ) : null}
-                  </Button>
-                  <Button
-                    variant="contained"
-                    color="secondary"
-                    onClick={() => router.push(`/play/${game.url}`)}
-                    startIcon={<PlayArrow />}
-                  >
-                    Play
-                  </Button>
+          {loadingState ? (
+            <PageState icon={Loader2}>
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Loading your app data�
+              </span>
+            </PageState>
+          ) : unauthorized ? (
+            <PageState icon={AlertTriangle} tone="danger">
+              You do not have permission to edit this application.
+            </PageState>
+          ) : !gameInfo ? (
+            <PageState icon={Loader2}>
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Preparing editor�
+              </span>
+            </PageState>
+          ) : (
+            <div className="flex flex-col gap-10">
+              <section className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <div className="flex flex-col gap-6">
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-xl">
+                    <div className="grid gap-5">
+                      <label className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Title</span>
+                        <input
+                          name="title"
+                          value={gameInfo.title ?? ""}
+                          onChange={handleTopLevelInputChange}
+                          className="rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-sm text-white focus:border-sky-400 focus:outline-none"
+                          placeholder="Experience name"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">URL slug</span>
+                        <input
+                          name="url"
+                          value={gameInfo.url ?? ""}
+                          onChange={handleTopLevelInputChange}
+                          className="rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-sm text-white focus:border-sky-400 focus:outline-none"
+                          placeholder="playday.ai/your-app"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Description</span>
+                        <textarea
+                          name="description"
+                          value={gameInfo.description ?? ""}
+                          onChange={handleTopLevelInputChange}
+                          rows={3}
+                          className="rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-sm text-white focus:border-sky-400 focus:outline-none"
+                          placeholder="Share what makes this experience unique."
+                        />
+                      </label>
+                      <label className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Primary version</span>
+                        <select
+                          name="primaryVersion"
+                          value={gameInfo.primaryVersion ?? ""}
+                          onChange={handleTopLevelInputChange}
+                          className="rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-sm text-white focus:border-sky-400 focus:outline-none"
+                        >
+                          <option value="">Select a version...</option>
+                          {versionList?.map((version) => (
+                            <option key={version.versionName} value={version.versionName}>
+                              {version.versionName}
+                              {version.published ? " � Published" : " � Draft"}
+                            </option>
+                          ))}
+                        </select>
+                        {(primaryVersionMissing || noPublishedVersions) && (
+                          <div className="mt-2 flex items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-100">
+                            <AlertTriangle className="h-4 w-4" />
+                            <span>
+                              {primaryVersionMissing
+                                ? "The selected primary version is not currently available."
+                                : "No published versions yet � players will not see this app."}
+                            </span>
+                          </div>
+                        )}
+                      </label>
+                    </div>
+                  </div>
 
+                  <ThemeEditor theme={gameInfo.theme} onChange={handleThemeChange} />
+                  <ThemePreview theme={gameInfo.theme} gameTitle={gameInfo.title} />
+                  {renderPersonaPreview()}
                 </div>
 
-                <Box
-                display="flex"
-                justifyContent="center"
-                marginTop={4}
-                marginBottom={2}
-                >
-                <Button
-                    variant="contained"
-                    color="error"
-                    onClick={handleDeleteVersion}
-                >
-                    Delete game
-                </Button>
-                </Box>
-                <GameMenu 
-                    url={game?.url} 
-                    theme={defaultAppTheme}
-                    allowEditOptions  
-                    includePlayOption
-                />
-              </StandardContentArea>
-            ))}
-        <Dialog
-        open={deleteDialogOpen}
-        onClose={handleCancelDelete}
-        aria-labelledby="delete-version-dialog-title"
-        aria-describedby="delete-version-dialog-description"
-        >
-        <DialogTitle id="delete-version-dialog-title">
-            DELETE ENTIRE GAME
-        </DialogTitle>
-        <DialogContent>
-            <DialogContentText id="delete-version-dialog-description">
-            THIS WILL PERMINANTLY DELETE THE GAME AND ALL DATA AND CANNOT BE UNDONE. This is the big one!!
-            </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-            <Button onClick={handleCancelDelete} color="primary">
-            Cancel
-            </Button>
-            <Button onClick={handleConfirmDelete} color="error" autoFocus>
-            Delete -- are you sure!?1?
-            </Button>
-        </DialogActions>
-        </Dialog>
-      </DefaultLayout>
-    </RequireAuthentication> 
+                <aside className="flex flex-col gap-6">
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-xl">
+                    <p className="text-xs font-semibold uppercase tracking-[0.35em] text-white/60">Actions</p>
+                    <div className="mt-4 flex flex-col gap-3">
+                      <ActionButton
+                        icon={Save}
+                        tone="primary"
+                        onClick={submitNewGameInfo}
+                        disabled={!isDirty}
+                        className={isDirty ? "" : "cursor-not-allowed opacity-50"}
+                      >
+                        Save changes
+                      </ActionButton>
+                      <ActionButton icon={Play} tone="accent" onClick={handlePlay}>
+                        Open live preview
+                      </ActionButton>
+                      <ActionButton icon={Trash2} tone="danger" onClick={handleDeleteGame}>
+                        Delete game
+                      </ActionButton>
+                    </div>
+                  </div>
+                </aside>
+              </section>
+            </div>
+          )}
+        </div>
+      </div>
+    </RequireAuthentication>
   );
-
 }
 
 export default memo(Home);

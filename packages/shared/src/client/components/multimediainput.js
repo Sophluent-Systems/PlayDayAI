@@ -1,171 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { makeStyles } from "tss-react/mui";
-import { 
-    TextField, 
-    IconButton,
-    Box,
-    Typography,
-} from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import SendIcon from '@mui/icons-material/Send';
+import React, { useState, useEffect, useMemo } from 'react';
+import clsx from 'clsx';
 import { useDropzone } from 'react-dropzone';
+import { Trash2, SendHorizontal } from 'lucide-react';
 import { SpeechRecorder } from './speechrecorder';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 
-
-const useStyles = makeStyles()((theme, pageTheme) => {
-    const {
-      colors,
-      fonts,
-    } = pageTheme;
-    return ({
-    mediaAreaContainer: {
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        alignContent: 'center',
-        width: '100%',
-        bottom: 0,
-        padding: theme.spacing(1),
-        backgroundColor: colors.inputAreaBackgroundColor,
-        position: 'relative', 
-        flexGrow: 1, // This tells the container to take up any available space
-    },
-    inputContainer: {
-        display: 'flex',
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignContent: 'center',
-        alignItems: 'center',
-        width: '100%',
-        bottom: 0,
-        padding: theme.spacing(1),
-        backgroundColor: colors.inputAreaBackgroundColor,
-        position: 'relative', 
-        flexGrow: 1, // This tells the container to take up any available space
-    },
-    textField: {
-      flexGrow: 1,
-      marginLeft: 2,
-      marginRight: 2,
-      '& .MuiOutlinedInput-root': {
-        backgroundColor: colors.inputAreaTextEntryBackgroundColor, // Use the new color as the background
-      },
-    },
-    input: {
-      color: colors.inputTextEnabledColor, // Use the primary text color for the main text
-    },
-    inputSuggestion: {
-      color: colors.inputTextDisabledColor, // Use the secondary text color for the suggestion text
-    },
-    notchedOutline: {
-      borderColor: colors.inputTextDisabledColor, // Use the default background color for the outline
-    },
-    iconButtonInacive: {
-      color: colors.sendMessageButtonInactiveColor, // Use the default background colorfor the icon
-    },
-    iconButtonAcive: {
-      color: colors.sendMessageButtonActiveColor, // Use the default background colorfor the icon
-      '&:hover': {
-        color: colors.sendMessageButtonActiveHoverColor,
-      },
-    },
-    suggestionsContainer: {
-      display: 'flex',
-      flexDirection: 'column',
-      width: '100%',
-      backgroundColor: colors.inputAreaBackgroundColor,
-    },
-    suggestionButton: {
-      flex: 1,
-      margin: theme.spacing(0.5),
-      color: colors.suggestionsButtonTextColor,
-      backgroundColor: colors.suggestionsButtonColor,
-      '&:hover': {
-        color: colors.suggestionsButtonHoverTextColor,
-        backgroundColor: colors.suggestionsButtonHoverColor, // replace with the color you want on hover
-      },
-    },
-    noSuggestionsBox: {
-      flex: 1,
-      margin: theme.spacing(0.5),
-      width: '100%',
-      color: colors.suggestionsButtonTextColor,
-      backgroundColor: colors.suggestionsButtonColor,
-    },
-    overlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(255, 255, 255, 0.8)',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 1000,
-    },
-    dragAndDropText: {
-      color: colors.suggestionsButtonTextColor,
-    },
-    outlinedInput: {
-      color: colors.inputTextEnabledColor,
-      borderColor: colors.inputTextEnabledColor,
-      '&$focused': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextEnabledColor, // Change this to the color you want when the TextField has input focus
-        },
-      },
-      '&:hover': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextEnabledColor, // Change this to the color you want when the TextField is being hovered
-        },
-      },
-      '&$focused:not(:hover)': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextEnabledColor, // Change this to the color you want when the TextField is being hovered
-        },
-      },
-      '&:hover:not($focused)': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextDisabledColor, // Change this to the color you want when the TextField is being hovered
-        },
-      },
-      '&$disabled': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextDisabledColor, // Change this to the color you want when the TextField is being hovered
-        },
-      },
-    },
-    focused: {},
-    disabled: {},
-    error: {},
-    contentContainer: {
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        flexGrow: 1,
-        alignContent: 'center',
-        overflowY: 'auto',
-        paddingTop: '40px',
-        paddingBottom: '100px',
-        backgroundColor: colors.messagesAreaBackgroundColor,
-    },
-  })});
-  
 const emptyMedia = {
   text: {
-    data: "",
-    source: "blob",
-    type: "text",
-    mimeType: "text",
-  }
+    data: '',
+    source: 'blob',
+    type: 'text',
+    mimeType: 'text',
+  },
 };
 
 export const MultimediaInput = (props) => {
-  const { 
-    theme, 
+  const {
+    theme,
     inputLength,
     waitingForInput,
     sendAudioOnSpeechEnd,
@@ -173,244 +24,216 @@ export const MultimediaInput = (props) => {
     handleSendMessage,
     debug,
   } = props;
-  const { classes } = useStyles(theme);
-  const [inputText, setInputText] = useState('');
+
   const [media, setMedia] = useState(emptyMedia);
   const [isDragging, setIsDragging] = useState(false);
   const [audioUrl, setAudioUrl] = useState('');
 
+  const palette = useMemo(
+    () => ({
+      surface: theme?.colors?.inputAreaTextEntryBackgroundColor ?? '#1f2937',
+      text: theme?.colors?.inputTextEnabledColor ?? '#f8fafc',
+      muted: theme?.colors?.inputTextDisabledColor ?? '#94a3b8',
+      accent: theme?.colors?.sendMessageButtonActiveColor ?? '#38bdf8',
+      accentHover: theme?.colors?.sendMessageButtonActiveHoverColor ?? '#0ea5e9',
+    }),
+    [theme],
+  );
 
-  const supportsText = nullUndefinedOrEmpty(supportedMediaTypes) || supportedMediaTypes.includes("text");
-  const supportsAudio = supportedMediaTypes && supportedMediaTypes.includes("audio");
-  const supportsImage = supportedMediaTypes && supportedMediaTypes.includes("image");
-  const supportsVideo = supportedMediaTypes && supportedMediaTypes.includes("video");
-  
+  const cssVars = {
+    '--pd-input-surface': palette.surface,
+    '--pd-text-primary': palette.text,
+    '--pd-text-muted': palette.muted,
+    '--pd-highlight': palette.accent,
+    '--pd-highlight-hover': palette.accentHover,
+  };
+
+  const supportsText = nullUndefinedOrEmpty(supportedMediaTypes) || supportedMediaTypes.includes('text');
+  const supportsAudio = supportedMediaTypes && supportedMediaTypes.includes('audio');
+  const supportsImage = supportedMediaTypes && supportedMediaTypes.includes('image');
+  const supportsVideo = supportedMediaTypes && supportedMediaTypes.includes('video');
+
   const handleAudioSave = (blob) => {
-    console.log("Saving audio blob");
-    if (sendAudioOnSpeechEnd) { 
-
-        handleSendMessage({ 
-          audio : {
-            data: blob, 
-            mimeType: "audio/webm",
-            source: "blob" 
-          }
-        });
+    if (sendAudioOnSpeechEnd) {
+      handleSendMessage({
+        audio: {
+          data: blob,
+          mimeType: 'audio/webm',
+          source: 'blob',
+        },
+      });
     } else {
-        setMedia((prev) => {
-          let newMedia = {...prev};
-          newMedia.audio = {
-            data: blob,
-            mimeType: "audio/webm",
-            source: "blob",
-          };
-
-          return newMedia;
-        });
-        
+      setMedia((prev) => ({
+        ...prev,
+        audio: {
+          data: blob,
+          mimeType: 'audio/webm',
+          source: 'blob',
+        },
+      }));
     }
   };
 
   useEffect(() => {
-    if (media["audio"]) {
-        const audioBlob = media["audio"].data;
-        const newAudioUrl = URL.createObjectURL(audioBlob);
-        setAudioUrl(newAudioUrl);
+    if (media?.audio) {
+      const newAudioUrl = URL.createObjectURL(media.audio.data);
+      setAudioUrl(newAudioUrl);
+      return () => URL.revokeObjectURL(newAudioUrl);
     }
-
-    // Cleanup the URL when the component unmounts
-    return () => {
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
-    };
+    setAudioUrl('');
+    return undefined;
   }, [media]);
 
   const handleMediaDelete = () => {
-    setMedia(prev => {
-      let newMedia = {...prev};
+    setMedia((prev) => {
+      const next = { ...prev };
       Object.keys(prev).forEach((type) => {
-        if (type != "text") {
-          delete newMedia[type];
+        if (type !== 'text') {
+          delete next[type];
         }
       });
-      return newMedia;
+      return next;
     });
   };
-  
+
   const doSendMessage = () => {
-    let newMedia = {...media};
-    if (newMedia.text?.data === "") {
-      delete newMedia.text;
+    const payload = { ...media };
+    if (payload.text?.data === '') {
+      delete payload.text;
     }
-    handleSendMessage(newMedia);
+    handleSendMessage(payload);
     setMedia(emptyMedia);
-  }
+  };
 
   const handleInputKeyPress = (event) => {
     if (event.key === 'Enter') {
-        doSendMessage();
+      event.preventDefault();
+      doSendMessage();
     }
   };
 
   const updateText = (text) => {
-    setMedia((prev) => {
-      let newMedia = {...prev};
-      newMedia.text = {
+    setMedia((prev) => ({
+      ...prev,
+      text: {
         data: text,
-        source: "blob",
-        mimeType: "text",
-      };
-
-      return newMedia;
-    });
+        source: 'blob',
+        mimeType: 'text',
+      },
+    }));
   };
 
-  const {getRootProps, getInputProps, isDragActive} = useDropzone({
+  const { getRootProps, getInputProps } = useDropzone({
     onDrop: (acceptedFiles) => {
-        const file = acceptedFiles[0];
-        const type = file.type.split('/')[0];
-        setMedia((prev) => {
-          let newMedia = {...prev};
-          // type is the first component of the MIME type
-          newMedia[type] = {
-            data: file,
-            mimeType: file.type,
-            source: "blob",
-          };
-
-          return newMedia;
-        });
+      const file = acceptedFiles[0];
+      if (!file) {
+        return;
+      }
+      const type = file.type.split('/')[0];
+      setMedia((prev) => ({
+        ...prev,
+        [type]: {
+          data: file,
+          mimeType: file.type,
+          source: 'blob',
+        },
+      }));
       setIsDragging(false);
     },
-    noClick: true, // Disable manual clicks if necessary
+    noClick: true,
     noKeyboard: true,
     accept: {
-      "audio/mpeg": [],
-      "audio/webm": [],
-      "audio/webm": [],
-      "video/mp4": [],
-      "video/mpeg": [],
-      "video/quicktime": [],
-      "image/jpeg": [],
-      "image/png": [],
-      "image/gif": [],
-    }, // Correct MIME types
-    onDragOver: () => {
-      setIsDragging(true);
+      'audio/mpeg': [],
+      'audio/webm': [],
+      'video/mp4': [],
+      'video/mpeg': [],
+      'video/quicktime': [],
+      'image/jpeg': [],
+      'image/png': [],
+      'image/gif': [],
     },
-    onDragLeave: () => {
-      setIsDragging(false);
-    },
+    onDragOver: () => setIsDragging(true),
+    onDragLeave: () => setIsDragging(false),
   });
 
+  const dropzoneActive = supportsImage || supportsVideo;
+  const rootProps = dropzoneActive ? getRootProps({ className: 'focus:outline-none' }) : {};
+  const inputProps = dropzoneActive ? getInputProps() : {};
 
-  const dragDropProps = (supportsImage || supportsVideo) ? getRootProps({ className: "dropzone" }) : {};
-  const inputProps = (supportsText || supportsAudio) ? getInputProps() : {};
+  const hasAttachments = Boolean(media.image || media.video || media.audio);
 
   return (
-    <Box className={classes.mediaAreaContainer}>
-        <Box {...dragDropProps} width='100%' height='100%'>
-            {isDragging && (
-            <Box
-                className={classes.dragAndDropOverlay}
-                style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                backgroundColor: "white",
-                opacity: 0.5,
-                zIndex: 1,
-                }}
+    <div
+      {...rootProps}
+      style={cssVars}
+      className={clsx(
+        'relative flex w-full flex-col gap-4 rounded-2xl border border-white/10 bg-[color:var(--pd-input-surface)]/70 p-4 shadow-inner shadow-black/20 transition',
+        isDragging && 'border-[color:var(--pd-highlight)]/60 bg-[color:var(--pd-highlight)]/10',
+      )}
+    >
+      {dropzoneActive && (
+        <div className="rounded-xl border border-dashed border-white/15 bg-black/10 p-4 text-center text-xs font-semibold uppercase tracking-[0.3em] text-[color:var(--pd-text-muted)]">
+          <input {...inputProps} />
+          {isDragging
+            ? 'Drop the file to attach it'
+            : supportsImage && supportsVideo
+            ? 'Drag imagery or video here, or paste from clipboard'
+            : supportsImage
+            ? 'Drag an image or paste to attach'
+            : 'Drag a video file or paste a link'}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        {supportsText && (
+          <input
+            type="text"
+            value={media.text?.data ?? ''}
+            onChange={(event) => updateText(event.target.value)}
+            onKeyUp={handleInputKeyPress}
+            maxLength={inputLength}
+            disabled={!waitingForInput}
+            placeholder="Type your next turn here..."
+            className="h-12 flex-1 rounded-xl border border-white/10 bg-[color:var(--pd-input-surface)] px-4 text-sm font-medium text-[color:var(--pd-text-primary)] placeholder:text-[color:var(--pd-text-muted)] focus:border-[color:var(--pd-highlight)]/70 focus:outline-none focus:ring-2 focus:ring-[color:var(--pd-highlight)]/30 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+        )}
+
+        {supportsAudio && !media.audio && (
+          <div className="flex justify-end md:justify-center">
+            <SpeechRecorder
+              onRecordingComplete={handleAudioSave}
+              audioTrackConstraints={{ noiseSuppression: true, echoCancellation: true }}
+              showVisualizer
+              speechDetection
+              disableListening={!waitingForInput}
+              debug={debug}
+            />
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          {media.audio && audioUrl && (
+            <audio src={audioUrl} controls className="max-w-[220px] rounded-lg bg-black/40" />
+          )}
+          {hasAttachments && (
+            <button
+              type="button"
+              onClick={handleMediaDelete}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[color:var(--pd-text-primary)] transition hover:border-red-400/60 hover:text-red-300"
             >
-                <Typography className={classes.dragAndDropText} >
-                    
-                </Typography>
-            </Box>
-            )}
-            {(supportsImage || supportsVideo) && 
-                    <input {...getInputProps()} /> 
-            }            
-            {(supportsImage || supportsVideo) && 
-                <Typography className={classes.dragAndDropText} >
-                    {isDragging ? "Drop the file here ..." : (supportsImage && supportsVideo) ? "Drag and drop an image or video file here, or click to select" :
-                    (supportsImage ? "Drag and drop an image file here, or click to select" : "Drag and drop a video file here, or click to select")}
-                </Typography>
-            }
-            <Box
-                className={classes.inputContainer}
-            >
-                {supportsText &&
-                    <TextField
-                        slotProps={{ 
-                          textField: {
-                          maxLength: inputLength,
-                          className: classes.outlinedInput,
-                          classes: {
-                              root: classes.outlinedInput,  
-                              focused: classes.focused,
-                              disabled: classes.disabled,
-                              error: classes.error,
-                          },
-                          }}
-                        }
-                        className={classes.textField}
-                        variant="outlined"
-                        placeholder="Type your next turn here..."
-                        value={media["text"].data}
-                        onChange={(e) => updateText(e.target.value)}                        
-                        onKeyUp={handleInputKeyPress}
-                        disabled={!waitingForInput}
-                    />
-                }
-                {supportsAudio && !media["audio"] &&
-                    <SpeechRecorder
-                        onRecordingComplete={handleAudioSave}
-                        audioTrackConstraints={{
-                        noiseSuppression: true,
-                        echoCancellation: true,
-                        }} 
-                        showVisualizer={true}
-                        speechDetection={true}
-                        disableListening={!waitingForInput}
-                        debug={debug}
-                    />
-                }
-                <Box sx={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignContent: 'center',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    ml: 1, 
-                    mr: 1,
-                }}>
-                    {media["audio"] && (
-                      <div>
-                        <audio src={URL.createObjectURL(media["audio"].data)} controls />
-                      </div>
-                    )}
-                    {(media["image"] || media["video"] || media["audio"]) && (
-                      <IconButton onClick={handleMediaDelete}>
-                          <DeleteIcon className={classes.iconButtonAcive}  />
-                      </IconButton>
-                    )}
-                </Box>
-                {/* Always show "halt" option if processing is ongoing */}
-                {/* since the user can still type and hit "enter" to   */}
-                {/* send input                                         */}
-                <IconButton 
-                    onClick={doSendMessage}
-                    disabled={!waitingForInput}
-                    >
-                    <SendIcon
-                        className={(!waitingForInput) ? classes.iconButtonAcive : classes.iconButtonInacive} 
-                    />
-                </IconButton>
-            </Box>
-        </Box>
-    </Box>
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={doSendMessage}
+            disabled={!waitingForInput}
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-[color:var(--pd-highlight)] text-black shadow-soft transition hover:bg-[color:var(--pd-highlight-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <SendHorizontal className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };

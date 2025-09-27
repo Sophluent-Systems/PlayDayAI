@@ -18,10 +18,6 @@ import { callStateMachineContinuationRequest } from '@src/client/gameplay';
 import { useMessagesClient } from '../messagesClient';
 import { callSendInputData, callStateMachineHaltRequest } from '@src/client/gameplay';
 import { FilteredMessageList } from './filteredmessagelist';
-import { makeStyles } from "tss-react/mui";
-import { 
-  Typography,
-} from '@mui/material';
 import { analyticsReportEvent} from "@src/client/analytics";
 import { useAtom } from 'jotai';
 import { vhState, editorSaveRequestState, dirtyEditorState } from '@src/client/states';
@@ -35,44 +31,11 @@ const reconnectThresholds = [
   {threshold: 40, delay: 1000000}, // 10 min
 ]
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const { colors, fonts } = pageTheme;
-  return {
-    container: {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-start",
-      width: "100%",
-    },
-    feedbackDescriptionText: {
-      color: colors.chatbotMessageTextColor,
-      fontFamily: fonts.fontFamily,
-    },
-    image: {
-      width: "100%",
-      height: "auto",
-      maxHeight: "600px",
-      maxWidth: "800px",
-      objectFit: "contain",
-    },
-    spinnerBox: {
-      width: "100%",
-      height: "auto",
-      maxHeight: "600px",
-      maxWidth: "800px",
-      objectFit: "contain",
-      padding: 20,
-    },
-  };
-});
-
-
 function ChatBot(props) {
   const { Constants } = useConfig();
   const router = useRouter();
   const { versionName, sessionID } = router.query;
   const { url, title, theme } = props;
-  const { classes } = useStyles(theme);
   const { account, game, version, session, editMode, gamePermissions,refreshAccessToken, startNewGameSession,switchSessionID, accessToken } = React.useContext(stateManager);
   const loadedSessionID = useRef(null);
   const [processingUnderway, setProcessingUnderway] = useState(false);
@@ -718,16 +681,12 @@ const handleAudioStateChange = (audioType, newState) => {
     }
 
     return (
-      <Typography 
-        variant="bold"
-        textAlign={'center'}
-        className={classes.feedbackDescriptionText}
-        sx={{ 
-          color:'rgba(255, 0, 0, 0.6)',
-          }}
+      <div
+        className="mt-6 w-full rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-center text-sm font-medium text-red-200 shadow-soft backdrop-blur"
+        style={{ color: themeToUse.colors?.chatbotMessageTextColor || '#f87171' }}
       >
-          {"The AI is responding slowly to PlayDay's requests."}
-      </Typography>
+        The AI is responding slowly to PlayDay's requests.
+      </div>
     );
   }
 
@@ -784,7 +743,12 @@ const handleAudioStateChange = (audioType, newState) => {
 
                     {renderSlowServerWarning()}
 
-                    <Typography sx={{ alignSelf: 'flex-end',  marginRight: 5, color: themeToUse.colors.inputTextDisabledColor}}>{versionString}</Typography>
+                    <div
+                      className="mt-4 self-end text-xs font-semibold uppercase tracking-[0.35em]"
+                      style={{ color: themeToUse.colors?.inputTextDisabledColor || '#94a3b8' }}
+                    >
+                      {versionString}
+                    </div>
 
                     <div ref={scrollRef} />
           </ChatBotView>

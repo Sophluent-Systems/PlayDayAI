@@ -1,13 +1,12 @@
 import React from 'react';
-import {
-    Box
- } from '@mui/material';
+import clsx from 'clsx';
 
-export function RawHTMLBox(params) {
-    return (
-        <Box
-            {...params}
-            dangerouslySetInnerHTML={{ __html: params.html }}
-        />
-    );
+export function RawHTMLBox({ html, className, ...rest }) {
+  return (
+    <div
+      {...rest}
+      className={clsx('space-y-2 text-sm leading-relaxed [color:inherit]', className)}
+      dangerouslySetInnerHTML={{ __html: html || '' }}
+    />
+  );
 }

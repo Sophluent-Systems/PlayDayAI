@@ -5,14 +5,16 @@ import { getAllSessionsForGameEditor } from '@src/backend/gamesessions.js';
 
 
 async function handle(req, res) {
+  console.log("++++ getAllSessionsForGame: req.body: ", req.body, "method: ", req.method);
   const { validationError, db, user, acl, account, isAdmin } = await doAuthAndValidation('POST', req, res, ["service_modifyGlobalPermissions", "service_editMode"]);
 
   if (validationError) {
+    console.log("++++ getAllSessionsForGame: validationError: ", validationError);
     res.status(validationError.status).json({ error: { message: validationError.message } });
     return;
   }
 
-  
+
     if (!req.body.gameID ||
       !req.body.gameID.length) {
       res.status(400).json({
@@ -41,9 +43,10 @@ async function handle(req, res) {
 
     try {
       const savesList = await getAllSessionsForGameEditor(db, req.body.gameID, req.body.versionID, req.body.accountID, isAdmin);
+      console.log("++++ getAllSessionsForGame: savesList: returning: ", savesList.length, " sessions");
       res.status(200).json(savesList);
     } catch (error) {
-      console.error("++++ getAllSessionsForGameEditor: error: ", error);
+      console.error("++++ getAllSessionsForGame: error: ", error);
       throw error;
     }
     

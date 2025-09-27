@@ -1,121 +1,106 @@
-import React, { useState, useEffect, useRef, memo } from "react";
-import { makeStyles } from "tss-react/mui";
-import { 
-  Button,
-  Paper, 
-  Box, 
-  Typography, 
-  IconButton 
-} from "@mui/material";
-import { PlayArrow } from "@mui/icons-material";
-import { Pause } from "@mui/icons-material";
-import { ThumbUp } from "@mui/icons-material";
-import { ThumbDown } from "@mui/icons-material";
-import { Plagiarism } from "@mui/icons-material";
-import { Assistant } from "@mui/icons-material";
-import { Terminal } from "@mui/icons-material";
-import { Sync } from "@mui/icons-material";
-import { SyncProblem } from "@mui/icons-material";
-import { PrettyDate } from "@src/common/date";
-import { PrettyElapsedTime } from "@src/common/date";
-import { nullUndefinedOrEmpty } from "@src/common/objects";
+import React, { useEffect, useMemo, useState, memo } from "react";
+import clsx from "clsx";
+import {
+  Play,
+  Pause,
+  ThumbsUp,
+  ThumbsDown,
+  ClipboardList,
+  Bot,
+  TerminalSquare,
+  RefreshCcw,
+  Loader2,
+  AlertTriangle,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { PrettyDate, PrettyElapsedTime } from "@src/common/date";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
 import { ImageWithFallback } from "./standard/imagewithfallback";
-import { CircularProgress } from "@mui/material";
 import { getMessageStyling } from "@src/client/themestyling";
-import { PersonaIcons } from "./versioneditor/personas/icons";
 
-
-
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const { colors, fonts } = pageTheme;
-  return {
-    container: {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-start",
-      width: "100%",
-    },
-    feedbackDescriptionText: {
-      color: colors.chatbotMessageTextColor,
-      fontFamily: fonts.fontFamily,
-    },
-    image: {
-      width: "100%",
-      height: "auto",
-      maxHeight: "600px",
-      maxWidth: "800px",
-      objectFit: "contain",
-    },
-    spinnerBox: {
-      width: "100%",
-      height: "auto",
-      maxHeight: "600px",
-      maxWidth: "800px",
-      objectFit: "contain",
-      padding: 20,
-    },
-  };
-});
-
-function ChatBotTypingIndicator(props) {
-  const { styling } = props;
+function ChatBotTypingIndicator({ color }) {
   const [ellipsis, setEllipsis] = useState(".");
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setEllipsis((prev) => (prev.length < 4 ? prev + "." : "."));
-    }, 300);
+      setEllipsis((prev) => (prev.length < 4 ? `${prev}.` : "."));
+    }, 320);
     return () => clearInterval(timer);
   }, []);
 
   return (
-    <Typography variant="body1" sx={{ color: styling.color }}>
-      {` ${ellipsis}`}
-    </Typography>
+    <span
+      className="text-xs font-semibold tracking-[0.4em] text-white/80"
+      style={{ color }}
+    >
+      {ellipsis}
+    </span>
   );
 }
 
-function getFallbackPersona(theme) {
-  const colors = theme?.colors || {};
-  const fonts = theme?.fonts || {};
-  const messageBackgroundColor = colors.chatbotMessageBackgroundColor || "#f0f0f0";
-  const messageTextColor = colors.chatbotMessageTextColor || "#000000";
-  return {
-    displayName: "System",
-    personaID: "fallback-persona",
-    hideFromEndUsers: false,
-    theme: {
-      colors: {
-        messageBackgroundColor,
-        messageTextColor,
-        audioVisualizationColor: colors.chatbotMessageTextColor || messageTextColor,
-        buttonColor: colors.chatbotMessageBackgroundColor || colors.sendMessageButtonInactiveColor || messageBackgroundColor,
-      },
-      fonts: {
-        fontFamily: fonts.fontFamily || "Roboto, sans-serif",
-      },
-      icon: {
-        iconID: "Person",
-        color: messageTextColor,
-      },
-    },
-  };
+function Spinner({ color }) {
+  return (
+    <div className="flex h-20 w-full items-center justify-center">
+      <Loader2 className="h-6 w-6 animate-spin" style={{ color }} />
+    </div>
+  );
 }
 
-export const ChatCard = memo(({
-  message,
-  deleteAllowed,
-  editMode,
-  waitingForProcessingToComplete,
-  onDelete,
-  onCardActionSelected,
-  theme,
-  responseFeedbackMode,
-  sessionID,
-  onRequestAudioControl,
-  playbackState,
-}) => {
+const markdownComponents = {
+  p: ({ children }) => <p className="leading-relaxed text-sm text-white/90">{children}</p>,
+  ul: ({ children }) => (
+    <ul className="ml-5 list-disc space-y-1 text-sm leading-relaxed text-white/80">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="ml-5 list-decimal space-y-1 text-sm leading-relaxed text-white/80">{children}</ol>
+  ),
+  code: ({ inline, children }) => (
+    inline ? (
+      <code className="rounded bg-white/10 px-1.5 py-0.5 text-[13px] text-white/90">{children}</code>
+    ) : (
+      <pre className="overflow-x-auto rounded-2xl border border-white/10 bg-slate-900/60 p-4 text-xs text-white/90 shadow-inner">
+        <code>{children}</code>
+      </pre>
+    )
+  ),
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      className="text-sky-300 underline decoration-sky-500/60 underline-offset-4"
+      target="_blank"
+      rel="noreferrer"
+    >
+      {children}
+    </a>
+  ),
+};
+
+const extractColorToken = (value) => {
+  if (!value) {
+    return null;
+  }
+  const match = `${value}`.match(/(rgba?\([^)]*\)|#(?:[0-9a-fA-F]{3}){1,2})/g);
+  if (match && match.length) {
+    return match[match.length - 1];
+  }
+  return value;
+};
+
+export const ChatCard = memo((props) => {
+  const {
+    message,
+    deleteAllowed,
+    editMode,
+    waitingForProcessingToComplete,
+    onDelete,
+    onCardActionSelected,
+    theme,
+    responseFeedbackMode,
+    sessionID,
+    onRequestAudioControl,
+    playbackState,
+  } = props;
+
   const {
     content,
     recordID,
@@ -126,47 +111,103 @@ export const ChatCard = memo(({
     processing,
     state,
     completionTime,
-    codeLogs,
     error,
-    nodeType,
     instanceName,
+    nodeType,
+    codeLogs,
     hideOutput,
   } = message;
-  const { classes } = useStyles(theme);
-  const [styling, setStyling] = useState(null);
-  const [Icon, setIcon] = useState(null);
-  const mediaTypes = nodeAttributes["mediaTypes"] || [];
+
+  const mediaTypes = nodeAttributes?.mediaTypes || [];
   const hidden = hideOutput || persona?.hideFromEndUsers;
+  const isAIResponse = nodeAttributes?.isAIResponse;
+  const canRateResponse = Boolean(isAIResponse);
+  const canDebugRecord = canRateResponse || Boolean(nodeAttributes?.codeExecutionResult);
+  const borderToken = extractColorToken(theme?.tokens?.border?.subtle);
 
-  useEffect(() => {
-    const personaForStyling = persona ?? getFallbackPersona(theme);
-    const newStyling = getMessageStyling(mediaTypes, personaForStyling);
-    setStyling(newStyling);
-    const iconID = personaForStyling?.theme?.icon?.iconID;
-    const iconToUse = iconID && PersonaIcons[iconID] ? PersonaIcons[iconID] : PersonaIcons["Person"];
-    setIcon(iconToUse);
-  }, [persona, theme, mediaTypes]);
+  const personaForStyling = useMemo(() => {
+    if (persona) {
+      return persona;
+    }
+    const fallbackColors = theme?.colors || {};
+    return {
+      displayName: "System",
+      hideFromEndUsers: false,
+      theme: {
+        colors: {
+          messageBackgroundColor: fallbackColors.chatbotMessageBackgroundColor || "rgba(15,23,42,0.75)",
+          messageTextColor: fallbackColors.chatbotMessageTextColor || "#E2E8F0",
+          buttonColor: fallbackColors.sendMessageButtonActiveColor || "#38BDF8",
+          audioVisualizationColor: fallbackColors.sendMessageButtonActiveColor || "#38BDF8",
+          borderColor: borderToken || "rgba(148,163,184,0.35)",
+        },
+        fonts: {
+          fontFamily: theme?.fonts?.fontFamily || '"Inter", sans-serif',
+        },
+        icon: {
+          iconID: "Person",
+          color: fallbackColors.sendMessageButtonActiveColor || "#38BDF8",
+        },
+      },
+    };
+  }, [persona, theme, borderToken]);
 
+  const styling = useMemo(
+    () => getMessageStyling(mediaTypes, personaForStyling),
+    [mediaTypes, personaForStyling],
+  );
 
-  
-  const isAIResponse = nodeAttributes["isAIResponse"];
-  const codeExecutionResult = nodeAttributes["codeExecutionResult"];
-  const canRateResponse = isAIResponse;
-  const canDebugRecord = isAIResponse || codeExecutionResult;
+  const palette = useMemo(() => {
+    const fallback = theme?.colors || {};
+    const borderColor = styling?.borderColor || borderToken || 'rgba(148,163,184,0.25)';
+    return {
+      border: borderColor,
+      text: styling?.color || fallback.chatbotMessageTextColor || '#E2E8F0',
+      background: styling?.backgroundColor || fallback.chatbotMessageBackgroundColor || 'rgba(15,23,42,0.75)',
+      accent: styling?.accent || fallback.sendMessageButtonActiveColor || '#38BDF8',
+      overlay: styling?.overlayTint || 'rgba(15,23,42,0.55)',
+      glow: styling?.glowColor || theme?.effects?.accentGlow || 'rgba(56,189,248,0.45)',
+      shadow: theme?.effects?.cardShadow || '0 30px 60px -35px rgba(15,23,42,0.65)',
+    };
+  }, [styling, theme, borderToken]);
 
-  function renderResponseRatings(isPlayerRating) {
+  const personaLabel = useMemo(() => {
+    if (persona?.displayName) return persona.displayName;
+    if (!nullUndefinedOrEmpty(instanceName)) return instanceName;
+    if (!nullUndefinedOrEmpty(nodeType)) return nodeType;
+    return recordID ? `Rec ${recordID}` : 'Assistant';
+  }, [persona, instanceName, nodeType, recordID]);
+
+  const PersonaGlyph = styling?.icon || Bot;
+
+  const handleAudioToggle = (data) => {
+    const audioType = data.audioType || 'speech';
+    const activeState = playbackState?.[audioType];
+    const playingThisMessage = activeState?.playState === 'playing' && activeState?.recordID === recordID;
+
+    if (playingThisMessage) {
+      onRequestAudioControl?.('pause', audioType);
+    } else {
+      onRequestAudioControl?.('play', audioType, {
+        recordID,
+        source: data,
+        speakerName: persona?.displayName,
+        styling,
+      });
+    }
+  };
+
+  const renderResponseRatings = (isPlayerRating) => {
     let mode =
-      canRateResponse && isPlayerRating
-        ? responseFeedbackMode?.user
-        : responseFeedbackMode?.admin;
-    let textHint = isPlayerRating ? null : "admin rating";
+      canRateResponse && isPlayerRating ? responseFeedbackMode?.user : responseFeedbackMode?.admin;
+    let textHint = isPlayerRating ? null : 'Admin rating';
 
-   if (editMode && canRateResponse) {
+    if (editMode && canRateResponse) {
       if (isPlayerRating) {
         mode = null;
       } else {
-        mode = "edit";
-        textHint = "admin rating";
+        mode = 'edit';
+        textHint = 'Admin rating';
       }
     }
 
@@ -174,575 +215,328 @@ export const ChatCard = memo(({
       return null;
     }
 
-    const isReadOnly = mode == "readonly";
+    const isReadOnly = mode === 'readonly';
+    const ratingValue = isPlayerRating ? ratings?.playerRating : ratings?.adminRating;
+    const ratingExists = typeof ratingValue !== 'undefined';
 
-    const ratingExists =
-      (isPlayerRating && typeof ratings?.playerRating !== "undefined") ||
-      (!isPlayerRating && typeof ratings?.adminRating !== "undefined");
-    const rating = isPlayerRating
-      ? ratings?.playerRating
-      : ratings?.adminRating;
+    const thumbsDownTint = ratingExists && ratingValue <= 0;
+    const thumbsUpTint = ratingExists && ratingValue > 0;
 
-    // default to gray
-    let thumbsUpColor = "rgba(255, 255, 255, 0.6)";
-    let thumbsDownColor = "rgba(255, 255, 255, 0.6)";
-    if (ratingExists) {
-      if (rating > 0.0) {
-        thumbsUpColor = "rgba(0, 255, 0, 0.6)";
-      } else {
-        thumbsDownColor = "rgba(255, 0, 0, 0.6)";
-      }
+    return (
+      <div className="flex items-center gap-2">
+        {textHint && (
+          <span className="text-[10px] uppercase tracking-[0.35em] text-white/60">{textHint}</span>
+        )}
+        <button
+          type="button"
+          disabled={isReadOnly}
+          onClick={() =>
+            onCardActionSelected?.('responseFeedback', {
+              recordID,
+              isPlayerRating,
+              rating: -1,
+            })
+          }
+          className={clsx(
+            'flex h-8 w-8 items-center justify-center rounded-full border transition',
+            'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
+            thumbsDownTint && 'border-rose-400/60 bg-rose-500/70 text-rose-950',
+            isReadOnly && 'cursor-not-allowed opacity-60 hover:bg-white/5 hover:text-white/80',
+          )}
+          aria-label="Rate response thumbs down"
+        >
+          <ThumbsDown className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          disabled={isReadOnly}
+          onClick={() =>
+            onCardActionSelected?.('responseFeedback', {
+              recordID,
+              isPlayerRating,
+              rating: 1,
+            })
+          }
+          className={clsx(
+            'flex h-8 w-8 items-center justify-center rounded-full border transition',
+            'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
+            thumbsUpTint && 'border-emerald-400/70 bg-emerald-500/70 text-emerald-950',
+            isReadOnly && 'cursor-not-allowed opacity-60 hover:bg-white/5 hover:text-white/80',
+          )}
+          aria-label="Rate response thumbs up"
+        >
+          <ThumbsUp className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  };
+
+  const renderMarkup = (key, markupText) => (
+    <div
+      key={key}
+      className="space-y-3 text-sm leading-relaxed"
+      style={{ fontFamily: styling?.fontFamily, color: palette.text }}
+    >
+      <ReactMarkdown components={markdownComponents}>{markupText}</ReactMarkdown>
+    </div>
+  );
+
+  const renderText = (key, text) => (
+    <p
+      key={key}
+      className="whitespace-pre-wrap text-sm leading-relaxed"
+      style={{ fontFamily: styling?.fontFamily, color: palette.text }}
+    >
+      {text}
+    </p>
+  );
+
+  const renderSpinner = (key) => <Spinner key={key} color={palette.text} />;
+  const renderTyping = (key) => <ChatBotTypingIndicator key={key} color={palette.text} />;
+
+  const renderMessage = () => {
+    const result = [];
+
+    if (state === 'failed' && error) {
+      result.push(
+        <div
+          key="error"
+          className="rounded-2xl border border-rose-500/50 bg-rose-500/10 p-5 text-sm text-rose-100 shadow-inner"
+        >
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.35em] text-rose-200/80">
+            <AlertTriangle className="h-4 w-4" /> Execution error
+          </div>
+          <ReactMarkdown components={markdownComponents}>{`${error}`}</ReactMarkdown>
+        </div>,
+      );
+      return result;
     }
 
-    return (
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          marginLeft: 0.5,
-        }}
-      >
-      <Typography
-        key="textHint"
-        variant="caption"
-        textAlign={"center"}
-        className={classes.feedbackDescriptionText}
-        sx={{
-          color: "rgba(100, 100, 100, 0.4)",
-        }}
-      >
-        {textHint}
-      </Typography>
-        <Box
-          key="ratingButtons"
-          sx={{
-            display: "flex",
-            flexDirection: "row",
-          }}
-        >
-          <IconButton
-            onClick={() =>
-              onCardActionSelected("responseFeedback", {
-                recordID: recordID,
-                isPlayerRating: isPlayerRating,
-                rating: -1.0,
-              })
-            }
-            disabled={isReadOnly}
-            sx={{
-              position: "relative",
-              backgroundColor: thumbsDownColor,
-              border: "1px solid rgba(100, 100, 100, 0.4)",
-              borderRadius: 0.5,
-              margin: 0.5,
-              height: 25,
-              width: 25,
-              "&:disabled": {
-                backgroundColor: thumbsDownColor,
-              },
-            }}
-          >
-            <ThumbDown fontSize="small" />
-          </IconButton>
-          <IconButton
-            onClick={() =>
-              onCardActionSelected("responseFeedback", {
-                recordID: recordID,
-                isPlayerRating: isPlayerRating,
-                rating: 1,
-              })
-            }
-            disabled={isReadOnly}
-            sx={{
-              position: "relative",
-              backgroundColor: thumbsUpColor,
-              border: "1px solid rgba(100, 100, 100, 0.4)",
-              borderRadius: 0.5,
-              margin: 0.5,
-              height: 25,
-              width: 25,
-              "&:disabled": {
-                backgroundColor: thumbsUpColor,
-              },
-            }}
-          >
-            <ThumbUp fontSize="small" />
-          </IconButton>
-        </Box>
-      </Box>
-    );
-  }
-
-  function renderText(key, text) {
-    return (
-      <Typography
-        key={key}
-        variant="body1"
-        sx={{
-          flex: 1,
-          color: styling.color,
-          whiteSpace: "pre-wrap",
-          direction: "ltr",
-          fontFamily: styling.fontFamily,
-          wordBreak: "break-all",
-        }}
-      >
-        {text}
-      </Typography>
-    );
-  }
-
-  
-function renderMarkup(key, markupText) {
-  return (
-    <Typography
-      key={key}
-      variant="body1"
-      sx={{
-        flex: 1,
-        color: styling.color,
-        fontFamily: styling.fontFamily,
-        direction: "ltr",
-        overflowWrap: "break-word",
-        wordBreak: "break-word",
-
-        // Base styles
-        '& > *:first-of-type': {
-          marginTop: 0,
-        },
-        '& > *:last-of-type': {
-          marginBottom: 0,
-        },
-
-        // Global reset
-        '& *': {
-          margin: 0,
-          padding: 0,
-        },
-
-        // Typography
-        '& p, & li': {
-          lineHeight: 1.4,
-          marginBottom: '0.2em',
-        },
-
-        // Lists
-        '& ul, & ol': {
-          paddingLeft: '1.5em',
-          marginBottom: '0.2em',
-        },
-
-        // Nested lists
-        '& ul ul, & ol ol, & ul ol, & ol ul': {
-          marginTop: 0,
-          marginBottom: 0,
-        },
-
-        // Headings
-        '& h1, & h2, & h3, & h4, & h5, & h6': {
-          lineHeight: 1.2,
-          marginTop: '0.5em',
-          marginBottom: '0.2em',
-
-          '&:first-of-type': {
-            marginTop: 0,
+    if (processing && nullUndefinedOrEmpty(content)) {
+      if (Array.isArray(mediaTypes) && mediaTypes.length) {
+        mediaTypes.forEach((type, index) => {
+          if (type === 'image' || type === 'audio') {
+            result.push(renderSpinner(`${type}-${index}`));
+          } else if (type === 'text') {
+            result.push(renderTyping(`${type}-${index}`));
+          } else {
+            result.push(renderSpinner(`${type}-${index}`));
           }
-        },
-
-        // Code blocks
-        '& pre': {
-          margin: '0.3em 0',
-        },
-
-        // Inline code
-        '& code': {
-          padding: '0.1em 0.2em',
-        },
-
-        // Blockquotes
-        '& blockquote': {
-          margin: '0.3em 0',
-          paddingLeft: '1em',
-          borderLeft: '3px solid #ddd',
-        },
-      }}
-      component="div"
-    >
-      <ReactMarkdown>{markupText}</ReactMarkdown>
-    </Typography>
-  );
-}
-
-
-
-  function renderSpinner(key) {
-    return (
-      <Box key={key} className={classes.spinnerBox}>
-        <CircularProgress sx={{ margin: 15 }} />
-      </Box>
-    );
-  }
-
-  function renderTextWaitingIndicator(key) {
-    return <ChatBotTypingIndicator key={key} styling={styling} />;
-  }
-
-  function renderMessage() {
-    let renderMessageResults = [];
-
-    if (state == "failed") {
-      const errorText =`**${error.title}: ${error.subtitle}**\n\n${error.details}`;
-      renderMessageResults.push(renderMarkup('error', errorText));
-    } else if (processing && nullUndefinedOrEmpty(content)) {
-      //
-      // THERE IS LITERALLY NOTHING YET... NO PENDING CONTENT
-      // AT ALL JUST AN EMPTY ARRAY OR NULL FOR 'CONTENT'
-      //
-      if (!nullUndefinedOrEmpty(mediaTypes)) {
-        for (let i = 0; i < mediaTypes.length; i++) {
-          if (mediaTypes[i] == "image" || mediaTypes[i] == "audio") {
-            renderMessageResults.push(renderSpinner(mediaTypes[i]));
-          } else if (mediaTypes[i] == "text") {
-            renderMessageResults.push(
-              renderTextWaitingIndicator(mediaTypes[i])
-            );
-          }
-        }
+        });
+      } else {
+        result.push(renderTyping('typing-default'));
       }
-    } else if (!nullUndefinedOrEmpty(content)) {
+      return result;
+    }
 
-      //
-      // WE NOW HAVE AT LEAST ONE ENTRY IN THE CONTENT ARRAY,
-      // EVEN IF WE'RE STILL PROCESSING...
-      //
-
-      const contentTypesAvailable = Object.keys(content);
-      if (contentTypesAvailable.length == 0) {
-        throw new Error(
-          "ChatCard:renderMessage: contentTypesAvailable is empty"
-        );
-      }
-
-      for (let i = 0; i < contentTypesAvailable.length; i++) {
-        const mediaType = contentTypesAvailable[i];
-        const data = content[mediaType];
-
-        if (mediaType == "image") {
-          //
-          // IMAGE
-          //
+    if (!nullUndefinedOrEmpty(content)) {
+      Object.entries(content).forEach(([mediaType, data], index) => {
+        const key = `${mediaType}-${index}`;
+        if (mediaType === 'image') {
           if (nullUndefinedOrEmpty(data) && processing) {
-            renderMessageResults.push(renderSpinner(`${i}`));
-          } else {
-            renderMessageResults.push(
-              <ImageWithFallback
-                key={i}
-                primary={data}
-                fallback={"https://playday.ai" + data}
-                alt="Generated image"
-                className={classes.image}
-              />
+            result.push(renderSpinner(`${key}-spinner`));
+          } else if (!nullUndefinedOrEmpty(data)) {
+            result.push(
+              <div key={key} className="flex w-full justify-center">
+                <ImageWithFallback
+                  primary={data}
+                  fallback="https://playday.ai"
+                  alt="Generated image"
+                  className="max-h-[580px] w-full max-w-3xl rounded-3xl border border-white/10 object-contain shadow-[var(--image-shadow,0_25px_90px_-45px_rgba(15,23,42,0.65))]"
+                />
+              </div>,
             );
           }
-        } else if (mediaType == "audio") {
-          //
-          // AUDIO
-          //
+        } else if (mediaType === 'audio') {
           if (nullUndefinedOrEmpty(data) && processing) {
-            renderMessageResults.push(renderSpinner(`${i}`));
-          } else {
-            const thisAudioIsPlaying = playbackState?.speech?.playState == 'playing' && playbackState?.speech?.recordID == recordID;
-            renderMessageResults.push(
-              <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }} key='audioPlayContainer'>
-                <Button
-                      key={`${i}play`}
-                      variant="contained"
-                      size='large'
-                      sx={{
-                          borderRadius: '50%',
-                          height: 50,
-                          width: 50,
-                          minWidth: 50,
-                          padding: 0,
-                          color: styling.color,
-                          backgroundColor: styling.buttonColor,
-                      }}
-                      onClick={() => {
-                        const audioType = data.audioType || "speech";
-                        if (thisAudioIsPlaying) {
-                            onRequestAudioControl("pause", audioType);
-                        } else {
-                            onRequestAudioControl("play", audioType, {recordID, source: data, speakerName: persona?.displayName, styling});
-                        }
-                      }}
-                  >
-                    {thisAudioIsPlaying ?
-                        <Pause sx={{ fontSize: 16, height: 20, width: 20, color: styling.color }} />
-                    :
-                        <PlayArrow  sx={{ fontSize: 16, height: 20, width: 20, color: styling.color }} />
-                    }
-                  </Button>
-                </Box>
+            result.push(renderSpinner(`${key}-spinner`));
+          } else if (data) {
+            const audioType = data.audioType || 'speech';
+            const activeState = playbackState?.[audioType];
+            const playingThisMessage =
+              activeState?.playState === 'playing' && activeState?.recordID === recordID;
+
+            result.push(
+              <button
+                key={key}
+                type="button"
+                onClick={() => handleAudioToggle(data)}
+                className={clsx(
+                  'group flex h-12 w-12 items-center justify-center rounded-full border transition',
+                  playingThisMessage
+                    ? 'border-transparent bg-white text-slate-900'
+                    : 'border-white/25 bg-white/10 text-white hover:border-white/40 hover:bg-white/20',
+                )}
+                aria-label={playingThisMessage ? 'Pause audio' : 'Play audio'}
+              >
+                {playingThisMessage ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+              </button>,
             );
           }
-        } else if (mediaType == "text") {
-          //
-          // TEXT
-          //
+        } else if (mediaType === 'text') {
           if (nullUndefinedOrEmpty(data) && processing) {
-            renderMessageResults.push(renderTextWaitingIndicator(`${i}`));
+            result.push(renderTyping(`${key}-typing`));
           } else {
-            renderMessageResults.push(renderMarkup(`${i}`, data));
+            result.push(renderMarkup(key, data));
           }
-        } else if (mediaType == "data") {
-          //
-          // DATA
-          //
+        } else if (mediaType === 'data') {
           if (nullUndefinedOrEmpty(data) && processing) {
-            renderMessageResults.push(renderSpinner(`${i}`));
+            result.push(renderSpinner(`${key}-spinner`));
           } else {
-            renderMessageResults.push(
-              renderText(`${i}`, JSON.stringify(data, null, 2))
-            );
+            result.push(renderText(key, JSON.stringify(data, null, 2)));
           }
         } else {
           if (nullUndefinedOrEmpty(data) && processing) {
-            renderMessageResults.push(renderSpinner(`${i}`));
+            result.push(renderSpinner(`${key}-spinner`));
           } else {
-            renderMessageResults.push(renderText(`${i}`, nullUndefinedOrEmpty(data) ? 'null' : JSON.stringify(data)));
+            result.push(renderText(key, JSON.stringify(data ?? 'null')));
           }
         }
-      }
-    } else {
-      renderMessageResults.push(
-        renderText("The server response was empty")
-      );
-    }
-    return renderMessageResults;
-  }
+      });
 
-  if (!styling || state == "waitingForExternalInput") {
-    // Do not show user input processing
+      return result;
+    }
+
+    result.push(renderText('empty', 'The server response was empty'));
+    return result;
+  };
+
+  if (hidden && !editMode) {
     return null;
   }
 
-  if (hidden && !editMode) {
-    // Do not show messages from hidden personas
+  if (state === 'waitingForExternalInput') {
     return null;
   }
 
   return (
-    <Box sx={{ display: "flex", justifyContent: "center", width: "80%" }}>
-      <Box sx={{ display: "flex", width: "100%", justifyContent: "center" }} key="paper">
-        <Paper
-          sx={{
-            ...styling.paperStyle,
-            backgroundColor: styling.backgroundColor,
-            width: "100%",
-          }}
-        >
-          <Box className={classes.container}>
-            <Box
-              sx={{
-                width: "100%",
-                display: "flex",
-                height: 20,
-                mb: 1,
-                alignContent: "center",
-                alignItems: "center",
-                justifyContent: "flex-end",
-              }}
-            >
-              {editMode && 
-                <Typography
-                  key="instanceName"
-                  variant="caption"
-                  sx={{
-                    width: "80%",
-                    color: styling.color,
-                    alignSelf: "flex-start",
-                  }}
-                >
-                  {!nullUndefinedOrEmpty(instanceName)
-                    ? `[${instanceName}]`
-                    : !nullUndefinedOrEmpty(nodeType)
-                    ? `[${nodeType}]`
-                    : recordID
-                    ? `Rec: ${recordID}`
-                    : ""}
-                </Typography>
-        }
-
-              {!processing &&
-                onCardActionSelected &&
-                editMode &&
-                canDebugRecord && (
-                  <Box
-                    sx={{
-                      display: "flex",
-                      flexDirection: "row",
-                      width: "100%",
-                      alignSelf: "flex-end",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        marginLeft: 2,
-                        marginRight: 2,
-                        color: styling.color,
-                      }}
-                      key="executionTime"
-                    >
-                      {executionTime
-                        ? "Exec: " + PrettyElapsedTime(executionTime)
-                        : ""}
-                    </Typography>
-                    {codeLogs ? (
-                      <IconButton
-                        onClick={() =>
-                          onCardActionSelected("codeLogs", {
-                            recordID: recordID,
-                          })
-                        }
-                        sx={{
-                          backgroundColor: "rgba(255, 255, 255, 0.6)",
-                          borderRadius: 1,
-                          height: 20,
-                          width: 20,
-                          marginRight: 0.5,
-                        }}
-                      >
-                        <Terminal fontSize="small" />
-                      </IconButton>
-                    ) : null}
-                    <IconButton
-                      onClick={() =>
-                        onCardActionSelected("showRecordResultFields", {
-                          recordID: recordID,
-                          label: isAIResponse ? "RAW PROMPT" : "CONSOLE LOGS",
-                          fields: isAIResponse ? "context.prompt" : "context.consoleLogs"
-                        })
-                      }
-                      sx={{
-                        backgroundColor: "rgba(255, 255, 255, 0.6)",
-                        borderRadius: 1,
-                        height: 20,
-                        width: 20,
-                        marginRight: 0.5,
-                      }}
-                    >
-                      <Plagiarism fontSize="small" />
-                    </IconButton>
-
-                    <IconButton
-                      onClick={() =>
-                        onCardActionSelected("showRecordResultFields", {
-                          recordID: recordID,
-                          label: "OUTPUT",
-                          fields: isAIResponse ? "context.rawResponse" : "output"
-                        })
-                      }
-                      sx={{
-                        backgroundColor: "rgba(255, 255, 255, 0.6)",
-                        borderRadius: 1,
-                        height: 20,
-                        width: 20,
-                        marginRight: 0.5,
-                      }}
-                    >
-                      <Assistant fontSize="small" />
-                    </IconButton>
-                  </Box>
-                )}
-            </Box>
-            <Box sx={{ display: 'flex', flexDirection: 'column', position: "relative", flexGrow: 1, width: "100%" }}>
-              {renderMessage()}
-            </Box>
-          </Box>
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "row",
-              width: "100%",
-              justifyContent: "flex-start",
-              alignContent: "center",
-              alignItems: "center",
-            }}
-            key="topbar"
-          >
-            {Icon && <Icon sx={{ color: styling.iconColor }} />}
-            <Typography
-              key="completionTime"
-              sx={{
-                fontSize: "0.8em",
-                color: "rgba(0, 0, 0, 0.6)",
-                ml: 1,
-                color: styling.color,
-              }}
-            >
-              {PrettyDate(completionTime)}
-            </Typography>
-            {onCardActionSelected && canRateResponse && (
-              <Box
-                sx={{
-                  display: "flex",
-                  flex: 1,
-                  flexDirection: "row",
-                  flexGrow: 1,
-                  justifyContent: "flex-end",
-                  alignContent: "flex-end",
-                  alignItems: "flex-end",
-                }}
-              >
-                {renderResponseRatings(true)}
-              </Box>
-            )}
-            {canRateResponse && renderResponseRatings(false)}
-          </Box>
-        </Paper>
-      </Box>
-
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "row",
-          justifyContent: "flex-end",
-          alignItems: "flex-start",
-          right: -10, // Adjust this value to position the icon outside the chat card
+    <div className="flex w-full justify-center px-3 py-4">
+      <article
+        className="relative w-full max-w-4xl overflow-hidden rounded-[30px] border bg-black/30 p-6 shadow-xl backdrop-blur-xl"
+        style={{
+          backgroundColor: palette.background,
+          borderColor: palette.border,
+          boxShadow: palette.shadow,
         }}
-        key="rerunButton"
       >
-        {((state == "failed") || editMode) && (
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "flex-end",
-              ...(state == "failed" && { backgroundColor: "rgba(255, 0, 0, 0.1)" }), // Apply a reddish tint on error
-            }}
-          >
-            <IconButton
-              onClick={onDelete}
+        <div
+          className="pointer-events-none absolute inset-0 -z-10 opacity-60"
+          style={{ backgroundImage: theme?.gradients?.card }}
+        />
+
+        <header className="flex flex-col gap-4 pb-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-inner">
+                {PersonaGlyph ? (
+                  <PersonaGlyph className="h-6 w-6" style={{ color: styling?.iconColor || palette.accent }} />
+                ) : (
+                  <Bot className="h-6 w-6" />
+                )}
+              </div>
+              <div className="leading-tight">
+                <div className="text-xs font-semibold uppercase tracking-[0.35em] text-white/70">
+                  {personaLabel}
+                </div>
+                <div className="text-[11px] uppercase tracking-[0.3em] text-white/40">
+                  {PrettyDate(completionTime)}
+                </div>
+              </div>
+            </div>
+
+            {editMode && canDebugRecord && !processing && onCardActionSelected && (
+              <div className="flex items-center gap-2">
+                {executionTime && (
+                  <span className="rounded-full border border-white/15 px-3 py-1 text-[10px] uppercase tracking-[0.3em] text-white/60">
+                    Exec {PrettyElapsedTime(executionTime)}
+                  </span>
+                )}
+                {codeLogs && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onCardActionSelected?.('codeLogs', {
+                        recordID,
+                      })
+                    }
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white transition hover:border-white/40 hover:bg-white/20"
+                    aria-label="View code logs"
+                  >
+                    <TerminalSquare className="h-4 w-4" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onCardActionSelected?.('showRecordResultFields', {
+                      recordID,
+                      label: isAIResponse ? 'RAW PROMPT' : 'CONSOLE LOGS',
+                      fields: isAIResponse ? 'context.prompt' : 'context.consoleLogs',
+                    })
+                  }
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white transition hover:border-white/40 hover:bg-white/20"
+                  aria-label="View record context"
+                >
+                  <ClipboardList className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onCardActionSelected?.('showRecordResultFields', {
+                      recordID,
+                      label: 'OUTPUT',
+                      fields: isAIResponse ? 'context.rawResponse' : 'output',
+                    })
+                  }
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white transition hover:border-white/40 hover:bg-white/20"
+                  aria-label="View output JSON"
+                >
+                  <Bot className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {editMode && !nullUndefinedOrEmpty(instanceName) && (
+            <div className="text-[10px] uppercase tracking-[0.35em] text-white/40">
+              {nodeType ? `${nodeType} - ${instanceName}` : instanceName}
+            </div>
+          )}
+        </header>
+
+        <div className="flex flex-col gap-4" style={{ color: palette.text }}>
+          {renderMessage()}
+        </div>
+
+        <footer className="mt-6 flex flex-wrap items-center justify-between gap-4 text-white/70">
+          {canRateResponse ? (
+            <div className="flex flex-1 flex-wrap items-center gap-3">
+              {renderResponseRatings(true)}
+              {renderResponseRatings(false)}
+            </div>
+          ) : (
+            <span className="text-[10px] uppercase tracking-[0.35em]">Session {sessionID}</span>
+          )}
+
+          {(state === 'failed' || editMode) && (
+            <button
+              type="button"
               disabled={waitingForProcessingToComplete || !deleteAllowed}
-              sx={{
-                position: "relative",
-                top: 0,
-                backgroundColor: "rgba(255, 255, 255, 0.6)",
-                borderRadius: 1,
-                marginLeft: 0.5,
-                height: 30,
-                width: 30,
-                ...(state == "failed" && { color: "red" }), // Make the icon color red when error is true
-              }}
+              onClick={onDelete}
+              className={clsx(
+                'inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-xs font-semibold uppercase tracking-[0.35em] transition',
+                state === 'failed'
+                  ? 'border-rose-500/60 bg-rose-500/20 text-rose-200 hover:bg-rose-500/30'
+                  : 'border-white/15 bg-white/10 text-white hover:border-white/30 hover:bg-white/20',
+                (waitingForProcessingToComplete || !deleteAllowed) && 'cursor-not-allowed opacity-50',
+              )}
             >
-              {state == "failed" ? <SyncProblem /> : <Sync />}
-            </IconButton>
-          </Box>
-        )}
-      </Box>
-    </Box>
+              {state === 'failed' ? <AlertTriangle className="h-4 w-4" /> : <RefreshCcw className="h-4 w-4" />}
+              {state === 'failed' ? 'Retry' : 'Restart'}
+            </button>
+          )}
+        </footer>
+      </article>
+    </div>
   );
 });
-

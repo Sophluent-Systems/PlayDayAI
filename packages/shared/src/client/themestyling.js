@@ -1,40 +1,71 @@
-import React from "react";
 import { PersonaIcons } from "@src/client/components/versioneditor/personas/icons";
 
 export function getMessageStyling(mediaTypes, persona) {
-    if (!persona) {
-        return {};
-    }
-    
-    // Default paper style
-    let paperStyle = {
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        boxSizing: 'border-box',
-        minWidth: '80%',
-        maxWidth: '800px',
-        padding: 2,
-        marginBottom: 2,
-        boxShadow: '0 3px 5px rgba(0, 0, 0, 0.2)',
-        width: 'auto', // Width based on content
-    };
+  if (!persona) {
+    return {};
+  }
 
-    // Adjust width for media types
-    if (mediaTypes.includes("text") || mediaTypes.includes("audio")) {
-        paperStyle.width = '100%';
-    }
+  const personaTheme = persona.theme || {};
+  const personaColors = personaTheme.colors || {};
+  const personaFonts = personaTheme.fonts || {};
+  const personaIcon = personaTheme.icon || {};
 
-    // Return the styling object
-    return {
-        backgroundColor: persona.theme.colors.messageBackgroundColor, // Background color
-        color: persona.theme.colors.messageTextColor, // Text color
-        audioVisualizationColor: persona.theme.colors.audioVisualizationColor || persona.theme.colors.messageTextColor, // Fallback to text color if not defined
-        buttonColor: persona.theme.colors.buttonColor || persona.theme.colors.messageBackgroundColor, // Fallback to message background color
-        fontFamily: persona.theme.fonts.fontFamily, // Font family
-        icon: PersonaIcons[persona.theme.icon.iconID], // Ensure iconID is correct
-        iconColor: persona.theme.icon.color, // Icon color
-        paperStyle: paperStyle, // Paper style
-    };
+  const backgroundColor = personaColors.messageBackgroundColor || '#101D32';
+  const textColor = personaColors.messageTextColor || '#F8FAFF';
+  const accentColor = personaColors.buttonColor || personaColors.audioVisualizationColor || '#38BDF8';
+  const audioColor = personaColors.audioVisualizationColor || accentColor;
+  const borderColor = personaColors.borderColor || withAlpha(accentColor, 0.35);
+
+  const widthHint = mediaTypes?.includes('text') || mediaTypes?.includes('audio') ? '100%' : 'auto';
+
+  return {
+    backgroundColor,
+    color: textColor,
+    accent: accentColor,
+    buttonColor: accentColor,
+    audioVisualizationColor: audioColor,
+    borderColor,
+    hoverTint: withAlpha(accentColor, 0.12),
+    chipColor: withAlpha(accentColor, 0.2),
+    badgeColor: personaColors.badgeColor || withAlpha(accentColor, 0.25),
+    glowColor: withAlpha(accentColor, 0.45),
+    overlayTint: withAlpha(backgroundColor, 0.55),
+    fontFamily: personaFonts.fontFamily || '"Inter", sans-serif',
+    icon: PersonaIcons[personaIcon.iconID],
+    iconColor: personaIcon.color || accentColor,
+    layoutHint: {
+      width: widthHint,
+    },
+  };
+}
+
+function withAlpha(color, alpha) {
+  if (!color) {
+    return `rgba(148, 163, 184, ${alpha})`;
+  }
+  if (color.startsWith('rgba')) {
+    return color.replace(/rgba\(([^)]+)\)/, (_, components) => {
+      const [r, g, b] = components.split(',').map((value) => value.trim()).slice(0, 3);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    });
+  }
+  if (color.startsWith('rgb')) {
+    return color.replace(/rgb\(([^)]+)\)/, (_, components) => {
+      const [r, g, b] = components.split(',').map((value) => value.trim());
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    });
+  }
+  return hexToRgba(color, alpha);
+}
+
+function hexToRgba(hex, alpha) {
+  let normalized = hex.replace('#', '');
+  if (normalized.length === 3) {
+    normalized = normalized.split('').map((char) => char + char).join('');
+  }
+  const intValue = parseInt(normalized, 16);
+  const r = (intValue >> 16) & 255;
+  const g = (intValue >> 8) & 255;
+  const b = intValue & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }

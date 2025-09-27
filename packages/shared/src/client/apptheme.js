@@ -1,5 +1,5 @@
 import { createTheme } from '@mui/material/styles';
-import { primaryPalette } from '@src/common/theme';
+import { themePresets } from '@src/common/theme';
 
 const typography = {
   h1: {
@@ -24,6 +24,25 @@ const typography = {
   body2: {
     fontSize: '0.875rem',
   },
+};
+
+const fallbackPalette = {
+  background: '#020617',
+  surface: '#050B1B',
+  surfaceAlt: '#0B162E',
+  card: '#101D32',
+  cardMuted: '#0A1423',
+  textPrimary: '#F8FAFF',
+  textSecondary: '#A5B4CE',
+  accent: '#38BDF8',
+  accentSoft: '#0EA5E9',
+  accentContrast: '#041019',
+  warning: '#FACC15',
+  success: '#34D399',
+  danger: '#F87171',
+  info: '#5EEAD4',
+  border: '#1F2A44',
+  muted: '#0F1B2F',
 };
 
 const buildPalette = (mode) => {
@@ -51,26 +70,28 @@ const buildPalette = (mode) => {
     };
   }
 
+  const palette = themePresets?.default?.palette ?? fallbackPalette;
+
   return {
     mode,
     primary: {
-      main: primaryPalette['Teal'],
-      contrastText: primaryPalette['Deep Space Blue'],
+      main: palette.accent || fallbackPalette.accent,
+      contrastText: palette.accentContrast || fallbackPalette.accentContrast,
     },
     secondary: {
-      main: primaryPalette['Amber'],
-      contrastText: primaryPalette['Deep Space Blue'],
+      main: palette.info || fallbackPalette.info,
+      contrastText: palette.background || fallbackPalette.background,
     },
     background: {
-      default: primaryPalette['Deep Space Blue'],
-      paper: primaryPalette['Dark Slate Gray'],
+      default: palette.background || fallbackPalette.background,
+      paper: palette.surface || fallbackPalette.surface,
     },
     text: {
-      primary: primaryPalette['White Smoke'],
-      secondary: primaryPalette['Cool Gray'],
-      disabled: primaryPalette['Muted Gray'],
+      primary: palette.textPrimary || fallbackPalette.textPrimary,
+      secondary: palette.textSecondary || fallbackPalette.textSecondary,
+      disabled: palette.muted || fallbackPalette.muted,
     },
-    divider: '#243042',
+    divider: palette.border || fallbackPalette.border,
   };
 };
 
@@ -81,8 +102,7 @@ export const createAppTheme = (mode = 'dark') => {
     typography,
   });
 
-  const primaryAlpha = (alpha) => baseTheme.palette.primary.main + alpha;
-  const secondaryAlpha = (alpha) => baseTheme.palette.secondary.main + alpha;
+  const withAlpha = (color, alphaHex) => `${color}${alphaHex}`;
 
   baseTheme.components = {
     MuiButton: {
@@ -98,7 +118,7 @@ export const createAppTheme = (mode = 'dark') => {
           backgroundColor: baseTheme.palette.primary.main,
           color: baseTheme.palette.primary.contrastText,
           '&:hover': {
-            backgroundColor: baseTheme.palette.primary.dark || '#2747c7',
+            backgroundColor: baseTheme.palette.primary.dark || baseTheme.palette.primary.main,
             color: baseTheme.palette.primary.contrastText,
           },
         },
@@ -106,7 +126,7 @@ export const createAppTheme = (mode = 'dark') => {
           backgroundColor: baseTheme.palette.secondary.main,
           color: baseTheme.palette.secondary.contrastText,
           '&:hover': {
-            backgroundColor: baseTheme.palette.secondary.dark || '#16a34a',
+            backgroundColor: baseTheme.palette.secondary.dark || baseTheme.palette.secondary.main,
             color: baseTheme.palette.secondary.contrastText,
           },
         },
@@ -114,7 +134,7 @@ export const createAppTheme = (mode = 'dark') => {
           borderColor: baseTheme.palette.primary.main,
           color: baseTheme.palette.primary.main,
           '&:hover': {
-            backgroundColor: primaryAlpha('1a'),
+            backgroundColor: withAlpha(baseTheme.palette.primary.main, '1a'),
             borderColor: baseTheme.palette.primary.main,
           },
         },
@@ -122,20 +142,20 @@ export const createAppTheme = (mode = 'dark') => {
           borderColor: baseTheme.palette.secondary.main,
           color: baseTheme.palette.secondary.main,
           '&:hover': {
-            backgroundColor: secondaryAlpha('1a'),
+            backgroundColor: withAlpha(baseTheme.palette.secondary.main, '1a'),
             borderColor: baseTheme.palette.secondary.main,
           },
         },
         textPrimary: {
           color: baseTheme.palette.primary.main,
           '&:hover': {
-            backgroundColor: primaryAlpha('12'),
+            backgroundColor: withAlpha(baseTheme.palette.primary.main, '12'),
           },
         },
         textSecondary: {
           color: baseTheme.palette.secondary.main,
           '&:hover': {
-            backgroundColor: secondaryAlpha('12'),
+            backgroundColor: withAlpha(baseTheme.palette.secondary.main, '12'),
           },
         },
       },

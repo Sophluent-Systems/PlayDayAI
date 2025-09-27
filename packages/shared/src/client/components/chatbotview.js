@@ -1,375 +1,214 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { 
-    TextField, 
-    IconButton, 
-    Box,
-    Typography,
-    Button,
-} from '@mui/material';
-import { ArrowUpward } from '@mui/icons-material';
-import { ArrowDownward } from '@mui/icons-material';
-import { MessagesContainer } from './messagescontainer';
-import { makeStyles } from 'tss-react/mui';
-import { useConfig } from '@src/client/configprovider';
-import { getMostRecentMessageOfType,getMostRecentMessageOfTypeSincePreviousTypes } from '@src/common/messages';
-import { RawHTMLBox } from './standard/rawhtmlbox';
-import { CircularProgress } from '@mui/material';
-import { MultimediaInput } from './multimediainput';
-import { AudioPlaybackControls } from './audioplaybackcontrols';
-import { PlayControls } from './playcontrols';
-import { MessagesDebugControls } from './messagesdebugcontrols';
+import React, { useEffect, useMemo, useState } from "react";
+import { getMostRecentMessageOfType } from "@src/common/messages";
+import { MultimediaInput } from "./multimediainput";
+import { AudioPlaybackControls } from "./audioplaybackcontrols";
+import { PlayControls } from "./playcontrols";
+import { MessagesDebugControls } from "./messagesdebugcontrols";
+import { Loader2, ChevronDown, ChevronUp, Sparkles } from "lucide-react";
 
+function SuggestionsToggle({ open, onToggle, accentColor }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.35em] text-white/60 transition hover:text-white"
+    >
+      {open ? <ChevronDown className="h-4 w-4" style={{ color: accentColor }} /> : <ChevronUp className="h-4 w-4" style={{ color: accentColor }} />}
+      {open ? 'Hide' : 'Show'}
+    </button>
+  );
+}
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-    const {
-      colors,
-      fonts,
-    } = pageTheme;
-    return ({
-    inputContainer: {
-        display: 'flex',
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignItems: 'center',
-        width: '100%',
-        bottom: 0,
-        padding: theme.spacing(1),
-        backgroundColor: colors.inputAreaBackgroundColor,
-        position: 'relative', 
-    },
-    textField: {
-      flexGrow: 1,
-      marginRight: theme.spacing(1),
-      '& .MuiOutlinedInput-root': {
-        backgroundColor: colors.inputAreaTextEntryBackgroundColor, // Use the new color as the background
-      },
-    },
-    input: {
-      color: colors.inputTextEnabledColor, // Use the primary text color for the main text
-    },
-    inputSuggestion: {
-      color: colors.inputTextDisabledColor, // Use the secondary text color for the suggestion text
-    },
-    notchedOutline: {
-      borderColor: colors.inputTextDisabledColor, // Use the default background color for the outline
-    },
-    iconButtonInacive: {
-      color: colors.sendMessageButtonInactiveColor, // Use the default background colorfor the icon
-    },
-    iconButtonAcive: {
-      color: colors.sendMessageButtonActiveColor, // Use the default background colorfor the icon
-      '&:hover': {
-        color: colors.sendMessageButtonActiveHoverColor,
-      },
-    },
-    suggestionsContainer: {
-      display: 'flex',
-      flexDirection: 'column',
-      width: '100%',
-      backgroundColor: colors.inputAreaBackgroundColor,
-    },
-    suggestionButton: {
-      flex: 1,
-      margin: theme.spacing(0.5),
-      color: colors.suggestionsButtonTextColor,
-      backgroundColor: colors.suggestionsButtonColor,
-      '&:hover': {
-        color: colors.suggestionsButtonHoverTextColor,
-        backgroundColor: colors.suggestionsButtonHoverColor, // replace with the color you want on hover
-      },
-    },
-    noSuggestionsBox: {
-      flex: 1,
-      margin: theme.spacing(0.5),
-      width: '100%',
-      color: colors.suggestionsButtonTextColor,
-      backgroundColor: colors.suggestionsButtonColor,
-    },
-    noSuggestionsText: {
-      color: colors.suggestionsButtonTextColor,
-    },
-    outlinedInput: {
-      color: colors.inputTextEnabledColor,
-      borderColor: colors.inputTextEnabledColor,
-      '&$focused': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextEnabledColor, // Change this to the color you want when the TextField has input focus
-        },
-      },
-      '&:hover': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextEnabledColor, // Change this to the color you want when the TextField is being hovered
-        },
-      },
-      '&$focused:not(:hover)': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextEnabledColor, // Change this to the color you want when the TextField is being hovered
-        },
-      },
-      '&:hover:not($focused)': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextDisabledColor, // Change this to the color you want when the TextField is being hovered
-        },
-      },
-      '&$disabled': {
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: colors.inputTextDisabledColor, // Change this to the color you want when the TextField is being hovered
-        },
-      },
-    },
-    focused: {},
-    disabled: {},
-    error: {},
-    contentContainer: {
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        flexGrow: 1,
-        overflowY: 'auto',
-        paddingTop: '40px',
-        paddingBottom: '100px',
-        backgroundColor: colors.messagesAreaBackgroundColor,
-    },
-  })});
-  
+export default function ChatBotView(props) {
+  const {
+    theme,
+    title,
+    versionString,
+    messages,
+    inputLength,
+    onCardActionSelected,
+    editMode,
+    supportsSuggestions,
+    waitingForInput,
+    onSendMessage,
+    supportedMediaTypes,
+    conversational,
+    audioState,
+    onAudioStateChange,
+    onGetAudioController,
+    processingUnderway,
+    onRequestStateChange,
+    sessionID,
+    debugSettings,
+    onDebugSingleStep,
+    onToggleSingleStep,
+    children,
+  } = props;
 
-function ChatBotView(props) {
-  const { Constants } = useConfig();
-    const { 
-      theme, 
-      title,
-      versionString, 
-      messages, 
-      inputLength,
-      onCardActionSelected,
-      editMode,
-      supportsSuggestions,
-      waitingForInput,
-      onSendMessage,
-      supportedMediaTypes,
-      conversational,
-      audioState,
-      onAudioStateChange,
-      onGetAudioController,
-      processingUnderway,
-      onRequestStateChange,
-      sessionID,
-      debugSettings,
-      onDebugSingleStep,
-      onToggleSingleStep,
-      children
-    } = props;
-    const { classes } = useStyles(theme);
-    const [typingIndex, setTypingIndex] = useState(0);
-    const [suggestions, setSuggestions] = useState([]);
-    const [htmlForStatusBar, setHtmlForStatusBar] = useState("");
-    const [messageAreaHeight, setMessageAreaHeight] = useState(0);
-    const [suggestionsDrawerOpen, setSuggestionssuggestionsDrawerOpen] = useState(true);
-    const inputAreaRef = useRef(null);
-    const containerRef = useRef(null);
+  const [suggestions, setSuggestions] = useState(null);
+  const [htmlForStatusBar, setHtmlForStatusBar] = useState("");
+  const [suggestionsOpen, setSuggestionsOpen] = useState(true);
+
+  const accentColor = theme?.colors?.sendMessageButtonActiveColor || theme?.palette?.accent || "#38BDF8";
 
   useEffect(() => {
-    
-  // Function to update message area height based on container size
-  const updateMessageAreaHeight = () => {
-    if (inputAreaRef.current && containerRef.current) {
-      const containerHeight = containerRef.current.offsetHeight;
-      const inputAreaHeight = inputAreaRef.current.offsetHeight;
-      const newMessageAreaHeight = Math.max(containerHeight - inputAreaHeight - 1, 0);
-      if (messageAreaHeight !== newMessageAreaHeight) {
-        setMessageAreaHeight(newMessageAreaHeight);
+    if (!messages) {
+      return;
+    }
+
+    let startingMessageIndex = getMostRecentMessageOfType(messages, ['user'], -1);
+    startingMessageIndex = startingMessageIndex === -1 ? 0 : startingMessageIndex + 1;
+
+    let nextSuggestions = null;
+    for (let i = startingMessageIndex; i < messages.length; i++) {
+      const message = messages[i];
+      if (message?.data?.suggestions?.length) {
+        nextSuggestions = message.data.suggestions;
+        break;
       }
     }
-  };
 
-  // Call once to set initial height
-  updateMessageAreaHeight();
+    setSuggestions(nextSuggestions);
 
-  // Use ResizeObserver to watch for container size changes
-  let resizeObserver = null;
-  if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
-    resizeObserver = new ResizeObserver(updateMessageAreaHeight);
-    resizeObserver.observe(containerRef.current);
-  }
-
-  // Fallback to window resize if ResizeObserver not available
-  window.addEventListener('resize', updateMessageAreaHeight);
-
-  // Clean up
-  return () => {
-    window.removeEventListener('resize', updateMessageAreaHeight);
-    if (resizeObserver) {
-      resizeObserver.disconnect();
-    }
-  };
-
-  }, [messageAreaHeight]); // Include messageAreaHeight to avoid stale closure
-
-  useEffect(() => {
-    if (messages) {
-      //
-      // Have there been any eligible suggestions messages since the last user message?
-      //
-      Constants.debug.logSuggestions && console.log("SUGGESTIONS: messages: ", messages)
-      let startingMessageIndex = getMostRecentMessageOfType(messages, ['user'], -1);
-      if (startingMessageIndex == -1) {
-        startingMessageIndex = 0;
-      } else {
-        startingMessageIndex++;
-      }
-
-      //
-      // Search recent messages for one containing data... and suggestions
-      //
-      let newSuggestions = null;
-      for (var i = startingMessageIndex; i < messages.length; i++) {
-        const message = messages[i];
-        if (message.data?.suggestions?.length > 0) {
-          newSuggestions = message.data.suggestions;
-          break;
-        }
-      }
-
-      setSuggestions(newSuggestions);
-
-      const mostRecentAssistantIndex = getMostRecentMessageOfType(messages, ['assistant'], -1);
-      if (mostRecentAssistantIndex >=0) {
-        const statusBarMarkup = messages[mostRecentAssistantIndex].statusBarMarkup;
-        if (statusBarMarkup) {
-          setHtmlForStatusBar(statusBarMarkup);
-        } else {
-          setHtmlForStatusBar("");
-        }
-      }
+    const assistantIndex = getMostRecentMessageOfType(messages, ['assistant'], -1);
+    if (assistantIndex >= 0) {
+      setHtmlForStatusBar(messages[assistantIndex].statusBarMarkup || "");
+    } else {
+      setHtmlForStatusBar("");
     }
   }, [messages]);
 
-  
-  function handleDrawerToggle()  {
-    setSuggestionssuggestionsDrawerOpen((prev) => !prev);
-  };
+  const handleDrawerToggle = () => setSuggestionsOpen((prev) => !prev);
 
+  const renderSuggestions = useMemo(() => {
+    if (!supportsSuggestions) {
+      return null;
+    }
 
     return (
-      <Box 
-        ref={containerRef}
-        sx={{
-          top: 0,  
-          width: '100%',
-          height: '100%',
-          backgroundColor: theme.colors.messagesAreaBackgroundColor,
-        }}>
-            <Box sx={{ 
-              height: messageAreaHeight, 
-              top: 0,  
-              position: 'relative',
-            }}>
+      <div className="rounded-3xl border border-white/10 bg-white/5/10 p-5 shadow-inner backdrop-blur-lg">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.35em] text-white/70">
+            <Sparkles className="h-4 w-4" style={{ color: accentColor }} />
+            Suggested moves
+          </div>
+          <SuggestionsToggle open={suggestionsOpen} onToggle={handleDrawerToggle} accentColor={accentColor} />
+        </div>
 
-              {/* MESSAGES PANE */}
-              
-              <MessagesContainer
-                  theme={theme}
-                  title={title}
-                  footer={versionString}
-                  editMode={editMode}
-              >
-                        
-                  {children}
-
-              </MessagesContainer>
-
-              {editMode && <MessagesDebugControls debugSettings={debugSettings}  theme={theme} onDebugSingleStep={onDebugSingleStep} onToggleSingleStep={onToggleSingleStep} />}
-              <PlayControls isRunning={processingUnderway} onRequestStateChange={onRequestStateChange} sessionID={sessionID} />
-            </Box>
-            <Box className={classes.inputContainer} ref={inputAreaRef}>
-            <Box sx={{
-                display: 'flex',
-                flexGrow: 1,
-                flexDirection: 'column',
-                width: '100%',
-            }}>
-              <RawHTMLBox
-                    sx={{
-                        width: '100%', // 100% width of the container/screen
-                        maxHeight: 100, // Up to 100 height
-                        overflow: 'auto' // Adds scroll if the content exceeds the height
-                    }}
-                    html={htmlForStatusBar}
-              />
-              {supportsSuggestions && (
-                  <Box className={classes.suggestionsContainer}>
-                    <Box sx={{display: 'flex', flexDirection: 'row', width: '100%'}}>
-                      <Typography variant="body1" sx={{alignSelf: 'flex-start', color: theme.colors.inputAreaInformationTextColor}}>
-                            Optional suggestions:
-                      </Typography>
-                      <Typography variant="body1" sx={{position:'absolute', right: 40, margin: 0.2, color: theme.colors.inputAreaInformationTextColor}}>
-                            {suggestionsDrawerOpen ? "Hide" : "Show"}
-                      </Typography>
-
-                      { /*  COLLAPSE / UNCOLLAPSE THE SECTION  */ }
-                      <Box sx={{ position:'absolute', right: 0, top: 0,  margin: 1.5, zIndex: 200, height: 20, width: 20,  borderRadius: '50%', backgroundColor: 'gray', alignContent: 'center', alignItems: 'center', justifyContent: 'center', justifyItems: 'center'}}>
-                          <IconButton onClick={() => handleDrawerToggle()} sx={{height: 15, width: 15, left: 2, bottom: 3}} >
-                            {suggestionsDrawerOpen ? <ArrowDownward fontSize="small" sx={{color: theme.colors.inputAreaInformationTextColor}} /> : <ArrowUpward fontSize="small" sx={{color: theme.colors.inputAreaInformationTextColor}} />}
-                          </IconButton>
-                      </Box>
-                    </Box>
-
-                    {suggestionsDrawerOpen && (
-                       <Box >
-                          {suggestions ? 
-                            suggestions.map((suggestion, i) => (
-                            <Button
-                              key={i}
-                              variant="outlined"
-                              onClick={() => onCardActionSelected("suggestion", {suggestion: suggestion })}
-                              className={classes.suggestionButton}
-                              disableElevation
-                              sx={{
-                                width:'98%'
-                              }}
-                            >
-                              {suggestion}
-                            </Button>
-                          ))
-                          :
-                          <Box className={classes.noSuggestionsBox}>
-                            {waitingForInput ? 
-                              <Box sx={{width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}> <CircularProgress sx={{color: theme.colors.suggestionsButtonTextColor}} /> </Box>
-                              : 
-                            <Typography className={classes.noSuggestionsText}>No suggestions provided for this turn.</Typography>
-                            }
-                        </Box>
-                        } 
-                      </Box>
-                    )}
-                  </Box>
+        {suggestionsOpen && (
+          <div className="mt-4 space-y-2">
+            {suggestions?.length ? (
+              suggestions.map((suggestion, index) => (
+                <button
+                  key={`${suggestion}-${index}`}
+                  type="button"
+                  onClick={() =>
+                    onCardActionSelected?.('suggestion', {
+                      suggestion,
+                    })
+                  }
+                  className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-left text-sm font-medium text-white/90 transition hover:border-white/30 hover:bg-white/15"
+                >
+                  {suggestion}
+                </button>
+              ))
+            ) : (
+              <div className="flex h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/60">
+                {waitingForInput ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <span className="text-xs uppercase tracking-[0.35em]">No suggestions provided</span>
                 )}
-                <AudioPlaybackControls 
-                  audioState={audioState} 
-                  onAudioStateChange={onAudioStateChange}
-                  onGetAudioController={onGetAudioController}
-                  theme={theme}
-                />
-                <Box sx={{
-                    display: 'flex',
-                    flexGrow: 1,
-                    flexDirection: 'row',
-                    width: '100%',
-                }}>
-                    <MultimediaInput
-                      theme={theme}
-                      inputLength={inputLength}
-                      waitingForInput={waitingForInput}
-                      supportedMediaTypes={supportedMediaTypes}
-                      handleSendMessage={onSendMessage}
-                      sendAudioOnSpeechEnd={conversational}
-                      debug={false}
-                    />
-                </Box>
-            </Box>
-          </Box>
-      </Box>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     );
-};
+  }, [supportsSuggestions, suggestionsOpen, suggestions, waitingForInput, accentColor, onCardActionSelected]);
 
-export default ChatBotView;
+  return (
+    <div
+      className="relative flex h-full min-h-screen w-full flex-col overflow-hidden"
+      style={{ backgroundColor: theme?.colors?.messagesAreaBackgroundColor || '#050B1B' }}
+    >
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.15),_transparent_55%)]" />
+
+      <div className="relative z-10 flex flex-1 flex-col overflow-hidden">
+        <div className="relative flex flex-1 flex-col overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/5 via-transparent to-white/5 opacity-20" />
+
+          <div className="relative flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-5xl flex-col items-stretch px-4 pb-24 pt-10 sm:px-6 lg:px-8">
+              <div className="mb-8 flex flex-col items-center gap-2 text-center">
+                {title && (
+                  <div
+                    className="text-xs font-semibold uppercase tracking-[0.4em] text-white/60"
+                    style={{ fontFamily: theme?.fonts?.titleFont }}
+                  >
+                    {title}
+                  </div>
+                )}
+                {versionString && (
+                  <div className="text-[10px] uppercase tracking-[0.35em] text-white/40">{versionString}</div>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-6">{children}</div>
+            </div>
+          </div>
+
+          {editMode && (
+            <div className="pointer-events-none sm:pointer-events-auto">
+              <MessagesDebugControls
+                theme={theme}
+                onDebugSingleStep={onDebugSingleStep}
+                onToggleSingleStep={onToggleSingleStep}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/60 backdrop-blur-xl">
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
+            {htmlForStatusBar && (
+              <div
+                className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm leading-relaxed text-white/80 shadow-inner"
+                dangerouslySetInnerHTML={{ __html: htmlForStatusBar }}
+              />
+            )}
+
+            {renderSuggestions}
+
+            <AudioPlaybackControls
+              audioState={audioState}
+              onAudioStateChange={onAudioStateChange}
+              onGetAudioController={onGetAudioController}
+              theme={theme}
+            />
+
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-inner">
+              <MultimediaInput
+                theme={theme}
+                inputLength={inputLength}
+                waitingForInput={waitingForInput}
+                supportedMediaTypes={supportedMediaTypes}
+                handleSendMessage={onSendMessage}
+                sendAudioOnSpeechEnd={conversational}
+                debug={false}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="pointer-events-none fixed bottom-6 right-6 z-30 sm:pointer-events-auto">
+        <PlayControls
+          isRunning={processingUnderway}
+          onRequestStateChange={onRequestStateChange}
+          sessionID={sessionID}
+        />
+      </div>
+    </div>
+  );
+}

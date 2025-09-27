@@ -1,62 +1,46 @@
-import React, { useRef, useEffect, useState } from 'react';
-import {
-  Box,
-  Typography,
- } from '@mui/material';
-import { makeStyles } from 'tss-react/mui';
-import Title from './standard/title';
-
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const {
-    colors,
-  } = pageTheme;
-  return ({
-    contentContainer: {
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      flexGrow: 1,
-      overflowY: 'auto',
-      paddingBottom: '30px',
-      backgroundColor: colors.messagesAreaBackgroundColor,
-      position: 'relative',
-    },
-  });
-});
-
+import React from "react";
 
 export function MessagesContainer(props) {
   const {
-    theme, 
+    theme,
     title,
     footer,
-    children
+    children,
   } = props;
-  const { classes } = useStyles(theme);
+
+  const colors = theme?.colors || {};
+  const fonts = theme?.fonts || {};
 
   return (
-    <Box style={{ 
-      height: '100%',  
-      overflow:"hidden",
-      display: 'flex', 
-      flexDirection: 'column', 
-      position: 'relative' }}>
-      <Box flexGrow={1} overflow="hidden" display="flex" flexDirection="column" justifyContent="flex-end"
-              >
-            <Box
-              className={classes.contentContainer}
-              display="fixed"
-              flexDirection="column"
-              alignItems="center"
-              flexGrow={1}
-            >
-              <Title theme={theme} title={title} mb={4} mt={0} paddingTop={2} paddingBottom={2} />
-              
-              {children}
+    <div
+      className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden"
+      style={{ backgroundColor: colors.messagesAreaBackgroundColor || "#050B1B" }}
+    >
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-white/5 to-transparent opacity-10" />
 
-              <Typography sx={{ alignSelf: 'flex-end',  marginRight: 5, color: theme.colors.inputTextDisabledColor}}>{footer}</Typography>
-            </Box>
-      </Box>
-    </Box>
+      <div className="relative z-10 flex flex-col items-center gap-6 px-4 pb-16">
+        {title && (
+          <div className="mt-6 text-center">
+            <div
+              className="text-xs font-semibold uppercase tracking-[0.4em] text-white/60"
+              style={{ fontFamily: fonts.titleFont }}
+            >
+              {title}
+            </div>
+          </div>
+        )}
+
+        {children}
+
+        {footer && (
+          <span
+            className="self-end pr-4 text-[10px] uppercase tracking-[0.35em] text-white/50"
+            style={{ fontFamily: fonts.fontFamily }}
+          >
+            {footer}
+          </span>
+        )}
+      </div>
+    </div>
   );
-};
+}

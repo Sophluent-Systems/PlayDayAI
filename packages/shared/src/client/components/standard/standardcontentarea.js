@@ -1,20 +1,33 @@
 import React from 'react';
-import clsx from 'clsx';
+import { Box } from '@mui/material';
+import { makeStyles } from 'tss-react/mui';
 import { useAtom } from 'jotai';
 import { vhState } from '@src/client/states';
 
-export function StandardContentArea({ children, className }) {
-  const [vh] = useAtom(vhState);
 
-  return (
-    <div
-      style={{ minHeight: `${vh}px` }}
-      className={clsx(
-        'flex w-full flex-1 flex-col items-center justify-start bg-gradient-to-br from-[#030712] via-[#050a1a] to-[#0f172a] px-4 py-6 sm:px-8',
-        className,
-      )}
-    >
-      {children}
-    </div>
+const useStyles = makeStyles()((theme) => ({
+  contentContainer: {
+    display: 'flex',
+    flexDirection:"column",
+    justifyContent: 'flex-start',
+    alignItems: "center",
+    flex: 1,
+    paddingTop: theme.spacing(2),
+    backgroundColor: theme.palette.background.main, 
+  },
+}));
+
+
+export function StandardContentArea(props) {
+  const { classes } = useStyles();
+  const { children } = props;
+  const [vh, setVh] = useAtom(vhState);
+
+  return (<React.Fragment>
+       <Box className={classes.contentContainer} minHeight={`${vh}px`} >
+        { children }
+      </Box>
+      </React.Fragment>
   );
 }
+

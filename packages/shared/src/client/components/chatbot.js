@@ -1,9 +1,7 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import ChatBotView from './chatbotview';
 import { useRouter } from 'next/router';
 import { callGetMostRecentSave } from '@src/client/gameplay';
-import { StandardContentArea } from '@src/client/components/standard/standardcontentarea';
-import { InfoBubble } from '@src/client/components/standard/infobubble';
 import { callRetryRecord } from '@src/client/editor';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
 import { useConfig } from '@src/client/configprovider';
@@ -11,16 +9,14 @@ import { callSubmitMessageRating } from '@src/client/responseratings';
 import { callGetRecordResultField } from '@src/client/editor';
 import TextPreviewModal from './standard/textpreviewmodal';
 import { useAlert } from './standard/useAlert';
-import { defaultAppTheme } from '@src/common/theme';
+import { normalizeTheme } from '@src/common/theme';
 import { stateManager } from '@src/client/statemanager';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { callStateMachineContinuationRequest } from '@src/client/gameplay';
 import { useMessagesClient } from '../messagesClient';
 import { callSendInputData, callStateMachineHaltRequest } from '@src/client/gameplay';
 import { FilteredMessageList } from './filteredmessagelist';
-import { makeStyles } from "tss-react/mui";
 import { 
-  Typography,
 } from '@mui/material';
 import { analyticsReportEvent} from "@src/client/analytics";
 import { useAtom } from 'jotai';
@@ -35,45 +31,12 @@ const reconnectThresholds = [
   {threshold: 40, delay: 1000000}, // 10 min
 ]
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const { colors, fonts } = pageTheme;
-  return {
-    container: {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-start",
-      width: "100%",
-    },
-    feedbackDescriptionText: {
-      color: colors.chatbotMessageTextColor,
-      fontFamily: fonts.fontFamily,
-    },
-    image: {
-      width: "100%",
-      height: "auto",
-      maxHeight: "600px",
-      maxWidth: "800px",
-      objectFit: "contain",
-    },
-    spinnerBox: {
-      width: "100%",
-      height: "auto",
-      maxHeight: "600px",
-      maxWidth: "800px",
-      objectFit: "contain",
-      padding: 20,
-    },
-  };
-});
-
 
 function ChatBot(props) {
   const { Constants } = useConfig();
   const router = useRouter();
   const { versionName, sessionID } = router.query;
-  const { url, title, theme } = props;
-  const { classes } = useStyles(theme);
-  const { account, game, version, session, editMode, gamePermissions,refreshAccessToken, startNewGameSession,switchSessionID, accessToken } = React.useContext(stateManager);
+  const { url, title, theme } = props;  const { account, game, version, session, editMode, gamePermissions,refreshAccessToken, startNewGameSession,switchSessionID, accessToken } = React.useContext(stateManager);
   const loadedSessionID = useRef(null);
   const [processingUnderway, setProcessingUnderway] = useState(false);
   const [waitingForInput, setWaitingForInput] = useState(false);
@@ -91,6 +54,7 @@ function ChatBot(props) {
   const [supportedMediaTypes, setSupportedMediaTypes] = useState([]);
   const scrollRef = useRef(null);
   const showAlert = useAlert();
+  const themeToUse = useMemo(() => normalizeTheme(theme), [theme]);
   const messageUpdateHandlers = {
       replaceMessageList: (newMessages) => {
           if (scrollingMode == 'lineByLine' || scrollingMode == 'messageComplete') {
@@ -635,11 +599,14 @@ const handleAudioStateChange = (audioType, newState) => {
 
   function renderWithFormatting(children) {
     return (
-      <StandardContentArea>
-          <InfoBubble>
-            {children}
-          </InfoBubble>
-      </StandardContentArea>
+      <div
+        className="flex min-h-screen w-full items-center justify-center px-6"
+        style={{ backgroundColor: themeToUse.colors.messagesAreaBackgroundColor }}
+      >
+        <div className="max-w-lg rounded-3xl border border-white/15 bg-white/5 px-10 py-12 text-center text-sm text-white/90 shadow-2xl backdrop-blur-2xl">
+          {children}
+        </div>
+      </div>
     );
   }
 
@@ -718,21 +685,11 @@ const handleAudioStateChange = (audioType, newState) => {
     }
 
     return (
-      <Typography 
-        variant="bold"
-        textAlign={'center'}
-        className={classes.feedbackDescriptionText}
-        sx={{ 
-          color:'rgba(255, 0, 0, 0.6)',
-          }}
-      >
-          {"The AI is responding slowly to PlayDay's requests."}
-      </Typography>
+      <div className="mx-auto w-full max-w-3xl rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-center text-xs font-semibold uppercase tracking-[0.35em] text-amber-200 shadow-inner">
+        The AI is responding slowly to PlayDay's requests.
+      </div>
     );
-  }
-
-  const themeToUse = theme ? theme : defaultAppTheme;
-  const versionString = version?.versionName ? `Version: ${version.versionName}` : ``;
+  }  const versionString = version?.versionName ? `Version: ${version.versionName}` : ``;
 
   if (!session) {
     return renderWithFormatting(<h1>Loading</h1>);
@@ -784,7 +741,14 @@ const handleAudioStateChange = (audioType, newState) => {
 
                     {renderSlowServerWarning()}
 
-                    <Typography sx={{ alignSelf: 'flex-end',  marginRight: 5, color: themeToUse.colors.inputTextDisabledColor}}>{versionString}</Typography>
+                    {versionString && (
+                      <span
+                        className='self-end pr-5 text-[10px] uppercase tracking-[0.35em]'
+                        style={{ color: themeToUse.colors.inputTextDisabledColor }}
+                      >
+                        {versionString}
+                      </span>
+                    )}
 
                     <div ref={scrollRef} />
           </ChatBotView>
@@ -801,3 +765,14 @@ const handleAudioStateChange = (audioType, newState) => {
 
 
 export default memo(ChatBot);
+
+
+
+
+
+
+
+
+
+
+

@@ -195,7 +195,7 @@ export default function ChatBotView(props) {
 
       {editMode ? (
         <div
-          className="pointer-events-none fixed right-6 z-40 sm:pointer-events-auto"
+          className="pointer-events-none fixed right-0 z-40 sm:pointer-events-auto"
           style={{ bottom: 'calc(1.5rem + 3.5rem)' }}
         >
           <MessagesDebugControls
@@ -207,7 +207,7 @@ export default function ChatBotView(props) {
         </div>
       ) : null}
 
-      <div className="pointer-events-none fixed bottom-6 right-6 z-30 sm:pointer-events-auto">
+      <div className="pointer-events-none fixed bottom-6 right-0 z-30 sm:pointer-events-auto">
         <PlayControls
           isRunning={processingUnderway}
           onRequestStateChange={onRequestStateChange}
@@ -218,3 +218,4 @@ export default function ChatBotView(props) {
     </div>
   );
 }
+

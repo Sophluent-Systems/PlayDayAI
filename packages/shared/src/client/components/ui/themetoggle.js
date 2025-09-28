@@ -35,7 +35,7 @@ export function ThemeToggle({ className }) {
     return (
       <div
         className={clsx(
-          'flex items-center gap-2 rounded-2xl border border-border/60 bg-surface/80 px-3 py-1.5 text-muted shadow-soft',
+          'pointer-events-auto flex items-center gap-2 rounded-2xl border border-border/60 bg-surface/80 px-3 py-1.5 text-muted shadow-soft',
           className
         )}
       >
@@ -51,7 +51,7 @@ export function ThemeToggle({ className }) {
   return (
     <div
       className={clsx(
-        'flex items-center gap-1 rounded-2xl border border-border/60 bg-surface/90 px-1.5 py-1 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur-sm',
+        'pointer-events-auto flex items-center gap-1 rounded-2xl border border-border/60 bg-surface/90 px-1.5 py-1 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur-sm',
         className
       )}
     >

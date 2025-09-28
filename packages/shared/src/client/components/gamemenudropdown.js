@@ -22,6 +22,85 @@ import { callListGameVersions } from '@src/client/editor';
 import { ShareButton } from '@src/client/components/sharebutton';
 const MENU_WIDTH = 320;
 
+const permissionsCache = new Map();
+const permissionRequests = new Map();
+const versionsCache = new Map();
+const versionRequests = new Map();
+
+function getCacheKey(accountID, gameUrl) {
+  if (!accountID || !gameUrl) {
+    return null;
+  }
+  return `${accountID}::${gameUrl}`;
+}
+
+function scheduleIdle(task) {
+  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(() => task(), { timeout: 1500 });
+    return () => window.cancelIdleCallback(handle);
+  }
+  const timeout = setTimeout(() => task(), 120);
+  return () => clearTimeout(timeout);
+}
+
+function getCachedPermissions(accountID, gameUrl) {
+  if (!accountID || !gameUrl) {
+    return Promise.resolve([]);
+  }
+  const key = getCacheKey(accountID, gameUrl);
+  if (!key) {
+    return Promise.resolve([]);
+  }
+  if (permissionsCache.has(key)) {
+    return Promise.resolve(permissionsCache.get(key));
+  }
+  if (permissionRequests.has(key)) {
+    return permissionRequests.get(key);
+  }
+  const request = callGetAccountPermissionsForGame(accountID, null, gameUrl)
+    .then((permissions) => {
+      const normalized = Array.isArray(permissions) ? [...permissions] : [];
+      permissionsCache.set(key, normalized);
+      permissionRequests.delete(key);
+      return normalized;
+    })
+    .catch((error) => {
+      permissionRequests.delete(key);
+      throw error;
+    });
+  permissionRequests.set(key, request);
+  return request;
+}
+
+function getCachedVersions(accountID, gameUrl) {
+  if (!accountID || !gameUrl) {
+    return Promise.resolve([]);
+  }
+  const key = getCacheKey(accountID, gameUrl);
+  if (!key) {
+    return Promise.resolve([]);
+  }
+  if (versionsCache.has(key)) {
+    return Promise.resolve(versionsCache.get(key));
+  }
+  if (versionRequests.has(key)) {
+    return versionRequests.get(key);
+  }
+  const request = callListGameVersions(null, gameUrl, false)
+    .then((list) => {
+      const normalized = Array.isArray(list) ? list.map((entry) => ({ ...entry })) : [];
+      versionsCache.set(key, normalized);
+      versionRequests.delete(key);
+      return normalized;
+    })
+    .catch((error) => {
+      versionRequests.delete(key);
+      throw error;
+    });
+  versionRequests.set(key, request);
+  return request;
+}
+
 function MenuPanel({ anchorRect, isOpen, children, onClose }) {
   const panelRef = useRef(null);
 
@@ -132,8 +211,35 @@ export function GameMenuDropdown({
     editMode,
     hasServicePerms,
   } = useContext(stateManager);
-  const [gamePermissionsToUse, setGamePermissionsToUse] = useState(null);
-  const [versions, setVersions] = useState([]);
+  const accountID = account?.accountID;
+  const cacheKey = getCacheKey(accountID, gameUrl);
+
+  const [gamePermissionsToUse, setGamePermissionsToUse] = useState(() => {
+    if (gameUrl === game?.url && Array.isArray(gamePermissions)) {
+      if (cacheKey) {
+        permissionsCache.set(cacheKey, [...gamePermissions]);
+      }
+      return [...gamePermissions];
+    }
+    if (cacheKey && permissionsCache.has(cacheKey)) {
+      return permissionsCache.get(cacheKey);
+    }
+    return null;
+  });
+
+  const [versions, setVersions] = useState(() => {
+    if (gameUrl === game?.url && Array.isArray(versionList) && versionList.length > 0) {
+      const normalized = versionList.map((entry) => ({ ...entry }));
+      if (cacheKey) {
+        versionsCache.set(cacheKey, normalized);
+      }
+      return normalized;
+    }
+    if (cacheKey && versionsCache.has(cacheKey)) {
+      return versionsCache.get(cacheKey);
+    }
+    return [];
+  });
   const [anchorRect, setAnchorRect] = useState(null);
   const [showVersions, setShowVersions] = useState(false);
   const isAdmin = hasServicePerms ? hasServicePerms('service_modifyGlobalPermissions') : false;
@@ -167,53 +273,169 @@ export function GameMenuDropdown({
   }, [updateAnchorRect]);
 
   useEffect(() => {
-    async function loadPermissions() {
-      if (!account || !gameUrl) {
-        return;
-      }
-      if (gameUrl === game?.url) {
-        setGamePermissionsToUse(gamePermissions);
-        return;
-      }
-      try {
-        const permissions = await callGetAccountPermissionsForGame(account.accountID, null, gameUrl);
-        setGamePermissionsToUse(permissions);
-      } catch (error) {
-        console.error('Failed to load game permissions', error);
-      }
+    if (!cacheKey && !(gameUrl === game?.url && Array.isArray(gamePermissions))) {
+      setGamePermissionsToUse(null);
+      return;
     }
 
-    if (!loading && account && menuOpen) {
-      loadPermissions();
+    if (gameUrl === game?.url && Array.isArray(gamePermissions)) {
+      const normalized = [...gamePermissions];
+      if (cacheKey) {
+        permissionsCache.set(cacheKey, normalized);
+      }
+      setGamePermissionsToUse(normalized);
+      return;
     }
-  }, [loading, account, gameUrl, game, gamePermissions, menuOpen]);
+
+    if (cacheKey && permissionsCache.has(cacheKey)) {
+      setGamePermissionsToUse(permissionsCache.get(cacheKey));
+    }
+  }, [cacheKey, gameUrl, game, gamePermissions]);
 
   useEffect(() => {
-    async function loadVersions() {
-      if (!allowEditOptions || !editMode) {
-        return;
-      }
-      if (!gamePermissionsToUse) {
-        return;
-      }
-      const canView = gamePermissionsToUse.includes('game_viewSource') || gamePermissionsToUse.includes('game_edit');
-      if (!canView) {
-        return;
-      }
-      try {
-        const list = await callListGameVersions(null, gameUrl, false);
-        if (list) {
-          setVersions(list);
-        }
-      } catch (error) {
-        console.error('Failed to load versions for game menu', error);
-      }
+    if (!cacheKey && !(gameUrl === game?.url && Array.isArray(versionList) && versionList.length > 0)) {
+      setVersions([]);
+      return;
     }
 
-    if (menuOpen) {
-      loadVersions();
+    if (gameUrl === game?.url && Array.isArray(versionList) && versionList.length > 0) {
+      const normalized = versionList.map((entry) => ({ ...entry }));
+      if (cacheKey) {
+        versionsCache.set(cacheKey, normalized);
+      }
+      setVersions(normalized);
+      return;
     }
-  }, [menuOpen, allowEditOptions, editMode, gamePermissionsToUse, gameUrl]);
+
+    if (cacheKey && versionsCache.has(cacheKey)) {
+      setVersions(versionsCache.get(cacheKey));
+    }
+  }, [cacheKey, gameUrl, game, versionList]);
+
+  useEffect(() => {
+    if (loading || !accountID || !gameUrl) {
+      return undefined;
+    }
+    if (gameUrl === game?.url && Array.isArray(gamePermissions)) {
+      return undefined;
+    }
+    if (cacheKey && permissionsCache.has(cacheKey)) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const fetchPermissions = () => {
+      getCachedPermissions(accountID, gameUrl)
+        .then((permissions) => {
+          if (!cancelled) {
+            const normalizedPermissions = Array.isArray(permissions) ? permissions : [];
+            if (cacheKey) {
+              permissionsCache.set(cacheKey, normalizedPermissions);
+            }
+            setGamePermissionsToUse(normalizedPermissions);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.error('Failed to load game permissions', error);
+          }
+        });
+    };
+
+    if (menuOpen && !gamePermissionsToUse) {
+      fetchPermissions();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const cancelIdle = scheduleIdle(() => {
+      if (!cancelled) {
+        fetchPermissions();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (typeof cancelIdle === 'function') {
+        cancelIdle();
+      }
+    };
+  }, [loading, accountID, gameUrl, cacheKey, menuOpen, gamePermissionsToUse, game, gamePermissions]);
+
+  useEffect(() => {
+    if (!allowEditOptions || !editMode || !accountID || !gameUrl) {
+      return undefined;
+    }
+    if (!gamePermissionsToUse) {
+      return undefined;
+    }
+    const canView = gamePermissionsToUse.includes('game_viewSource') || gamePermissionsToUse.includes('game_edit');
+    if (!canView) {
+      return undefined;
+    }
+    if (gameUrl === game?.url && Array.isArray(versionList) && versionList.length > 0) {
+      return undefined;
+    }
+
+    const hasCachedVersions = cacheKey && versionsCache.has(cacheKey);
+    let cancelled = false;
+
+    const fetchVersions = () => {
+      getCachedVersions(accountID, gameUrl)
+        .then((list) => {
+          if (!cancelled) {
+            const normalizedList = Array.isArray(list) ? list : [];
+            if (cacheKey) {
+              versionsCache.set(cacheKey, normalizedList);
+            }
+            setVersions(normalizedList);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.error('Failed to load versions for game menu', error);
+          }
+        });
+    };
+
+    if (menuOpen && (!hasCachedVersions || versions.length === 0)) {
+      fetchVersions();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!hasCachedVersions) {
+      const cancelIdle = scheduleIdle(() => {
+        if (!cancelled) {
+          fetchVersions();
+        }
+      });
+      return () => {
+        cancelled = true;
+        if (typeof cancelIdle === 'function') {
+          cancelIdle();
+        }
+      };
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    allowEditOptions,
+    editMode,
+    accountID,
+    gameUrl,
+    cacheKey,
+    menuOpen,
+    gamePermissionsToUse,
+    versions.length,
+    game,
+    versionList,
+  ]);
 
   const handleNavigation = (relativePath) => {
     const switchingGames = gameUrl !== game?.url;
@@ -232,6 +454,20 @@ export function GameMenuDropdown({
       handleNavigation('/play');
     }
     switchVersionByName(newVersionName, sourceGameID || gameID);
+    setVersions((prev) => {
+      const base = prev.length > 0 ? prev : Array.isArray(versionList) ? versionList : [];
+      if (!base.length) {
+        return prev;
+      }
+      const next = base.map((versionItem) => ({
+        ...versionItem,
+        isActive: versionItem.versionName === newVersionName,
+      }));
+      if (cacheKey) {
+        versionsCache.set(cacheKey, next);
+      }
+      return next;
+    });
     setShowVersions(false);
     onMenuClose?.();
   };

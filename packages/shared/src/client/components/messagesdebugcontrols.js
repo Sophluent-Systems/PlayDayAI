@@ -398,7 +398,7 @@ export function MessagesDebugControls(props) {
 
   return (
     <div
-      className={`${className || ''} pointer-events-auto flex h-10 items-center gap-3 overflow-hidden rounded-l-3xl rounded-r-none border border-r-0 shadow-2xl backdrop-blur transition-transform duration-200 ease-out`}
+      className={`${className || ''} pointer-events-auto flex h-auto min-h-[2.5rem] w-full max-w-full flex-wrap items-start gap-3 overflow-hidden rounded-l-3xl rounded-r-none border border-r-0 px-3 py-2 shadow-2xl backdrop-blur transition-transform duration-200 ease-out sm:h-10 sm:w-auto sm:flex-nowrap sm:items-center sm:px-0 sm:py-0`}
       style={floatingStyle}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -416,9 +416,9 @@ export function MessagesDebugControls(props) {
         <Wrench className="h-4 w-4" strokeWidth={2.5} />
       </button>
       <div
-        className={`ml-3 flex flex-wrap items-center gap-3 text-xs transition-all duration-200 ${
+        className={`flex flex-wrap items-center gap-3 text-xs transition-all duration-200 ${
           expanded ? 'opacity-100 translate-x-0' : 'pointer-events-none opacity-0 -translate-x-6'
-        }`}
+        } ml-0 mt-2 w-full sm:ml-3 sm:mt-0 sm:w-auto`}
         style={{ color: tokens.inputTextColor }}
       >
         {controls}

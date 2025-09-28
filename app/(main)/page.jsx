@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import clsx from 'clsx';
 import { createPortal } from 'react-dom';
@@ -17,6 +17,8 @@ import {
   Sparkles,
   Star,
   Layers,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { stateManager } from '@src/client/statemanager';
 import { callGetGamesList, callCreateNewGame, callUpdateGameInfo } from '@src/client/gameplay';
@@ -228,6 +230,74 @@ function GameCard({
   moveFeatured,
   children,
 }) {
+  const [featuredMenuOpen, setFeaturedMenuOpen] = useState(false);
+  const featuredMenuButtonRef = useRef(null);
+  const featuredMenuContentRef = useRef(null);
+  const [featuredMenuPosition, setFeaturedMenuPosition] = useState(null);
+
+  const updateFeaturedMenuPosition = useCallback(() => {
+    if (!featuredMenuButtonRef.current) {
+      return;
+    }
+    const rect = featuredMenuButtonRef.current.getBoundingClientRect();
+    const width = 256;
+    const gutter = 16;
+    const offset = 8;
+    let left = rect.left + rect.width - width;
+    left = Math.max(gutter, Math.min(window.innerWidth - width - gutter, left));
+    const top = rect.bottom + offset;
+    setFeaturedMenuPosition({
+      top: top + window.scrollY,
+      left: left + window.scrollX,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!featuredMenuOpen) {
+      return undefined;
+    }
+
+    updateFeaturedMenuPosition();
+
+    function handleClick(event) {
+      if (
+        featuredMenuContentRef.current &&
+        !featuredMenuContentRef.current.contains(event.target) &&
+        !featuredMenuButtonRef.current?.contains(event.target)
+      ) {
+        setFeaturedMenuOpen(false);
+      }
+    }
+
+    function handleKey(event) {
+      if (event.key === 'Escape') {
+        setFeaturedMenuOpen(false);
+      }
+    }
+
+    const handleViewportChange = () => {
+      updateFeaturedMenuPosition();
+    };
+
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+    };
+  }, [featuredMenuOpen, updateFeaturedMenuPosition]);
+
+  useEffect(() => {
+    if (!canFeature) {
+      setFeaturedMenuOpen(false);
+    }
+  }, [canFeature]);
+
   const category = game.category || 'AI experience';
   const description = game.description || 'Bring your story to life with adaptive AI-driven play.';
   const updatedLabel = (() => {
@@ -269,58 +339,116 @@ function GameCard({
             <h3 className="text-2xl font-semibold leading-tight text-emphasis">{game.title}</h3>
             <p className="line-clamp-3 text-sm text-muted">{description}</p>
           </div>
-          <div className="flex flex-col items-end gap-3">
-            <button
-              type="button"
-              ref={menuAnchor}
-              onClick={onOpenMenu}
-              className={clsx(
-                'rounded-full border bg-surface/80 p-2 text-muted transition-all duration-200 hover:text-emphasis focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                menuOpen ? 'border-primary/60 text-primary' : 'border-border/70'
-              )}
-              aria-haspopup="dialog"
-              aria-expanded={menuOpen}
-              aria-label="Project actions"
-            >
-              <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
-            </button>
-            {canFeature && (
+          <div className="relative flex flex-col items-end gap-3">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={onToggleFeatured}
-                className="rounded-full border border-border/70 bg-surface/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted transition-colors hover:border-primary/40 hover:text-primary"
-              >
-                {isFeatured ? (
-                  <span className="inline-flex items-center gap-1">
-                    <BookmarkMinus className="h-3 w-3" aria-hidden="true" />
-                    Remove featured
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1">
-                    <BookmarkPlus className="h-3 w-3" aria-hidden="true" />
-                    Mark featured
-                  </span>
+                ref={menuAnchor}
+                onClick={onOpenMenu}
+                className={clsx(
+                  'rounded-full border bg-surface/80 p-2 text-muted transition-all duration-200 hover:text-emphasis focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                  menuOpen ? 'border-primary/60 text-primary' : 'border-border/70'
                 )}
+                aria-haspopup="dialog"
+                aria-expanded={menuOpen}
+                aria-label="Project actions"
+              >
+                <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
               </button>
-            )}
-            {canFeature && isFeatured && moveFeatured ? (
-              <div className="flex items-center gap-2 text-[11px] text-muted">
+              {canFeature ? (
                 <button
                   type="button"
-                  onClick={moveFeatured('up')}
-                  className="rounded-full border border-border/60 px-2 py-1 hover:border-primary/40 hover:text-primary"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setFeaturedMenuOpen((prev) => !prev);
+                  }}
+                  ref={featuredMenuButtonRef}
+                  className={clsx(
+                    'rounded-full border border-border/70 bg-surface/80 p-2 text-muted transition-colors duration-200 hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                    featuredMenuOpen ? 'border-primary/60 text-primary' : isFeatured ? 'border-primary/30 text-primary' : null
+                  )}
+                  aria-haspopup="dialog"
+                  aria-expanded={featuredMenuOpen}
+                  aria-label={isFeatured ? 'Open featured controls (currently featured)' : 'Open featured controls'}
                 >
-                  ?
+                  {isFeatured ? (
+                    <BookmarkMinus className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <BookmarkPlus className="h-4 w-4" aria-hidden="true" />
+                  )}
                 </button>
-                <button
-                  type="button"
-                  onClick={moveFeatured('down')}
-                  className="rounded-full border border-border/60 px-2 py-1 hover:border-primary/40 hover:text-primary"
-                >
-                  ?
-                </button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
+            {canFeature && featuredMenuOpen && featuredMenuPosition
+              ? createPortal(
+                  <div
+                    ref={featuredMenuContentRef}
+                    className="fixed z-50 w-64 rounded-2xl border border-border/70 bg-surface/95 p-4 text-left shadow-[0_24px_45px_-25px_rgba(15,23,42,0.45)]"
+                    style={{ top: featuredMenuPosition.top, left: featuredMenuPosition.left }}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-muted">Featured controls</span>
+                      <span className={clsx('rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', isFeatured ? 'bg-primary/15 text-primary' : 'bg-border/40 text-muted')}
+                      >
+                        {isFeatured ? 'Active' : 'Not featured'}
+                      </span>
+                    </div>
+                    <div className="mt-3 space-y-3 text-sm text-muted">
+                      <p className="leading-relaxed">Highlight this experience on the home page spotlight.</p>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleFeatured?.();
+                          setFeaturedMenuOpen(false);
+                        }}
+                        className="flex w-full items-center justify-between rounded-xl border border-border/60 bg-surface/80 px-3 py-2 text-left text-sm font-semibold text-emphasis transition-colors duration-200 hover:border-primary/40 hover:text-primary"
+                      >
+                        <span>{isFeatured ? 'Remove from featured' : 'Mark as featured'}</span>
+                        {isFeatured ? (
+                          <BookmarkMinus className="h-4 w-4" aria-hidden="true" />
+                        ) : (
+                          <BookmarkPlus className="h-4 w-4" aria-hidden="true" />
+                        )}
+                      </button>
+                    </div>
+                    {isFeatured && moveFeatured ? (
+                      <div className="mt-3 border-t border-border/60 pt-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Featured order</p>
+                        <div className="mt-2 flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const action = moveFeatured('up');
+                              action?.();
+                            }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-surface/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted transition-colors hover:border-primary/40 hover:text-primary"
+                            aria-label="Move featured project up"
+                          >
+                            <ChevronUp className="h-3 w-3" aria-hidden="true" />
+                            Up
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const action = moveFeatured('down');
+                              action?.();
+                            }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-surface/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted transition-colors hover:border-primary/40 hover:text-primary"
+                            aria-label="Move featured project down"
+                          >
+                            Down
+                            <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>,
+                  document.body
+                )
+              : null}
           </div>
         </div>
 
@@ -363,39 +491,107 @@ export default function HomePage() {
 
   const isAdmin = accountHasRole ? accountHasRole('admin') : false;
   const isCreator = isAdmin || (accountHasRole ? accountHasRole('creator') : false);
+  const accountID = account?.accountID ?? null;
 
-  useEffect(() => {
-    async function fetchGames() {
-      const response = await callGetGamesList();
-      if (!response) {
+  const fetchGames = useCallback(async () => {
+    const response = await callGetGamesList();
+    if (!response) {
+      return;
+    }
+
+    const normalized = response.map((item) => ({ ...item }));
+    const featured = [];
+    const mine = [];
+    const others = [];
+
+    normalized.forEach((game) => {
+      if (game.featuredIndex && game.featuredIndex > 0) {
+        featured.push({ ...game });
+      }
+      if (accountID && game.creatorAccountID === accountID) {
+        mine.push(game);
+      } else {
+        others.push(game);
+      }
+    });
+
+    featured.sort((a, b) => (a.featuredIndex || 0) - (b.featuredIndex || 0));
+
+    setFeaturedGames(featured);
+    setMyGames(mine);
+    setCommunityGames(others);
+    setGames(normalized);
+  }, [accountID]);
+
+  const applyFeaturedUpdates = useCallback(
+    (updates) => {
+      if (!updates || updates.size === 0) {
         return;
       }
-      const featured = [];
-      const mine = [];
-      const others = [];
 
-      response.forEach((game) => {
-        if (game.featuredIndex && game.featuredIndex > 0) {
-          featured.push(game);
-        }
-        if (account && game.creatorAccountID === account.accountID) {
-          mine.push(game);
-        } else {
-          others.push(game);
-        }
-      });
+      const applyToCollection = (setCollection) => {
+        setCollection((prev) => {
+          let changed = false;
+          const next = prev.map((item) => {
+            const update = updates.get(item.gameID);
+            if (!update) {
+              return item;
+            }
+            changed = true;
+            return { ...item, ...update };
+          });
+          return changed ? next : prev;
+        });
+      };
 
-      featured.sort((a, b) => (a.featuredIndex || 0) - (b.featuredIndex || 0));
-      setFeaturedGames(featured);
-      setMyGames(mine);
-      setCommunityGames(others);
-      setGames(response);
+      applyToCollection(setGames);
+      applyToCollection(setMyGames);
+      applyToCollection(setCommunityGames);
+    },
+    [setGames, setMyGames, setCommunityGames]
+  );
+
+  const reindexFeaturedList = (list) => {
+    const updates = new Map();
+    const normalizedList = list.map((item, index) => {
+      const desiredIndex = index + 1;
+      if (item.featuredIndex === desiredIndex) {
+        return item;
+      }
+      const nextItem = { ...item, featuredIndex: desiredIndex };
+      updates.set(nextItem.gameID, { featuredIndex: desiredIndex });
+      return nextItem;
+    });
+    return { normalized: normalizedList, updates };
+  };
+
+  const buildFeaturedToggle = (currentFeatured, targetGame) => {
+    const updates = new Map();
+    const workingList = currentFeatured.map((item) => ({ ...item }));
+    const existingIndex = workingList.findIndex((item) => item.gameID === targetGame.gameID);
+
+    if (existingIndex >= 0) {
+      workingList.splice(existingIndex, 1);
+      updates.set(targetGame.gameID, { featuredIndex: 0 });
+    } else {
+      const nextIndex = workingList.length + 1;
+      const nextGame = { ...targetGame, featuredIndex: nextIndex };
+      workingList.push(nextGame);
+      updates.set(targetGame.gameID, { featuredIndex: nextIndex });
     }
 
-    if (!loading && account) {
+    workingList.sort((a, b) => (a.featuredIndex || 0) - (b.featuredIndex || 0));
+    const { normalized, updates: reindexedUpdates } = reindexFeaturedList(workingList);
+    reindexedUpdates.forEach((value, key) => updates.set(key, value));
+
+    return { nextFeatured: normalized, updates };
+  };
+
+  useEffect(() => {
+    if (!loading && accountID) {
       fetchGames();
     }
-  }, [loading, account]);
+  }, [loading, accountID, fetchGames]);
 
   const handleOpenMenu = (gameUrl) => (event) => {
     event.stopPropagation();
@@ -435,26 +631,26 @@ export default function HomePage() {
     if (!isAdmin) {
       return;
     }
-    const wasFeatured = game.featuredIndex && game.featuredIndex > 0;
-    let updatedFeatured = [...featuredGames];
 
-    if (wasFeatured) {
-      updatedFeatured = updatedFeatured.filter((item) => item.gameID !== game.gameID);
-      await callUpdateGameInfo({ gameID: game.gameID, featuredIndex: 0 });
-      let indexCounter = 1;
-      for (const item of updatedFeatured) {
-        item.featuredIndex = indexCounter;
-        indexCounter += 1;
-        await callUpdateGameInfo({ gameID: item.gameID, featuredIndex: item.featuredIndex });
-      }
-    } else {
-      const newIndex = updatedFeatured.length + 1;
-      await callUpdateGameInfo({ gameID: game.gameID, featuredIndex: newIndex });
-      updatedFeatured.push({ ...game, featuredIndex: newIndex });
+    const { nextFeatured, updates } = buildFeaturedToggle(featuredGames, game);
+
+    if (updates.size === 0) {
+      return;
     }
 
-    updatedFeatured.sort((a, b) => (a.featuredIndex || 0) - (b.featuredIndex || 0));
-    setFeaturedGames(updatedFeatured);
+    setFeaturedGames(nextFeatured);
+    applyFeaturedUpdates(updates);
+
+    try {
+      await Promise.all(
+        Array.from(updates.entries()).map(([gameID, data]) =>
+          callUpdateGameInfo({ gameID, featuredIndex: data.featuredIndex ?? 0 })
+        )
+      );
+    } catch (error) {
+      console.error('Failed to toggle featured game', error);
+      await fetchGames();
+    }
   };
 
   const handleMoveFeatured = (game, direction) => async () => {
@@ -471,17 +667,28 @@ export default function HomePage() {
       return;
     }
 
-    const updated = [...featuredGames];
-    const [current] = updated.splice(currentIndex, 1);
-    updated.splice(swapIndex, 0, current);
+    const reordered = featuredGames.map((item) => ({ ...item }));
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(swapIndex, 0, moved);
 
-    for (let index = 0; index < updated.length; index += 1) {
-      const nextGame = updated[index];
-      nextGame.featuredIndex = index + 1;
-      await callUpdateGameInfo({ gameID: nextGame.gameID, featuredIndex: nextGame.featuredIndex });
+    const { normalized, updates } = reindexFeaturedList(reordered);
+    if (updates.size === 0) {
+      return;
     }
 
-    setFeaturedGames(updated);
+    setFeaturedGames(normalized);
+    applyFeaturedUpdates(updates);
+
+    try {
+      await Promise.all(
+        Array.from(updates.entries()).map(([gameID, data]) =>
+          callUpdateGameInfo({ gameID, featuredIndex: data.featuredIndex ?? 0 })
+        )
+      );
+    } catch (error) {
+      console.error('Failed to reorder featured games', error);
+      await fetchGames();
+    }
   };
 
   const canAddGame = () => {
@@ -515,10 +722,11 @@ export default function HomePage() {
   const renderGameCard = (game, options = {}) => {
     const palette = resolveGamePalette(game);
     const isFeatured = options.isFeatured ?? Boolean(game.featuredIndex && game.featuredIndex > 0);
+    const listKey = options.listKey ?? game.gameID;
 
     return (
       <GameCard
-        key={game.gameID}
+        key={listKey}
         game={game}
         palette={palette}
         onPlay={() => handlePlay(game.url)}
@@ -563,7 +771,9 @@ export default function HomePage() {
               <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
                 Play Day.AI workspace
               </span>
-              <ThemeToggle className="border border-border/60 bg-surface/80 px-2 py-1" />
+              <div className="pointer-events-auto">
+                <ThemeToggle className="border border-border/60 bg-surface/80 px-2 py-1" />
+              </div>
             </div>
             <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start lg:gap-12">
               <div className="space-y-6">
@@ -620,7 +830,7 @@ export default function HomePage() {
             ) : (
               <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
                 {isCreator ? <AddProjectCard onClick={() => setAddDialogOpen(true)} /> : null}
-                {myGames.map((game) => renderGameCard(game))}
+                {myGames.map((game) => renderGameCard(game, { listKey: `mine-${game.gameID}` }))}
               </div>
             )}
           </section>
@@ -632,7 +842,7 @@ export default function HomePage() {
                 <p className="text-sm text-muted">Quick access to the builds ready for a spotlight.</p>
               </div>
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {featuredGames.map((game) => renderGameCard(game, { isFeatured: true }))}
+                {featuredGames.map((game) => renderGameCard(game, { isFeatured: true, listKey: `featured-${game.gameID}` }))}
               </div>
             </section>
           ) : null}
@@ -644,7 +854,7 @@ export default function HomePage() {
                 <p className="text-sm text-muted">Explore experiences other teams have made available.</p>
               </div>
               <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                {communityGames.map((game) => renderGameCard(game))}
+                {communityGames.map((game) => renderGameCard(game, { listKey: `community-${game.gameID}` }))}
               </div>
             </section>
           ) : null}

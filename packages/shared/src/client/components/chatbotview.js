@@ -158,15 +158,6 @@ export default function ChatBotView(props) {
             </div>
           </div>
 
-          {editMode && (
-            <div className="pointer-events-none sm:pointer-events-auto">
-              <MessagesDebugControls
-                theme={theme}
-                onDebugSingleStep={onDebugSingleStep}
-                onToggleSingleStep={onToggleSingleStep}
-              />
-            </div>
-          )}
         </div>
 
         <div className="sticky bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/60 backdrop-blur-xl">
@@ -201,6 +192,20 @@ export default function ChatBotView(props) {
           </div>
         </div>
       </div>
+
+      {editMode ? (
+        <div
+          className="pointer-events-none fixed right-6 z-40 sm:pointer-events-auto"
+          style={{ bottom: 'calc(1.5rem + 3.5rem)' }}
+        >
+          <MessagesDebugControls
+            theme={theme}
+            variant="floating"
+            onDebugSingleStep={onDebugSingleStep}
+            onToggleSingleStep={onToggleSingleStep}
+          />
+        </div>
+      ) : null}
 
       <div className="pointer-events-none fixed bottom-6 right-6 z-30 sm:pointer-events-auto">
         <PlayControls

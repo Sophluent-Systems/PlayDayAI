@@ -4,8 +4,51 @@ import { useAtom } from 'jotai';
 import { editorSaveRequestState, dirtyEditorState } from '@src/client/states';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 
+function resolveThemeTokens(theme) {
+  const palette = theme?.palette || {};
+  const colors = theme?.colors || {};
+  const isDarkMode = (palette.mode || palette.type) === 'dark';
+
+  const baseSurface =
+    colors.playbackControlsBackgroundColor ||
+    colors.debugControlsBackgroundColor ||
+    colors.inputAreaTextEntryBackgroundColor ||
+    (isDarkMode ? 'rgba(15,23,42,0.9)' : 'rgba(241,245,249,0.95)');
+
+  const borderColor =
+    colors.playbackControlsBorderColor ||
+    colors.debugControlsBorderColor ||
+    (isDarkMode ? 'rgba(148,163,184,0.35)' : 'rgba(15,23,42,0.12)');
+
+  const textColor =
+    colors.inputTextEnabledColor || (isDarkMode ? 'rgba(226,232,240,0.9)' : 'rgba(30,41,59,0.78)');
+
+  const subtleTextColor =
+    colors.inputTextDisabledColor || (isDarkMode ? 'rgba(203,213,225,0.75)' : 'rgba(71,85,105,0.75)');
+
+  const neutralButtonBg =
+    colors.playbackControlsNeutralButtonBackground ||
+    (isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(15,23,42,0.07)');
+
+  const neutralButtonText = colors.playbackControlsNeutralButtonText || textColor;
+
+  const modalSurface = colors.modalSurfaceColor || baseSurface;
+  const modalBorder = colors.modalBorderColor || borderColor;
+
+  return {
+    baseSurface,
+    borderColor,
+    textColor,
+    subtleTextColor,
+    neutralButtonBg,
+    neutralButtonText,
+    modalSurface,
+    modalBorder,
+  };
+}
+
 export function PlayControls(props) {
-  const { isRunning, onRequestStateChange, sessionID } = props;
+  const { isRunning, onRequestStateChange, sessionID, theme } = props;
   const [editorSaveRequest, setEditorSaveRequest] = useAtom(editorSaveRequestState);
   const [dirtyEditor] = useAtom(dirtyEditorState);
   const [waitingForPlay, setWaitingForPlay] = useState(false);
@@ -14,6 +57,8 @@ export function PlayControls(props) {
   const [openConfirmModal, setOpenConfirmModal] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const lastSessionRef = useRef(null);
+
+  const themeTokens = resolveThemeTokens(theme);
 
   useEffect(() => {
     if (editorSaveRequest === 'saved') {
@@ -83,14 +128,21 @@ export function PlayControls(props) {
 
   const showPlay = !isRunning || dirtyEditor;
   const waiting = waitingForPlay || waitingForPause || waitingForRestart;
-  const tabRevealWidth = '6.5rem';
+  const tabRevealWidth = '5.5rem';
   const panelStyle = {
     transform:
       isHovered || openConfirmModal
         ? 'translateX(0)'
         : `translateX(calc(100% - ${tabRevealWidth}))`,
+    backgroundColor: themeTokens.baseSurface,
+    borderColor: themeTokens.borderColor,
   };
   const statusVisible = isHovered || openConfirmModal;
+
+  const neutralButtonStyle = {
+    backgroundColor: themeTokens.neutralButtonBg,
+    color: themeTokens.neutralButtonText,
+  };
 
   return (
     <>
@@ -102,7 +154,7 @@ export function PlayControls(props) {
         onBlurCapture={handleBlur}
       >
         <div
-          className={`flex h-10 items-center gap-3 overflow-hidden rounded-l-3xl rounded-r-none border border-white/20 border-r-0 bg-slate-950/95 pl-4 pr-5 shadow-2xl backdrop-blur transition-transform duration-200 ease-out ${
+          className={`flex h-10 items-center gap-3 overflow-hidden rounded-l-3xl rounded-r-none border border-r-0 pl-4 pr-5 shadow-2xl backdrop-blur transition-transform duration-200 ease-out ${
             waiting ? 'pointer-events-none opacity-60' : ''
           }`}
           style={panelStyle}
@@ -114,7 +166,7 @@ export function PlayControls(props) {
                 onClick={handlePlayButton}
                 aria-label="Play"
                 disabled={waiting}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-500/40"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white transition-transform duration-150 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 <Play className="h-4 w-4" strokeWidth={2.5} />
               </button>
@@ -124,7 +176,7 @@ export function PlayControls(props) {
                 onClick={handlePauseButton}
                 aria-label="Pause"
                 disabled={waiting}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-white transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-amber-500/40"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-white transition-transform duration-150 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 <Pause className="h-4 w-4" strokeWidth={2.5} />
               </button>
@@ -135,7 +187,8 @@ export function PlayControls(props) {
               onClick={() => setOpenConfirmModal(true)}
               aria-label="Restart session"
               disabled={waiting}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-slate-100 transition hover:bg-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-150 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              style={neutralButtonStyle}
             >
               <RotateCcw className="h-4 w-4" strokeWidth={2.5} />
             </button>
@@ -143,9 +196,10 @@ export function PlayControls(props) {
 
           <span
             aria-hidden={!statusVisible}
-            className={`ml-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/85 transition-all duration-200 ${
+            className={`ml-3 text-xs font-semibold uppercase tracking-[0.35em] transition-all duration-200 ${
               statusVisible ? 'opacity-100 translate-x-0' : 'pointer-events-none opacity-0 -translate-x-6'
             }`}
+            style={{ color: themeTokens.subtleTextColor }}
           >
             {isRunning ? 'Running' : 'Paused'}
           </span>
@@ -158,9 +212,12 @@ export function PlayControls(props) {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
         >
-          <div className="w-full max-w-sm rounded-2xl bg-slate-950/90 p-6 text-white shadow-xl backdrop-blur">
+          <div
+            className="w-full max-w-sm rounded-2xl border p-6 shadow-xl backdrop-blur"
+            style={{ backgroundColor: themeTokens.modalSurface, borderColor: themeTokens.modalBorder, color: themeTokens.textColor }}
+          >
             <h2 className="text-lg font-semibold">Delete Session</h2>
-            <p className="mt-2 text-sm text-white/80">
+            <p className="mt-2 text-sm" style={{ color: themeTokens.subtleTextColor }}>
               Are you sure you want to delete your session? There is no way to get it back.
             </p>
             <div className="mt-6 flex justify-end gap-3">
@@ -170,14 +227,15 @@ export function PlayControls(props) {
                   setOpenConfirmModal(false);
                   setIsHovered(false);
                 }}
-                className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                className="rounded-full border px-4 py-2 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5"
+                style={{ borderColor: themeTokens.borderColor, color: themeTokens.textColor }}
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleRestart}
-                className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-400"
+                className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5"
               >
                 Confirm
               </button>

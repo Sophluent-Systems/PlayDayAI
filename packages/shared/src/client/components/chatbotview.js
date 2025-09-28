@@ -212,6 +212,7 @@ export default function ChatBotView(props) {
           isRunning={processingUnderway}
           onRequestStateChange={onRequestStateChange}
           sessionID={sessionID}
+          theme={theme}
         />
       </div>
     </div>

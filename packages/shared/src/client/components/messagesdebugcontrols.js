@@ -32,20 +32,32 @@ function ControlGroup({
   onVariableChanged,
   onDebugSingleStep,
   Constants,
+  tokens,
 }) {
+  const {
+    mutedTextColor,
+    neutralButtonBg,
+    neutralButtonText,
+    borderColor,
+    chipInactiveBg,
+    chipInactiveText,
+    onAccentColor,
+  } = tokens;
+
   const containerClasses =
     layout === 'stacked'
       ? 'flex flex-col gap-4'
       : 'flex flex-wrap items-center gap-x-4 gap-y-3';
 
+  const labelTextClass =
+    layout === 'stacked'
+      ? 'text-sm font-semibold'
+      : 'text-xs font-semibold uppercase tracking-[0.2em]';
+  const pillSpacingClass = layout === 'stacked' ? 'mt-2' : '';
+
   const defaults = Constants?.defaultMessageFilter || [];
   const currentFilters = localDebugSettingsRef.current?.messageFilters || [];
   const filterOptions = Array.from(new Set([...defaults, ...currentFilters]));
-  const labelTextClass =
-    layout === 'stacked'
-      ? 'text-sm font-semibold text-white/90'
-      : 'text-xs font-semibold uppercase tracking-[0.2em] text-white/80';
-  const pillSpacingClass = layout === 'stacked' ? 'mt-2' : '';
 
   const commitSeed = (value) => {
     const parsed = Number.parseInt(value, 10);
@@ -68,10 +80,10 @@ function ControlGroup({
             onVariableChanged(localDebugSettingsRef.current, 'showHidden', event.target.checked)
           }
           name="showHidden"
-          className="h-4 w-4 rounded border border-white/40 bg-transparent text-transparent"
-          style={{ accentColor }}
+          className="h-4 w-4 rounded border bg-transparent"
+          style={{ accentColor, borderColor }}
         />
-        <span className="tracking-normal">Show hidden</span>
+        <span>Show hidden</span>
       </label>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -83,17 +95,17 @@ function ControlGroup({
               onVariableChanged(localDebugSettingsRef.current, 'singleStep', event.target.checked)
             }
             name="singleStep"
-            className="h-4 w-4 rounded border border-white/40 bg-transparent text-transparent"
-            style={{ accentColor }}
+            className="h-4 w-4 rounded border bg-transparent"
+            style={{ accentColor, borderColor }}
           />
-          <span className="tracking-normal">Single step</span>
+          <span>Single step</span>
         </label>
         {localDebugSettingsRef.current.singleStep ? (
           <button
             type="button"
             onClick={() => onDebugSingleStep?.()}
-            className="flex items-center gap-2 rounded-full px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-white shadow-sm transition hover:brightness-110"
-            style={{ backgroundColor: accentColor }}
+            className="flex items-center gap-2 rounded-full px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.25em] transition-transform duration-150 hover:-translate-y-0.5"
+            style={{ backgroundColor: accentColor, color: onAccentColor }}
           >
             <StepForward className="h-3.5 w-3.5" strokeWidth={2.5} />
             Step
@@ -114,10 +126,10 @@ function ControlGroup({
               )
             }
             name="seedOverrideEnabled"
-            className="h-4 w-4 rounded border border-white/40 bg-transparent text-transparent"
-            style={{ accentColor }}
+            className="h-4 w-4 rounded border bg-transparent"
+            style={{ accentColor, borderColor }}
           />
-          <span className="tracking-normal">Seed override</span>
+          <span>Seed override</span>
         </label>
         <input
           type="text"
@@ -133,7 +145,8 @@ function ControlGroup({
             }
           }}
           disabled={!localDebugSettingsRef.current.seedOverrideEnabled}
-          className="w-20 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-white/90 outline-none transition focus:border-white/50 focus:ring-2 focus:ring-white/25 disabled:opacity-40"
+          className="w-20 rounded-full border px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] outline-none transition-transform duration-150 hover:-translate-y-0.5 disabled:opacity-40"
+          style={{ backgroundColor: chipInactiveBg, borderColor, color: inputTextColor }}
         />
       </div>
 
@@ -141,6 +154,10 @@ function ControlGroup({
         <div className={`flex flex-wrap items-center gap-2 ${pillSpacingClass}`}>
           {filterOptions.map((filter) => {
             const active = localDebugSettingsRef.current.messageFilters?.includes(filter);
+            const style = active
+              ? { backgroundColor: accentColor, borderColor: accentColor, color: onAccentColor }
+              : { backgroundColor: chipInactiveBg, borderColor, color: chipInactiveText };
+
             return (
               <button
                 type="button"
@@ -157,16 +174,8 @@ function ControlGroup({
                   }
                   onVariableChanged(localDebugSettingsRef.current, 'messageFilters', Array.from(current));
                 }}
-                className={`rounded-full border px-3 py-1 text-[0.6rem] font-semibold uppercase tracking-[0.3em] transition ${
-                  active
-                    ? 'text-slate-900'
-                    : 'border-white/30 text-white/75 hover:border-white/60 hover:text-white'
-                }`}
-                style={
-                  active
-                    ? { backgroundColor: accentColor, borderColor: accentColor }
-                    : undefined
-                }
+                className="rounded-full border px-3 py-1 text-[0.6rem] font-semibold uppercase tracking-[0.3em] transition-transform duration-150 hover:-translate-y-0.5"
+                style={style}
               >
                 {formatFilterLabel(filter)}
               </button>
@@ -176,6 +185,52 @@ function ControlGroup({
       ) : null}
     </div>
   );
+}
+
+function resolveThemeTokens(theme) {
+  const palette = theme?.palette || {};
+  const colors = theme?.colors || {};
+  const isDarkMode = (palette.mode || palette.type) === 'dark';
+
+  const baseSurface =
+    colors.debugControlsBackgroundColor ||
+    colors.inputAreaTextEntryBackgroundColor ||
+    (isDarkMode ? 'rgba(15,23,42,0.9)' : 'rgba(241,245,249,0.95)');
+
+  const borderColor =
+    colors.debugControlsBorderColor ||
+    (isDarkMode ? 'rgba(148,163,184,0.35)' : 'rgba(15,23,42,0.12)');
+
+  const inputTextColor =
+    colors.inputTextEnabledColor || (isDarkMode ? 'rgba(226,232,240,0.9)' : 'rgba(30,41,59,0.78)');
+
+  const mutedTextColor =
+    colors.inputTextDisabledColor || (isDarkMode ? 'rgba(148,163,184,0.85)' : 'rgba(100,116,139,0.75)');
+
+  const accentColor = colors.sendMessageButtonActiveColor || '#6366F1';
+  const onAccentColor = colors.onSendMessageButtonColor || (isDarkMode ? '#0b1120' : '#0f172a');
+
+  const neutralButtonBg =
+    colors.playbackControlsNeutralButtonBackground ||
+    (isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(15,23,42,0.07)');
+
+  const neutralButtonText = colors.playbackControlsNeutralButtonText || inputTextColor;
+
+  const chipInactiveBg = isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(15,23,42,0.04)';
+  const chipInactiveText = mutedTextColor;
+
+  return {
+    baseSurface,
+    borderColor,
+    inputTextColor,
+    mutedTextColor,
+    accentColor,
+    onAccentColor,
+    neutralButtonBg,
+    neutralButtonText,
+    chipInactiveBg,
+    chipInactiveText,
+  };
 }
 
 export function MessagesDebugControls(props) {
@@ -193,6 +248,8 @@ export function MessagesDebugControls(props) {
   const [seedOverrideValueText, setSeedOverrideValueText] = useState('');
   const [expanded, setExpanded] = useState(variant !== 'floating');
   const localDebugSettingsRef = useRef(null);
+
+  const tokens = resolveThemeTokens(theme);
 
   useEffect(() => {
     setExpanded(variant !== 'floating');
@@ -232,16 +289,6 @@ export function MessagesDebugControls(props) {
     );
   }, [account, fallbackSettings]);
 
-  const palette = theme?.colors || {};
-  const muiPalette = theme?.palette || {};
-  const isDarkMode = (muiPalette.mode || muiPalette.type) === 'dark';
-  const inputTextColor = palette.inputTextEnabledColor || 'rgba(248,250,252,0.9)';
-  const accentColor = palette.sendMessageButtonActiveColor || '#6366F1';
-  const baseSurface =
-    palette.debugControlsBackgroundColor ||
-    palette.inputAreaTextEntryBackgroundColor ||
-    (isDarkMode ? 'rgba(15,23,42,0.88)' : 'rgba(30,41,59,0.88)');
-
   const onVariableChanged = (rootObject, path, newValue) => {
     const curValue = getNestedObjectProperty(rootObject, path);
     if (curValue === newValue) {
@@ -270,41 +317,55 @@ export function MessagesDebugControls(props) {
     return null;
   }
 
+  const controlTokens = {
+    mutedTextColor: tokens.mutedTextColor,
+    neutralButtonBg: tokens.neutralButtonBg,
+    neutralButtonText: tokens.neutralButtonText,
+    borderColor: tokens.borderColor,
+    chipInactiveBg: tokens.chipInactiveBg,
+    chipInactiveText: tokens.chipInactiveText,
+    onAccentColor: tokens.onAccentColor,
+  };
+
   const controls = (
     <ControlGroup
       layout={variant === 'inline' ? 'stacked' : 'inline'}
-      inputTextColor={inputTextColor}
-      accentColor={accentColor}
+      inputTextColor={tokens.inputTextColor}
+      accentColor={tokens.accentColor}
       seedOverrideValueText={seedOverrideValueText}
       setSeedOverrideValueText={setSeedOverrideValueText}
       localDebugSettingsRef={localDebugSettingsRef}
       onVariableChanged={onVariableChanged}
       onDebugSingleStep={onDebugSingleStep}
       Constants={Constants}
+      tokens={controlTokens}
     />
   );
 
   if (variant === 'inline') {
-    const inlineSurface = baseSurface;
     return (
       <div
-        className={`${className || ''} rounded-3xl border border-white/15 p-4 shadow-inner backdrop-blur`}
-        style={{ backgroundColor: inlineSurface }}
+        className={`${className || ''} rounded-3xl border p-4 shadow-inner backdrop-blur`}
+        style={{ backgroundColor: tokens.baseSurface, borderColor: tokens.borderColor, color: tokens.inputTextColor }}
       >
-        <div className="flex items-center justify-between gap-4 text-white/80">
+        <div className="flex items-center justify-between gap-4" style={{ color: tokens.mutedTextColor }}>
           <span className="text-xs font-semibold uppercase tracking-[0.35em]">Debug tools</span>
           <span className="text-xs font-medium">
             {localDebugSettingsRef.current.messageFilters?.length || 0} filters
           </span>
         </div>
-        <div className="mt-4">{controls}</div>
+        <div className="mt-4" style={{ color: tokens.inputTextColor }}>
+          {controls}
+        </div>
       </div>
     );
   }
 
-  const tabRevealWidth = '6.5rem';
+  const tabRevealWidth = '5.5rem';
   const floatingStyle = {
-    backgroundColor: baseSurface,
+    backgroundColor: tokens.baseSurface,
+    borderColor: tokens.borderColor,
+    color: tokens.inputTextColor,
     transform:
       expanded
         ? 'translateX(0)'
@@ -337,7 +398,7 @@ export function MessagesDebugControls(props) {
 
   return (
     <div
-      className={`${className || ''} pointer-events-auto flex h-10 items-center gap-3 overflow-hidden rounded-l-3xl rounded-r-none border border-white/25 border-r-0 bg-slate-950/95 text-white shadow-2xl backdrop-blur transition-transform duration-200 ease-out`}
+      className={`${className || ''} pointer-events-auto flex h-10 items-center gap-3 overflow-hidden rounded-l-3xl rounded-r-none border border-r-0 shadow-2xl backdrop-blur transition-transform duration-200 ease-out`}
       style={floatingStyle}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -349,7 +410,8 @@ export function MessagesDebugControls(props) {
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
         title={expanded ? 'Hide debug controls' : 'Debug controls'}
-        className="flex h-8 w-8 items-center justify-center rounded-full bg-white/12 text-white transition hover:bg-white/25"
+        className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-150 hover:-translate-y-0.5"
+        style={{ backgroundColor: tokens.neutralButtonBg, color: tokens.neutralButtonText }}
       >
         <Wrench className="h-4 w-4" strokeWidth={2.5} />
       </button>
@@ -357,7 +419,7 @@ export function MessagesDebugControls(props) {
         className={`ml-3 flex flex-wrap items-center gap-3 text-xs transition-all duration-200 ${
           expanded ? 'opacity-100 translate-x-0' : 'pointer-events-none opacity-0 -translate-x-6'
         }`}
-        style={{ color: inputTextColor }}
+        style={{ color: tokens.inputTextColor }}
       >
         {controls}
       </div>

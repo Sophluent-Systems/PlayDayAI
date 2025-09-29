@@ -21,7 +21,7 @@ function AppHeaderComponent() {
   return (
     <header className="pointer-events-none fixed inset-x-0 top-0 z-50">
       <div className="pointer-events-none mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4 sm:px-8 lg:px-12">
-        <div className="pointer-events-none ">
+        <div className="pointer-events-auto ">
           <ProjectMenuLauncher placement="inline" allowEditOptions includePlayOption />
         </div>
         <div className="pointer-events-auto">

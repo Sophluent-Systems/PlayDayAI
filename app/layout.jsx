@@ -1,9 +1,8 @@
 import "../styles/globals.css";
 import Providers from "./providers";
 import Script from "next/script";
-import { UserProfileMenu } from "@src/client/components/userprofilemenu";
-import { ProjectMenuLauncher } from "@src/client/components/projectmenulauncher";
 import { IBM_Plex_Mono, Inter, Sora } from "next/font/google";
+import AppHeader from "./components/app-header";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -65,16 +64,7 @@ export default function RootLayout({ children }) {
         ) : null}
         <Providers isSandbox={isSandbox}>
           <div className="relative flex min-h-screen flex-col">
-            <header className="pointer-events-none fixed inset-x-0 top-0 z-50">
-              <div className="pointer-events-auto mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4 sm:px-8 lg:px-12">
-                <div className="pointer-events-auto">
-                  <ProjectMenuLauncher placement="inline" allowEditOptions includePlayOption />
-                </div>
-                <div className="pointer-events-auto">
-                  <UserProfileMenu variant="bug" />
-                </div>
-              </div>
-            </header>
+            <AppHeader />
             <div className="flex-1">
               {children}
             </div>
@@ -84,5 +74,10 @@ export default function RootLayout({ children }) {
     </html>
   );
 }
+
+
+
+
+
 
 

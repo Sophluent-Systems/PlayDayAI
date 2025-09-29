@@ -72,11 +72,11 @@ function ThemeSynchronizer() {
 
     lastProcessedPreferenceRef.current = preferred;
 
-    if (preferred !== currentSetting) {
+    if (preferred !== currentSetting && lastSyncedSettingRef.current !== preferred) {
       lastSyncedSettingRef.current = preferred;
       setTheme(preferred);
     }
-  }, [accountID, preferredSetting, theme, setTheme, mounted]);
+  }, [accountID, preferredSetting, mounted]);
 
   useEffect(() => {
     if (!accountID || !mounted) {

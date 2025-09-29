@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { Suspense, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { CacheProvider } from "@emotion/react";
@@ -18,37 +18,68 @@ function ThemeSynchronizer() {
   const account = context?.account;
   const setAccountPreference = context?.setAccountPreference;
   const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const lastSyncedSettingRef = useRef(theme ?? "system");
   const appliedAccountRef = useRef(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const preferredSetting = account?.preferences?.themeMode ?? "system";
+  const lastProcessedPreferenceRef = useRef(preferredSetting);
+  const pendingPreferenceRef = useRef(null);
   const accountID = account?.accountID ?? null;
 
   useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+
     const currentSetting = theme ?? "system";
+    const preferred = preferredSetting ?? "system";
 
     if (!accountID) {
       appliedAccountRef.current = null;
+      pendingPreferenceRef.current = null;
       lastSyncedSettingRef.current = currentSetting;
+      lastProcessedPreferenceRef.current = preferred;
       return;
     }
 
     if (appliedAccountRef.current !== accountID) {
       appliedAccountRef.current = accountID;
-      lastSyncedSettingRef.current = preferredSetting;
-      if (currentSetting !== preferredSetting) {
-        setTheme(preferredSetting);
+      pendingPreferenceRef.current = null;
+      lastSyncedSettingRef.current = preferred;
+      lastProcessedPreferenceRef.current = preferred;
+
+      if (currentSetting !== preferred) {
+        setTheme(preferred);
       }
       return;
     }
 
-    if (preferredSetting !== currentSetting && preferredSetting !== lastSyncedSettingRef.current) {
-      lastSyncedSettingRef.current = preferredSetting;
-      setTheme(preferredSetting);
+    if (pendingPreferenceRef.current && preferred === pendingPreferenceRef.current) {
+      pendingPreferenceRef.current = null;
     }
-  }, [accountID, preferredSetting, theme, setTheme]);
+
+    if (pendingPreferenceRef.current) {
+      return;
+    }
+
+    if (preferred === lastProcessedPreferenceRef.current) {
+      return;
+    }
+
+    lastProcessedPreferenceRef.current = preferred;
+
+    if (preferred !== currentSetting) {
+      lastSyncedSettingRef.current = preferred;
+      setTheme(preferred);
+    }
+  }, [accountID, preferredSetting, theme, setTheme, mounted]);
 
   useEffect(() => {
-    if (!accountID) {
+    if (!accountID || !mounted) {
       return;
     }
 
@@ -58,8 +89,9 @@ function ThemeSynchronizer() {
     }
 
     lastSyncedSettingRef.current = currentSetting;
+    pendingPreferenceRef.current = currentSetting;
     setAccountPreference?.("themeMode", currentSetting);
-  }, [theme, accountID, setAccountPreference]);
+  }, [theme, accountID, setAccountPreference, mounted]);
 
   return null;
 }
@@ -67,14 +99,19 @@ function ThemeSynchronizer() {
 function ThemedProviders({ children, isSandbox, queryClient }) {
   const { resolvedTheme } = useTheme();
   const [muiMode, setMuiMode] = useState("dark");
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (!resolvedTheme) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || !resolvedTheme) {
       return;
     }
 
     setMuiMode(resolvedTheme === "light" ? "light" : "dark");
-  }, [resolvedTheme]);
+  }, [resolvedTheme, mounted]);
 
   const muiTheme = useMemo(() => createAppTheme(muiMode), [muiMode]);
 

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -766,14 +766,12 @@ export default function HomePage() {
           aria-hidden="true"
         />
         <div className="relative mx-auto flex w-full max-w-6xl flex-col gap-16 px-4 pt-12 sm:px-8 lg:px-10">
-          <header className="space-y-10">
+          <header className="relative z-20 space-y-10">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
+              <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
                 Play Day.AI workspace
               </span>
-              <div className="pointer-events-auto">
-                <ThemeToggle className="border border-border/60 bg-surface/80 px-2 py-1" />
-              </div>
+              <ThemeToggle className="relative z-[60]" />
             </div>
             <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start lg:gap-12">
               <div className="space-y-6">
@@ -921,3 +919,6 @@ export default function HomePage() {
     </RequireAccount>
   );
 }
+
+
+

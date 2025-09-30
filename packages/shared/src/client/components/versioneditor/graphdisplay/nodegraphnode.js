@@ -19,21 +19,21 @@ import { getInputsAndOutputsForNode } from '@src/common/nodeMetadata';
 
 
 
-const IOTopOffset = 10;
+const IOTopOffset = 16;
 
-const IOHeight = 20;
+const IOHeight = 28;
 
-const IOIconSize = 15;
+const IOIconSize = 18;
 
-const defaultWidth = 200;
+const defaultWidth = 240;
 
-const defaultHeight = 88;
+const defaultHeight = 120;
 
 
 
 const handleBaseStyle = {
 
-  width: '12px',
+  width: defaultWidth,
 
   height: '22px',
 
@@ -56,20 +56,27 @@ const handleBaseStyle = {
 
 
 const handleContainerStyle = {
-
   display: 'flex',
-
   alignItems: 'center',
-
   gap: 4,
-
-  padding: '0 4px',
-
+  padding: '0 0',
   pointerEvents: 'none',
-
+  width: '100%',
 };
 
+const leftHandleContainerStyle = {
+  ...handleContainerStyle,
+  justifyContent: 'flex-start',
+  textAlign: 'left',
+  paddingLeft: 4,
+};
 
+const rightHandleContainerStyle = {
+  ...handleContainerStyle,
+  justifyContent: 'flex-end',
+  textAlign: 'right',
+  paddingRight: 4,
+};
 
 const normalizeOption = (option, index, prefix) => {
   if (typeof option === 'string') {
@@ -221,7 +228,7 @@ const NodeGraphNode = memo((props) => {
 
         >
 
-          <div style={{ ...handleContainerStyle, color: '#fff' }}>
+          <div style={{ ...leftHandleContainerStyle, color: '#fff' }}>
 
             <Play className="h-3.5 w-3.5" />
 
@@ -251,7 +258,7 @@ const NodeGraphNode = memo((props) => {
 
         >
 
-          <div style={{ ...handleContainerStyle, color: '#fff' }}>
+          <div style={{ ...leftHandleContainerStyle, color: '#fff' }}>
 
             <span className="h-2 w-2 rounded-full bg-white/90" />
 
@@ -281,7 +288,7 @@ const NodeGraphNode = memo((props) => {
 
         >
 
-          <div style={{ ...handleContainerStyle, justifyContent: 'flex-end', color: '#fff' }}>
+          <div style={{ ...rightHandleContainerStyle, color: '#fff' }}>
 
             <span className="text-[10px] uppercase tracking-wider text-white/80">{event.label}</span>
 
@@ -311,7 +318,7 @@ const NodeGraphNode = memo((props) => {
 
         >
 
-          <div style={{ ...handleContainerStyle, justifyContent: 'flex-end', color: '#fff' }}>
+          <div style={{ ...rightHandleContainerStyle, color: '#fff' }}>
 
             <span className="text-[10px] uppercase tracking-wider text-white/80">{output.label}</span>
 
@@ -372,4 +379,3 @@ const NodeGraphNode = memo((props) => {
 
 
 export default NodeGraphNode;
-

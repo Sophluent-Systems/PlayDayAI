@@ -350,9 +350,9 @@ export function NodeGraphDisplay(params) {
             subgraphs.forEach(subgraph => calculateLayersForSubgraph(subgraph));
             
             // Constants for layout
-            const heightPerNode = 120;
-            const widthPerNode = 240;
-            const center = 100;
+            const heightPerNode = 180;
+            const widthPerNode = 380;
+            const center = 140;
             let verticalOffset = heightPerNode + 20;  // Adjust based on desired spacing
             let positions = {};  // Object to store positions for each node
 
@@ -394,7 +394,7 @@ export function NodeGraphDisplay(params) {
                 }
 
                 // Calculate the total vertical space used by this subgraph
-                subgraphStartYOffset += totalSubgraphHeight;  // Increment yOffset for the next subgraph dynamically
+                subgraphStartYOffset += totalSubgraphHeight + 160;  // Increment yOffset for the next subgraph dynamically
             });
 
             setGraphNodes((nds) => {
@@ -1139,3 +1139,5 @@ export function NodeGraphDisplay(params) {
       </div>
     );
 }
+
+

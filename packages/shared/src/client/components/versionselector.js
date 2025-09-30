@@ -1,266 +1,473 @@
-import React, { useState, useEffect } from 'react';
-import { MenuItemDropdown } from "@src/client/components/standard/menuitemdropdown";
-import { MenuItemList } from '@src/client/components/standard/menuitemlist';
-import { stateManager} from '@src/client/statemanager';
-import { Public } from '@mui/icons-material';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Globe, Plus, ChevronDown, X } from 'lucide-react';
+import clsx from 'clsx';
+import { stateManager } from '@src/client/statemanager';
 import { PrettyDate } from '@src/common/date';
-import {  
-    Typography, 
-    ListItem,
-    Box,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    TextField,
-    DialogActions,
-    Button,
-    ListItemIcon,
-    ListItemText,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-  } from '@mui/material';
 import { callAddGameVersion } from '@src/client/editor';
-import { Add } from '@mui/icons-material';
 import { useRouter } from 'next/router';
-import { useConfig } from '@src/client/configprovider';
-import { analyticsReportEvent} from "@src/client/analytics";
-import { nullUndefinedOrEmpty } from '../../common/objects';
+import { analyticsReportEvent } from '@src/client/analytics';
+import { nullUndefinedOrEmpty } from '@src/common/objects';
 
+const dropdownButtonClass =
+  'flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300 dark:border-white/10 dark:bg-white/10 dark:text-slate-100 dark:hover:border-white/20 dark:hover:bg-white/15';
+
+const menuContainerClass =
+  'rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-xl backdrop-blur dark:border-white/10 dark:bg-slate-900/95';
+
+const inlineListContainerClass =
+  'flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-slate-900/60';
+
+const versionRowClass =
+  'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-slate-100 dark:hover:bg-white/10';
+
+const modalBackdropClass = 'fixed inset-0 z-[19000] flex items-center justify-center bg-slate-950/50 backdrop-blur';
+const modalCardClass =
+  'w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900';
+
+function useOutsideClick(refs, handler, enabled = true) {
+  useEffect(() => {
+    if (!enabled) {
+      return undefined;
+    }
+
+    const listener = (event) => {
+      for (const ref of refs) {
+        if (ref?.current && ref.current.contains(event.target)) {
+          return;
+        }
+      }
+      handler();
+    };
+
+    document.addEventListener('mousedown', listener);
+    document.addEventListener('touchstart', listener);
+
+    return () => {
+      document.removeEventListener('mousedown', listener);
+      document.removeEventListener('touchstart', listener);
+    };
+  }, [refs, handler, enabled]);
+}
+
+function VersionListOption({ version, onSelect, isSelected }) {
+  return (
+    <button
+      type='button'
+      onClick={onSelect}
+      className={clsx(
+        versionRowClass,
+        isSelected && 'border border-slate-300 bg-slate-100 shadow-sm dark:border-white/20 dark:bg-white/10'
+      )}
+    >
+      <div className='flex flex-col gap-1 text-left'>
+        <span className='text-sm font-semibold text-slate-800 dark:text-slate-100'>{version.versionName}</span>
+        <span className='text-xs text-slate-500 dark:text-slate-400'>
+          Last updated {PrettyDate(version.lastUpdatedDate)}
+        </span>
+      </div>
+      {version.published ? <Globe className='h-4 w-4 text-emerald-500' /> : null}
+    </button>
+  );
+}
 
 export function VersionSelector(props) {
-  const { Constants } = useConfig();
-    const { allowNewGameOption, firstOptionUnselectable, dropdown, chooseMostRecent } = props;
-    const router = useRouter();
-    const { versionName } = router.query;
-    const { game, versionList, version, switchVersionByName } = React.useContext(stateManager);
-    const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
-    // below here, "new version" logic
-    const [versionMenuItems, setVersionMenuItems] = useState([]);
-    const [addVersionDialogOpen, setAddVersionDialogOpen] = useState(false);
-    const [newVersionName, setNewVersionName] = useState("");
-    const [selectedVersionIndex, setSelectedVersionIndex] = useState(0);
-    const [problem, setProblem] = useState(null);
+  const { allowNewGameOption, firstOptionUnselectable, dropdown, chooseMostRecent, sx } = props;
+  const router = useRouter();
+  const { versionName } = router.query;
+  const { game, versionList = [], version, switchVersionByName } = React.useContext(stateManager);
 
-       
-    function printversionItem(version, index) {
-        const accountName = version?.account?.email ? version.account.email : version.accountID;
-        return (
-        <ListItem key={index} sx={{ padding: '2px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Typography
-                variant="body1"
-                color="inherit"
-                >
-                {version?.versionName}
-                </Typography>
-                <Typography
-                variant="body2"
-                color="textSecondary"
-                style={{ marginTop: 1 }}
-                >
-                Last updated: {PrettyDate(version.lastUpdatedDate)}
-                </Typography>
-            </div>
-            {version.published && (
-                <Public 
-                color="success"
-                style={{ marginLeft: 8 }}
-                />
-            )}
-            </div>
-        </ListItem>
-        );
+  const [currentIndex, setCurrentIndex] = useState(-1);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [newVersionName, setNewVersionName] = useState('');
+  const [selectedPrototypeIndex, setSelectedPrototypeIndex] = useState(0);
+  const [validationMessage, setValidationMessage] = useState(null);
+  const [menuPosition, setMenuPosition] = useState(null);
+
+  const dropdownRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const closeMenu = useCallback(() => setIsMenuOpen(false), []);
+  const clickRefs = useMemo(() => [dropdownRef, menuRef], []);
+  useOutsideClick(clickRefs, closeMenu, isMenuOpen);
+
+  const updateMenuPosition = useCallback(() => {
+    if (!dropdownRef.current) {
+      return;
+    }
+    const rect = dropdownRef.current.getBoundingClientRect();
+    const offset = 8; // Tailwind mt-2
+    setMenuPosition({
+      left: rect.left,
+      top: rect.bottom + offset,
+      width: rect.width,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isMenuOpen) {
+      setMenuPosition(null);
+      return;
     }
 
-    function refreshSelectedMenuItem() {
-        if (versionList) {
-          for (let j=0; j < versionList.length; j++) {
-            if (versionList[j].versionName == versionName) {
-              setCurrentVersionIndex(firstOptionUnselectable ? j+1 : j);
-              return;
-            }
-          }
-        }
-        
-        setCurrentVersionIndex(-1);
-      }
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
 
-      useEffect(() => {
-          refreshSelectedMenuItem();
-      }, [version]);
-      
-      async function updateSelectedVersionByName(versionName) {
-        Constants.debug.logSessionRestart && console.log("VersionSelector: updateSelectedVersionByName: ", versionName)
-        if (versionName) {
-              switchVersionByName(versionName);
-        }
-      };
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [isMenuOpen, updateMenuPosition]);
 
-    function updateSelectedVersionByIndex(index) {
-        
-        if (!firstOptionUnselectable || index > 0) {
-                const indexToUse = firstOptionUnselectable ? index - 1 : index;
-                const newVersion = versionList[indexToUse].versionName;
-                Constants.debug.logSessionRestart && console.log("VersionSelector: updateSelectedVersionByIndex: ", index, versionName)
-                switchVersionByName(newVersion);
-        }
+  const versionOptions = useMemo(() => {
+    const options = [];
+    if (allowNewGameOption) {
+      options.push({ isNewOption: true });
     }
-    
-    useEffect(() => {
-        if (versionList) {
-            let newMenuItems =  (game && allowNewGameOption) ? [<ListItem onClick={handleAddVersionDialogOpen}>
-              <ListItemIcon>
-                <Add />
-              </ListItemIcon>
-              <ListItemText primary="Add Version" />
-            </ListItem>] :[];
-            newMenuItems = [...newMenuItems, ...(versionList ? versionList?.map((version, index) => printversionItem(version, index)) : [])];
-            setVersionMenuItems(newMenuItems);
-            
-            const currentVersionNameIsInList = nullUndefinedOrEmpty(versionName) ? false : versionList.some(version => version.versionName === versionName);
-            if (!currentVersionNameIsInList) {
-
-                //
-                // If the current version name is not in the list, then we want to switch to the first version in the list
-                // rather than leave the version blank
-                //
-
-                if (versionList.length === 1) {
-                
-                  // special case - if there's only one menu item, select it
-                  Constants.debug.logSessionRestart && console.log("VersionSelector: useEffect: only one version in list, selecting it: ", versionList[0].versionName)
-                  Constants.debug.logSessionRestart && console.log("VersionSelector: useEffect: only one version in list, selecting it: ", versionList)
-                  switchVersionByName(versionList[0].versionName)
-
-                } else if (versionList.length > 1 && chooseMostRecent) {
-                  
-                  // Find the version with the most recent lastUpdatedDate without modyfing the list
-                  let sortableVersionList = [...versionList];
-                  sortableVersionList.sort((a, b) => new Date(b.lastUpdatedDate) - new Date(a.lastUpdatedDate));
-                  switchVersionByName(sortableVersionList[0].versionName);
-                  Constants.debug.logSessionRestart && console.log("VersionSelector: useEffect: chooseMostRecent: ", sortableVersionList[0].versionName)
-
-                }
-            }
-        }
-    }, [versionList, game]);
-
-    /************************* NEW VERSION "+" LOGIC ********************* */
-
-
-    function handleAddVersionDialogOpen() {
-      console.log("handleAddVersionDialogOpen");
-      setAddVersionDialogOpen(true);
-    };
-  
-    function handleAddVersionDialogClose() {
-      console.log("handleAddVersionDialogClose");
-      setAddVersionDialogOpen(false);
-    };
-  
-    const handleAddVersion = async () => {
-      console.log("gameID", game.gameID);
-      var prototypeVersionName = null;
-      if (versionList && selectedVersionIndex < versionList.length) {
-          prototypeVersionName = versionList[selectedVersionIndex].versionName;
-      }
-      await callAddGameVersion(game.gameID, newVersionName, prototypeVersionName);
-
-      analyticsReportEvent('create_version', {
-        event_category: 'Editor',
-        event_label: 'Create version',
-        gameID: game.gameID,    // Unique identifier for the game
-        versionName: newVersionName,  // Version of the game being played
-      });
-
-      handleAddVersionDialogClose();
-      updateSelectedVersionByName(newVersionName);
-    };
-  
-    function checkForProblems(text) {
-      if (!hasNoUrlParts(text)) {
-        setProblem("Invalid characters used in name");
-      }
-      if (!isUniqueVersionName(text)){
-        setProblem("Version name already exists");
-      }
-  
-      setProblem(null);
-    };
-  
-    const hasNoUrlParts = (url) => {
-      const urlPattern = /^(?!.*\/\/)[a-zA-Z0-9-_]+$/;
-      return urlPattern.test(url);
-    };
-  
-    const isUniqueVersionName = (text) => {
-      return !versionList.some(version => version.versionName === text);
-    };
-    
-  
-    function handleVersionNameInput(text) {
-      checkForProblems(text);
-      setNewVersionName(text);
+    if (firstOptionUnselectable) {
+      options.push({ isPlaceholder: true, label: 'Select a version' });
     }
-  
-    const addButtonEnabled = (problem == null && newVersionName.length > 0);
-    
-    /************************* NEW VERSION "+" LOGIC ********************* */
+    const versions = versionList.map((item, index) => ({
+      ...item,
+      index,
+    }));
+    return [...options, ...versions];
+  }, [versionList, allowNewGameOption, firstOptionUnselectable]);
+
+  const selectedOption =
+    currentIndex >= 0 && currentIndex < versionOptions.length ? versionOptions[currentIndex] : null;
+  const selectedLabel = selectedOption
+    ? selectedOption.isPlaceholder
+      ? 'Select a version'
+      : selectedOption.isNewOption
+        ? 'Create a version'
+        : selectedOption.versionName
+    : 'Select a version';
+
+  const setIndexForVersionName = useCallback((targetVersionName) => {
+    if (!versionOptions.length) {
+      setCurrentIndex(-1);
+      return;
+    }
+    const offset = (allowNewGameOption ? 1 : 0) + (firstOptionUnselectable ? 1 : 0);
+    const foundIndex = versionList.findIndex((item) => item.versionName === targetVersionName);
+    if (foundIndex >= 0) {
+      setCurrentIndex(foundIndex + offset);
+    } else {
+      setCurrentIndex(offset > 0 ? offset : 0);
+    }
+  }, [versionList, versionOptions.length, allowNewGameOption, firstOptionUnselectable]);
+
+  useEffect(() => {
+    if (version) {
+      setIndexForVersionName(version.versionName);
+    }
+  }, [version, versionOptions.length, setIndexForVersionName]);
+
+  useEffect(() => {
+    if (!versionList.length) {
+      return;
+    }
+    const currentVersionNameIsInList = !nullUndefinedOrEmpty(versionName)
+      ? versionList.some((item) => item.versionName === versionName)
+      : false;
+
+    if (!currentVersionNameIsInList) {
+      if (chooseMostRecent) {
+        const newest = [...versionList]
+          .filter(Boolean)
+          .sort((a, b) => new Date(b.lastUpdatedDate) - new Date(a.lastUpdatedDate))[0];
+        if (newest) {
+          switchVersionByName(newest.versionName);
+        }
+      } else if (versionList[0]) {
+        switchVersionByName(versionList[0].versionName);
+      }
+    }
+  }, [versionList, versionName, chooseMostRecent, switchVersionByName]);
+
+  useEffect(() => {
+    setSelectedPrototypeIndex((prev) => {
+      const maxIndex = versionList.length;
+      return prev > maxIndex ? 0 : prev;
+    });
+  }, [versionList.length]);
+
+  const handleSelectByIndex = (index) => {
+    if (index < 0 || index >= versionOptions.length) {
+      return;
+    }
+
+    const option = versionOptions[index];
+    if (option.isNewOption) {
+      setAddDialogOpen(true);
+      setIsMenuOpen(false);
+      return;
+    }
+
+    if (option.isPlaceholder) {
+      return;
+    }
+
+    setCurrentIndex(index);
+    switchVersionByName(option.versionName);
+    setIsMenuOpen(false);
+  };
+
+  const handleSelectByName = async (name) => {
+    if (!name) {
+      return;
+    }
+    await switchVersionByName(name);
+    setIndexForVersionName(name);
+    setIsMenuOpen(false);
+  };
+
+  const getValidationError = (value) => {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      return 'Version name is required';
+    }
+    if (!/^(?!.*\/\/)[a-zA-Z0-9-_]+$/.test(trimmed)) {
+      return 'Only letters, numbers, dashes, and underscores are allowed';
+    }
+    if (versionList.some((item) => item.versionName === trimmed)) {
+      return 'A version with this name already exists';
+    }
+    return null;
+  };
+
+  const handleAddVersion = async () => {
+    const trimmedName = newVersionName.trim();
+    const error = getValidationError(trimmedName);
+    setValidationMessage(error);
+    if (error) {
+      return;
+    }
+
+    const prototype =
+      selectedPrototypeIndex >= 0 && selectedPrototypeIndex < versionList.length
+        ? versionList[selectedPrototypeIndex].versionName
+        : null;
+
+    await callAddGameVersion(game.gameID, trimmedName, prototype);
+
+    analyticsReportEvent('create_version', {
+      event_category: 'Editor',
+      event_label: 'Create version',
+      gameID: game.gameID,
+      versionName: trimmedName,
+    });
+
+    setAddDialogOpen(false);
+    setNewVersionName('');
+    setValidationMessage(null);
+    setSelectedPrototypeIndex(0);
+    handleSelectByName(trimmedName);
+  };
+
+  const renderVersionOption = (option, index) => {
+    if (option.isNewOption) {
+      const isSelected = index === currentIndex;
+      return (
+        <button
+          key='add-version'
+          type='button'
+          onClick={() => handleSelectByIndex(index)}
+          className={clsx(
+            'flex w-full items-center gap-3 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-left text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 dark:border-white/20 dark:text-slate-100 dark:hover:border-white/30 dark:hover:bg-white/10',
+            isSelected && 'border-slate-400 bg-slate-100 dark:border-white/40 dark:bg-white/10'
+          )}
+        >
+          <span className='inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900'>
+            <Plus className='h-4 w-4' />
+          </span>
+          <div className='flex flex-col text-left'>
+            <span>Create version</span>
+            <span className='text-xs font-normal text-slate-500 dark:text-slate-400'>
+              Start from an existing version or a blank template
+            </span>
+          </div>
+        </button>
+      );
+    }
+
+    if (option.isPlaceholder) {
+      return (
+        <div
+          key={`placeholder-${index}`}
+          className='px-3 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-slate-400'
+        >
+          Available versions
+        </div>
+      );
+    }
+
+    const isSelected = index === currentIndex;
+    return (
+      <VersionListOption
+        key={option.versionName}
+        version={option}
+        onSelect={() => handleSelectByIndex(index)}
+        isSelected={isSelected}
+      />
+    );
+  };
+
+  const renderDropdown = () => (
+    <>
+      <div className='relative w-full' ref={dropdownRef}>
+        <button type='button' className={dropdownButtonClass} onClick={() => setIsMenuOpen((prev) => !prev)}>
+          <span className='flex flex-col text-left'>
+            <span className='text-xs font-semibold uppercase tracking-[0.35em] text-slate-500 dark:text-slate-300'>
+              Version
+            </span>
+            <span className='text-sm font-semibold'>{selectedLabel}</span>
+          </span>
+          <ChevronDown className='h-4 w-4' />
+        </button>
+      </div>
+      {isMenuOpen && menuPosition && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className={menuContainerClass}
+              style={{
+                position: 'fixed',
+                left: menuPosition.left,
+                top: menuPosition.top,
+                width: menuPosition.width,
+                zIndex: 20000,
+              }}
+            >
+              <div className='max-h-72 overflow-y-auto'>
+                <div className='space-y-2'>
+                  {versionOptions.map((option, index) => renderVersionOption(option, index))}
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+    </>
+  );
+
+  const renderInlineList = () => (
+    <div className={inlineListContainerClass}>
+      <p className='px-1 text-xs font-semibold uppercase tracking-[0.25em] text-slate-400'>Versions</p>
+      <div className='space-y-2'>
+        {versionOptions.map((option, index) => renderVersionOption(option, index))}
+      </div>
+    </div>
+  );
+
+  const renderAddVersionDialog = () => {
+    if (!addDialogOpen) {
+      return null;
+    }
+
+    const prototypeOptions = versionList.map((item, index) => (
+      <option key={item.versionName} value={index}>
+        {item.versionName}
+      </option>
+    ));
+    prototypeOptions.push(
+      <option key='blank' value={versionList.length}>
+        Blank
+      </option>
+    );
 
     return (
-      <Box sx={props.sx ? props.sx : {}}>
-        {dropdown 
-          ? 
-          <React.Fragment>
-            <MenuItemDropdown title={"Version"} menuItems={versionMenuItems} onMenuItemSelected={updateSelectedVersionByIndex} selectedIndex={currentVersionIndex} />
-          </React.Fragment>
-          :
-          <MenuItemList menuItems={versionMenuItems} onMenuItemSelected={updateSelectedVersionByIndex} selectedIndex={currentVersionIndex} />
-        }
-        
-      
-      <Dialog open={addVersionDialogOpen} onClose={handleAddVersionDialogClose}>
-        <DialogTitle>Add new version</DialogTitle>
-        <DialogContent>
-        <TextField
-          autoFocus
-          margin="dense"
-          id="versionName"
-          label="Version Name"
-          fullWidth
-          value={newVersionName}
-          onChange={(e) => handleVersionNameInput(e.target.value)}
-          helperText={problem}
-          error={problem !== null}
-        />
-          <FormControl fullWidth margin="dense">
-            <InputLabel id="copyFrom-label">Copy from:</InputLabel>
-            <Select
-              labelId="copyFrom-label"
-              id="copyFrom"
-              value={selectedVersionIndex}
-              onChange={(e) => setSelectedVersionIndex(e.target.value)}
+      <div className={modalBackdropClass}>
+        <div className={modalCardClass}>
+          <div className='mb-4 flex items-center justify-between'>
+            <h2 className='text-lg font-semibold text-slate-900 dark:text-slate-100'>Create new version</h2>
+            <button
+              type='button'
+              className='rounded-full border border-slate-200 p-1 text-slate-500 transition hover:border-slate-300 hover:text-slate-700 dark:border-white/10 dark:text-slate-300 dark:hover:border-white/20 dark:hover:text-white'
+              onClick={() => setAddDialogOpen(false)}
             >
-              {versionList && versionList.map((version, index) => (
-                <MenuItem key={index} value={index}>
-                  {version.versionName}
-                </MenuItem>
-              ))}
-              <MenuItem value={versionList?.length}>Blank</MenuItem>
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleAddVersionDialogClose}>Cancel</Button>
-        <Button onClick={handleAddVersion} disabled={!addButtonEnabled}>
-            Add
-          </Button>
-        </DialogActions>
-      </Dialog>
-      </Box>
-          
+              <X className='h-4 w-4' />
+            </button>
+          </div>
+          <div className='space-y-4'>
+            <div className='space-y-2'>
+              <label htmlFor='versionName' className='text-sm font-medium text-slate-700 dark:text-slate-200'>
+                Version name
+              </label>
+              <input
+                id='versionName'
+                className='w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:border-white/10 dark:bg-white/10 dark:text-slate-100 dark:focus:border-white/30 dark:focus:ring-white/20'
+                value={newVersionName}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setNewVersionName(value);
+                  setValidationMessage(getValidationError(value));
+                }}
+              />
+              {validationMessage ? (
+                <p className='text-xs font-medium text-rose-500'>{validationMessage}</p>
+              ) : (
+                <p className='text-xs text-slate-400'>Use letters, numbers, dashes, or underscores.</p>
+              )}
+            </div>
+
+            <div className='space-y-2'>
+              <label htmlFor='prototypeVersion' className='text-sm font-medium text-slate-700 dark:text-slate-200'>
+                Copy settings from
+              </label>
+              <select
+                id='prototypeVersion'
+                className='w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:border-white/10 dark:bg-white/10 dark:text-slate-100 dark:focus:border-white/30 dark:focus:ring-white/20'
+                value={selectedPrototypeIndex}
+                onChange={(event) => setSelectedPrototypeIndex(Number(event.target.value))}
+              >
+                {prototypeOptions}
+              </select>
+            </div>
+          </div>
+
+          <div className='mt-6 flex justify-end gap-2'>
+            <button
+              type='button'
+              onClick={() => setAddDialogOpen(false)}
+              className='inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 dark:border-white/10 dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-white/10'
+            >
+              Cancel
+            </button>
+            <button
+              type='button'
+              onClick={handleAddVersion}
+              disabled={Boolean(validationMessage) || !newVersionName.trim()}
+              className='inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 to-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(56,189,248,0.65)] transition hover:from-sky-400 hover:to-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60'
+            >
+              Create
+            </button>
+          </div>
+        </div>
+      </div>
     );
+  };
+
+  let additionalClassName;
+  let inlineStyle;
+  if (sx && typeof sx === 'object') {
+    additionalClassName = sx.className;
+    if ('style' in sx) {
+      inlineStyle = sx.style;
+    } else if (!('className' in sx)) {
+      inlineStyle = sx;
+    }
+  }
+
+  const containerClassName = clsx('relative w-full', additionalClassName);
+
+  return (
+    <div className={containerClassName} style={inlineStyle}>
+      {dropdown ? renderDropdown() : renderInlineList()}
+      {renderAddVersionDialog()}
+    </div>
+  );
 }

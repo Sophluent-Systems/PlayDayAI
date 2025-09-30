@@ -56,10 +56,64 @@ const globalOptions = [
 
 const addableNodeTypes = getAddableNodeTypes();
 
-const contentAreaClassName = "flex w-full flex-1 flex-col items-center bg-slate-50 px-6 pb-10 pt-8 sm:px-8 lg:px-12";
-const infoBubbleClassName = "relative w-full max-w-4xl rounded-3xl border border-slate-200 bg-white px-6 py-5 text-slate-900 shadow-[0_18px_45px_-25px_rgba(15,23,42,0.25)] dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100";
+function parseRgbFromString(color) {
+  if (!color || typeof color !== 'string') {
+    return null;
+  }
+  if (color.startsWith('#')) {
+    let normalized = color.replace('#', '');
+    if (normalized.length === 3) {
+      normalized = normalized.split('').map((char) => char + char).join('');
+    }
+    if (normalized.length !== 6) {
+      return null;
+    }
+    const intValue = parseInt(normalized, 16);
+    return {
+      r: (intValue >> 16) & 255,
+      g: (intValue >> 8) & 255,
+      b: intValue & 255,
+    };
+  }
+  const match = color.match(/rgba?\(([^)]+)\)/i);
+  if (!match) {
+    return null;
+  }
+  const parts = match[1].split(',').map((component) => parseFloat(component.trim()));
+  if (parts.length < 3) {
+    return null;
+  }
+  return { r: parts[0], g: parts[1], b: parts[2] };
+}
+
+function colorWithAlpha(color, alpha, fallback = '#38bdf8') {
+  const rgb = parseRgbFromString(color) || parseRgbFromString(fallback);
+  if (!rgb) {
+    return `rgba(56, 189, 248, ${alpha})`;
+  }
+  const resolvedAlpha = Math.min(Math.max(alpha, 0), 1);
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${resolvedAlpha})`;
+}
+
+function getLuminance(color) {
+  const rgb = parseRgbFromString(color);
+  if (!rgb) {
+    return 0;
+  }
+  const transform = (channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+  };
+  const r = transform(rgb.r);
+  const g = transform(rgb.g);
+  const b = transform(rgb.b);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
 
 function DialogShell({ open, onClose, title, description, children, actions, maxWidth = "max-w-lg" }) {
+  if (!open) {
+    return null;
+  }
   useEffect(() => {
     if (!open) {
       return;
@@ -77,13 +131,9 @@ function DialogShell({ open, onClose, title, description, children, actions, max
     };
   }, [open, onClose]);
 
-  if (!open) {
-    return null;
-  }
-
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4"
+      className="fixed inset-0 z-[15000] flex items-center justify-center bg-slate-950/60 px-4"
       onClick={onClose}
     >
       <div
@@ -107,7 +157,7 @@ function DialogShell({ open, onClose, title, description, children, actions, max
   );
 }
 
-export function TemplateChooser({ templateChosen }) {
+function TemplateChooser({ templateChosen }) {
   const handleTemplateClick = (template) => {
     if (templateChosen) {
       templateChosen(template);
@@ -158,7 +208,6 @@ function VersionEditor(props) {
   const [readOnly, setreadOnly] = useState(true);
   const [settingsDiff, setSettingsDiff] = useState(null);
   const [vh] = useAtom(vhState);
-  const contentAreaStyle = { minHeight: `${vh || 0}px` };
   const graphAreaHeight = vh ? `${vh - 200}px` : 'auto';
 
   const [showAddNodeMenu, setShowAddNodeMenu] = useState(false);
@@ -171,17 +220,70 @@ function VersionEditor(props) {
   const [useAppKeysDialogOpen, setUseAppKeysDialogOpen] = useState(false);
 
   const gameTheme = game?.theme ? game.theme : defaultAppTheme;
+  const baseBackgroundColor = gameTheme?.colors?.titleBackgroundColor || '#0f172a';
+  const accentColor = gameTheme?.palette?.textSecondary || gameTheme?.colors?.primaryButtonColor || '#38bdf8';
+  const isDarkTheme = getLuminance(baseBackgroundColor) < 0.6;
 
-  const buttonStyles = {
-    subtle: "inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-slate-700",
-    primary: "inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 dark:focus:ring-slate-300",
-    accent: "inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-60",
-    danger: "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-rose-500 dark:hover:bg-rose-400 dark:focus:ring-rose-300",
-    outline: "inline-flex items-center gap-2 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-slate-500",
+  const contentAreaClassName = 'relative flex w-full flex-1 flex-col items-center px-6 pb-12 pt-10 transition-colors sm:px-8 lg:px-12';
+  const contentAreaStyle = {
+    minHeight: `${vh || 0}px`,
+    background: `linear-gradient(160deg, ${colorWithAlpha(baseBackgroundColor, isDarkTheme ? 0.95 : 0.9)} 0%, ${colorWithAlpha(baseBackgroundColor, isDarkTheme ? 0.65 : 0.45)} 45%, ${colorWithAlpha('#0f172a', isDarkTheme ? 0.85 : 0.2)} 100%)`,
+    color: isDarkTheme ? '#f8fafc' : '#0f172a',
   };
+  const overlayStyle = {
+    background: `radial-gradient(circle at top, ${colorWithAlpha(accentColor, isDarkTheme ? 0.22 : 0.12)}, transparent 60%)`,
+  };
+  const infoBubbleClassName = isDarkTheme
+    ? 'relative w-full max-w-4xl rounded-3xl border border-white/15 bg-white/10 px-6 py-6 text-slate-100 shadow-[0_45px_120px_-60px_rgba(56,189,248,0.55)] backdrop-blur'
+    : 'relative w-full max-w-4xl rounded-3xl border border-slate-200 bg-white px-6 py-6 text-slate-900 shadow-[0_30px_90px_-60px_rgba(15,23,42,0.18)]';
+  const heroCardClass = isDarkTheme
+    ? 'rounded-3xl border border-white/15 bg-gradient-to-br from-white/10 via-white/5 to-white/0 p-6 shadow-[0_55px_140px_-65px_rgba(56,189,248,0.55)] backdrop-blur'
+    : 'rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 p-6 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.2)]';
+  const heroTextClass = isDarkTheme ? 'flex flex-col gap-1 text-slate-100' : 'flex flex-col gap-1 text-slate-900';
+  const heroSubtitleClass = isDarkTheme
+    ? 'text-xs font-medium uppercase tracking-[0.35em] text-slate-300'
+    : 'text-xs font-medium uppercase tracking-[0.35em] text-slate-500';
+  const heroVersionClass = isDarkTheme
+    ? 'text-sm uppercase tracking-[0.3em] text-slate-300'
+    : 'text-sm uppercase tracking-[0.3em] text-slate-500';
+  const unsavedBadgeClass = isDarkTheme
+    ? 'ml-2 inline-flex items-center text-rose-200'
+    : 'ml-2 inline-flex items-center text-rose-500';
+  const savedBadgeClass = isDarkTheme
+    ? 'ml-2 inline-flex items-center text-slate-200'
+    : 'ml-2 inline-flex items-center text-slate-500';
+  const cardSectionClass = isDarkTheme
+    ? 'rounded-3xl border border-white/10 bg-white/5 text-slate-100 shadow-[0_55px_140px_-65px_rgba(56,189,248,0.45)] backdrop-blur'
+    : 'rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.18)]';
+  const graphCardClass = isDarkTheme
+    ? 'rounded-3xl border border-white/10 bg-slate-950/70 p-4 text-slate-100 shadow-[0_65px_150px_-70px_rgba(14,165,233,0.65)] backdrop-blur'
+    : 'rounded-3xl border border-slate-200 bg-white p-4 text-slate-900 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.18)]';
+  const addNodeCardClass = isDarkTheme
+    ? 'flex flex-wrap gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 text-slate-100 shadow-[0_55px_140px_-65px_rgba(56,189,248,0.35)] backdrop-blur'
+    : 'flex flex-wrap gap-3 rounded-3xl border border-slate-200 bg-white p-4 text-slate-900 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.12)]';
+  const addNodeButtonClass = isDarkTheme
+    ? 'rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/40 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60'
+    : 'rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60';
+  const dangerCardClass = isDarkTheme
+    ? 'rounded-3xl border border-white/10 bg-white/5 p-6 text-center text-slate-100 shadow-[0_55px_140px_-65px_rgba(244,63,94,0.45)] backdrop-blur'
+    : 'rounded-3xl border border-rose-200/60 bg-white p-6 text-center text-slate-900 shadow-[0_35px_90px_-45px_rgba(244,63,94,0.25)]';
+  const buttonStyles = isDarkTheme
+    ? {
+        subtle: 'inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/40 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60',
+        primary: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 via-sky-400 to-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(56,189,248,0.9)] transition hover:from-sky-400 hover:to-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60',
+        accent: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(16,185,129,0.9)] transition hover:from-emerald-400 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-60',
+        danger: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-rose-500 to-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(244,63,94,0.9)] transition hover:from-rose-400 hover:to-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60',
+        outline: 'inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/40 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60',
+      }
+    : {
+        subtle: 'inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60',
+        primary: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 to-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(56,189,248,0.6)] transition hover:from-sky-400 hover:to-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60',
+        accent: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(16,185,129,0.55)] transition hover:from-emerald-400 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-60',
+        danger: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-rose-500 to-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(244,63,94,0.55)] transition hover:from-rose-400 hover:to-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60',
+        outline: 'inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60',
+      };
 
   async function submitNewVersionInfo() {
-    console.log("++++++++++++++++++ SUBMITTING NEW VERSION INFO");
     try {
       await callReplaceAppVersion(newVersionInfoRef.current);
       setNewVersionInfo({ ...newVersionInfoRef.current });
@@ -191,29 +293,15 @@ function VersionEditor(props) {
       updateSettingsDiff(versionInfo, newVersionInfoRef.current);
       await updateVersion(true);
     } catch (error) {
-      alert("Error saving updates: " + error);
+      alert('Error saving updates: ' + error);
     }
   }
 
-  const doDiscardChanges = () => {
-    if (dirtyEditor) {
-      newVersionInfoRef.current = JSON.parse(JSON.stringify(versionInfo));
-      setNewVersionInfo(newVersionInfoRef.current);
-      dirtyEditorRef.current = false;
-      setDirtyEditor(false);
-      setIsUpdated(false);
-      updateSettingsDiff(versionInfo, newVersionInfoRef.current);
-      setDiscardChangesDialogOpen(false);
-    }
-  }
 
-  const handleDiscardChanges = () => {
-    setDiscardChangesDialogOpen(true);
-  };
 
-  // Event handler for keydown event
+
   const handleKeyDown = (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key === "s") {
+    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
       event.preventDefault();
       if (dirtyEditor) {
         submitNewVersionInfo();
@@ -221,27 +309,23 @@ function VersionEditor(props) {
     }
   };
 
-  // Attach event listener on mount and clean up on unmount
   useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown);
 
     analyticsReportEvent('edit_version', {
       event_category: 'Editor',
       event_label: 'Edit version',
-      gameID: game?.gameID,    // Unique identifier for the game
-      versionID: version?.versionID,  // Version of the game being played
+      gameID: game?.gameID,
+      versionID: version?.versionID,
     });
 
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
 
-
-
   useEffect(() => {
-    if (version && gamePermissions &&
-        (readOnly !== shouldBeReadOnly())) {
+    if (version && gamePermissions && readOnly !== shouldBeReadOnly()) {
       refreshVersionInfo();
     }
   }, [gamePermissions]);
@@ -261,39 +345,35 @@ function VersionEditor(props) {
   useEffect(() => {
     const handleBeforeUnload = (event) => {
       if (dirtyEditor) {
-        // Display a confirmation dialog
         event.preventDefault();
-        event.returnValue =
-          "You have unsaved changes. Are you sure you want to leave?";
+        event.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
       }
     };
 
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
+    window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
-      // Clean up the listener when the component unmounts
-      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [dirtyEditor]);
 
   useEffect(() => {
-    updateSettingsDiff(versionInfo, newVersionInfoRef.current);
-    console.log("updateSettingsDiff");
+    if (versionInfo && newVersionInfo) {
+      updateSettingsDiff(versionInfo, newVersionInfoRef.current);
+    }
   }, [versionInfo, newVersionInfo]);
 
   function shouldBeReadOnly() {
-    let hasEditPermissions = gamePermissions?.includes("game_edit");
-
+    const hasEditPermissions = gamePermissions?.includes('game_edit');
     return !hasEditPermissions;
   }
-  
+
   useEffect(() => {
     async function doSave() {
-      if (editorSaveRequest === "save") {
+      if (editorSaveRequest === 'save') {
         if (dirtyEditor) {
           await submitNewVersionInfo();
         }
-        setEditorSaveRequest("saved");
+        setEditorSaveRequest('saved');
       }
     }
 
@@ -348,7 +428,20 @@ function VersionEditor(props) {
     updateVersionInfo(versionInfoCopy);
   }
 
-  const handleCancelDelete = () => {
+    const handleDiscardChanges = () => {
+    setDiscardChangesDialogOpen(true);
+  };
+
+  const doDiscardChanges = () => {
+    newVersionInfoRef.current = JSON.parse(JSON.stringify(versionInfo));
+    setNewVersionInfo(newVersionInfoRef.current);
+    dirtyEditorRef.current = false;
+    setDirtyEditor(false);
+    setDiscardChangesDialogOpen(false);
+    setIsUpdated(false);
+  };
+
+const handleCancelDelete = () => {
     setDeleteDialogOpen(false); // Close the dialog
   };
 
@@ -935,156 +1028,162 @@ function VersionEditor(props) {
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-y-auto">
-      <div
-        className={contentAreaClassName}
-        style={contentAreaStyle}
-      >
-        <div className="mx-auto mt-4 flex w-full flex-col gap-4 md:w-3/5 md:flex-row md:items-center md:justify-between">
-          <div className="w-full md:w-auto">
-            <VersionSelector allowNewGameOption={true} firstOptionUnselectable dropdown={true} chooseMostRecent={true} />
-          </div>
-
-          <div className="flex flex-col items-center text-center md:items-end md:text-right">
-            <p
-              className="mb-0 text-xl font-semibold uppercase tracking-[0.2em]"
-              style={{
-                fontFamily: gameTheme?.fonts?.titleFont,
-                color: gameTheme?.colors?.titleFontColor,
-                textShadow: gameTheme?.palette?.textSecondary
-                  ? "0px 0px 10px " + gameTheme.palette.textSecondary
-                  : undefined,
-              }}
-            >
-              {game ? game.title : "Loading"}
-            </p>
-            <p
-              className="mb-0 text-xl tracking-[0.2em]"
-              style={{
-                fontFamily: gameTheme?.fonts?.titleFont,
-                color: gameTheme?.colors?.titleFontColor,
-              }}
-            >
-              {versionInfo ? versionInfo.versionName : ""}
-            </p>
-          </div>
-        </div>
-
-        {!versionName ? (
-          renderInfoBubble(<h1>Select a version from the dropdown above (or hit + to add one)</h1>)
-        ) : !versionInfo ? (
-          renderInfoBubble(<h1>Loading...</h1>)
-        ) : (
-          <div className="w-full p-5">
-            {newVersionInfoRef.current?.stateMachineDescription?.nodes ? (
-              <div className="space-y-4">
-                <div className="flex w-full justify-end gap-2 pr-2">
-                  <button
-                    type="button"
-                    onClick={handleDiscardChanges}
-                    disabled={!dirtyEditor}
-                    className={buttonStyles.subtle}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Discard changes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={submitNewVersionInfo}
-                    disabled={readOnly || !dirtyEditor}
-                    className={buttonStyles.primary}
-                  >
-                    <Save className="h-4 w-4" />
-                    Save changes
-                    {dirtyEditor ? (
-                      <span title="Unsaved changes" className="ml-2 inline-flex items-center text-red-500">
-                        <AlertCircle className="h-5 w-5" />
-                      </span>
-                    ) : isUpdated ? (
-                      <span title="Changes saved" className="ml-2 inline-flex items-center text-slate-400">
-                        <CheckCircle2 className="h-5 w-5" />
-                      </span>
-                    ) : null}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      router.push('/play/' + game.url + '?versionName=' + versionInfo.versionName)
-                    }
-                    className={buttonStyles.accent}
-                  >
-                    <Play className="h-4 w-4" />
-                    Play
-                  </button>
-                </div>
-                <div
-                  className="w-full rounded-3xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900"
-                  style={{ height: graphAreaHeight }}
+      <div className={contentAreaClassName} style={contentAreaStyle}>
+        <div className="pointer-events-none absolute inset-0" style={overlayStyle} />
+        <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col gap-8">
+          <div className={heroCardClass}>
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className={heroTextClass}>
+                <p
+                  className={heroSubtitleClass}
+                  style={{ fontFamily: gameTheme?.fonts?.titleFont }}
                 >
-                  <NodeGraphDisplay
-                    theme={gameTheme}
-                    versionInfo={newVersionInfoRef.current}
-                    onNodeClicked={handleOpenNodeSettingsMenu}
-                    onNodeStructureChange={onNodeStructureChange}
-                    onEdgeClicked={handleOpenInputSettingsMenu}
-                    onPersonaListChange={onPersonaListChange}
-                    readOnly={readOnly}
-                  />
-                </div>
-
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddNodeMenu((prev) => !prev)}
-                    disabled={readOnly}
-                    className={buttonStyles.subtle}
-                  >
-                    {showAddNodeMenu ? 'Close node menu' : 'Add node'}
-                  </button>
-                </div>
-                {showAddNodeMenu ? (
-                  <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                    {addableNodeTypes.map((addableTemplate) => (
-                      <button
-                        key={`addNode-${addableTemplate.nodeType}`}
-                        type="button"
-                        onClick={() => handleAddNode(addableTemplate.nodeType)}
-                        disabled={readOnly}
-                        className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800"
-                      >
-                        {addableTemplate.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                  {game ? 'PlayDay Game' : 'Loading'}
+                </p>
+                <h1
+                  className="text-3xl font-semibold uppercase tracking-[0.2em]"
+                  style={{
+                    fontFamily: gameTheme?.fonts?.titleFont,
+                    color: gameTheme?.colors?.titleFontColor,
+                    textShadow: gameTheme?.palette?.textSecondary
+                      ? `0px 0px 15px ${gameTheme.palette.textSecondary}`
+                      : '0px 0px 25px rgba(56,189,248,0.45)',
+                  }}
+                >
+                  {game ? game.title : 'Loading'}
+                </h1>
+                <p
+                  className={heroVersionClass}
+                  style={{ fontFamily: gameTheme?.fonts?.titleFont }}
+                >
+                  {versionInfo ? versionInfo.versionName : ''}
+                </p>
               </div>
-            ) : (
-              <TemplateChooser
-                templateChosen={(template) => templateChosen(template)}
-              />
-            )}
-
-            <SettingsMenu
-              menu={globalOptions}
-              rootObject={newVersionInfoRef.current}
-              onChange={onPublishedSettingsChanged}
-              key={"settingsEditor"}
-              readOnly={readOnly}
-            />
-
-            <div className="mt-4 mb-2 flex justify-center">
-              <button
-                type="button"
-                onClick={handleDeleteVersion}
-                disabled={readOnly}
-                className={buttonStyles.danger}
-              >
-                Delete version
-              </button>
+              <div className="w-full max-w-sm">
+                <VersionSelector allowNewGameOption={true} firstOptionUnselectable dropdown={true} chooseMostRecent={true} />
+              </div>
             </div>
-
-            {dirtyEditor && settingsDiff}
           </div>
-        )}
+
+          {!versionName ? (
+            renderInfoBubble(<h1>Select a version from the dropdown above (or hit + to add one)</h1>)
+          ) : !versionInfo ? (
+            renderInfoBubble(<h1>Loading...</h1>)
+          ) : (
+            <div className="flex flex-col gap-8">
+              {newVersionInfoRef.current?.stateMachineDescription?.nodes ? (
+                <div className="space-y-6">
+                  <div className={`${cardSectionClass} p-6`}>
+                    <div className="flex w-full flex-wrap items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={handleDiscardChanges}
+                        disabled={!dirtyEditor}
+                        className={buttonStyles.subtle}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Discard changes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={submitNewVersionInfo}
+                        disabled={readOnly || !dirtyEditor}
+                        className={buttonStyles.primary}
+                      >
+                        <Save className="h-4 w-4" />
+                        Save changes
+                        {dirtyEditor ? (
+                          <span title="Unsaved changes" className={unsavedBadgeClass}>
+                            <AlertCircle className="h-5 w-5" />
+                          </span>
+                        ) : isUpdated ? (
+                          <span title="Changes saved" className={savedBadgeClass}>
+                            <CheckCircle2 className="h-5 w-5" />
+                          </span>
+                        ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/play/${game.url}?versionName=${versionInfo.versionName}`)}
+                        className={buttonStyles.accent}
+                      >
+                        <Play className="h-4 w-4" />
+                        Play
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    className={graphCardClass}
+                    style={{ height: graphAreaHeight }}
+                  >
+                    <NodeGraphDisplay
+                      theme={gameTheme}
+                      versionInfo={newVersionInfoRef.current}
+                      onNodeClicked={handleOpenNodeSettingsMenu}
+                      onNodeStructureChange={onNodeStructureChange}
+                      onEdgeClicked={handleOpenInputSettingsMenu}
+                      onPersonaListChange={onPersonaListChange}
+                      readOnly={readOnly}
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddNodeMenu((prev) => !prev)}
+                      disabled={readOnly}
+                      className={buttonStyles.subtle}
+                    >
+                      {showAddNodeMenu ? 'Close node menu' : 'Add node'}
+                    </button>
+                  </div>
+
+                  {showAddNodeMenu ? (
+                    <div className={addNodeCardClass}>
+                      {addableNodeTypes.map((addableTemplate) => (
+                        <button
+                          key={`addNode-${addableTemplate.nodeType}`}
+                          type="button"
+                          onClick={() => handleAddNode(addableTemplate.nodeType)}
+                          disabled={readOnly}
+                          className={addNodeButtonClass}
+                        >
+                          {addableTemplate.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <TemplateChooser templateChosen={(template) => templateChosen(template)} />
+              )}
+
+              <div className={`${cardSectionClass} p-6`}>
+                <SettingsMenu
+                  menu={globalOptions}
+                  rootObject={newVersionInfoRef.current}
+                  onChange={onPublishedSettingsChanged}
+                  key={"settingsEditor"}
+                  readOnly={readOnly}
+                />
+              </div>
+
+              <div className={dangerCardClass}>
+                <button
+                  type="button"
+                  onClick={handleDeleteVersion}
+                  disabled={readOnly}
+                  className={buttonStyles.danger}
+                >
+                  Delete version
+                </button>
+              </div>
+
+              {dirtyEditor && settingsDiff}
+            </div>
+          )}
+        </div>
       </div>
       {modalEditingMode && 
         <ModalMenu
@@ -1264,148 +1363,12 @@ function VersionEditor(props) {
           <p>Please ensure you have appropriate access controls and usage limits in place to prevent unexpected charges.</p>
         </div>
       </DialogShell>
-      <DialogShell
-        open={deleteDialogOpen}
-        onClose={handleCancelDelete}
-        title="Delete Game Version"
-        description="Are you sure you want to permanently delete this app version? This action cannot be undone."
-        actions={
-          <>
-            <button
-              type="button"
-              onClick={handleCancelDelete}
-              className={buttonStyles.outline}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirmDelete}
-              className={buttonStyles.danger}
-            >
-              Delete
-            </button>
-          </>
-        }
-      />
-
-
-      <DialogShell
-        open={discardChangesDialogOpen}
-        onClose={() => setDiscardChangesDialogOpen(false)}
-        title="Discard Changes"
-        description="Are you sure you want to permanently undo all unsaved changes?"
-        actions={
-          <>
-            <button
-              type="button"
-              onClick={() => setDiscardChangesDialogOpen(false)}
-              className={buttonStyles.outline}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => doDiscardChanges()}
-              className={buttonStyles.danger}
-            >
-              Discard
-            </button>
-          </>
-        }
-      />
-      <DialogShell
-        open={publishDialogOpen}
-        onClose={() => setPublishDialogOpen(false)}
-        title="Choose Publishing Mode"
-        description="Please select how you want to publish this version:"
-        maxWidth="max-w-2xl"
-        actions={
-          <button
-            type="button"
-            onClick={() => {
-              setPublishDialogOpen(false);
-              onVariableChanged(newVersionInfoRef.current, "published", false);
-            }}
-            className={buttonStyles.outline}
-          >
-            Cancel
-          </button>
-        }
-      >
-        <div className="mt-4 flex flex-col gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              onVariableChanged(newVersionInfoRef.current, "published", true);
-              onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
-              setPublishDialogOpen(false);
-            }}
-            className={buttonStyles.outline}
-          >
-            Require users to provide their own keys (Recommended)
-          </button>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Users get billed for their usage. If they don't configure API keys, your app will fail for them. You won't be billed for their usage.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              onVariableChanged(newVersionInfoRef.current, "published", true);
-              setPublishDialogOpen(false);
-              setUseAppKeysDialogOpen(true);
-            }}
-            className={buttonStyles.outline}
-          >
-            Your API keys are billed for all usage (Caution)
-          </button>
-          <p className="text-sm text-rose-600 dark:text-rose-400">
-            Warning: Users will use the API keys configured in your app's settings. You'll be billed for all users' API calls. This can lead to significant costs if not managed carefully.
-          </p>
-        </div>
-      </DialogShell>
-      <DialogShell
-        open={useAppKeysDialogOpen}
-        onClose={() => setUseAppKeysDialogOpen(false)}
-        title="Warning: Using App's AI Keys"
-        actions={
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                setUseAppKeysDialogOpen(false);
-                onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
-              }}
-              className={buttonStyles.outline}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", true);
-                setUseAppKeysDialogOpen(false);
-              }}
-              className={buttonStyles.primary}
-            >
-              I Understand
-            </button>
-          </>
-        }
-      >
-        <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
-          <p>You've chosen to use the app's AI keys for all users. This means:</p>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>All API calls will be billed to your account.</li>
-            <li>Users won't need to provide their own API keys.</li>
-            <li>Your costs may increase significantly based on usage.</li>
-          </ul>
-          <p>Please ensure you have appropriate access controls and usage limits in place to prevent unexpected charges.</p>
-        </div>
-      </DialogShell>
     </div>
   );
 }
 
 export default memo(VersionEditor);
+
+
+
 

@@ -52,6 +52,7 @@ export function MenuItemDropdown(props) {
                     top: 0,
                     left: 0,
                 }}
+                slotProps={{ paper: { sx: { zIndex: (theme) => Math.max(theme.zIndex.modal || 1300, 2000) } } }}
             >
                 <Box sx={{maxHeight: `${vh-40}px`, overflow: 'auto', alignContent: 'flex-start' }}>
                     <MenuItemList

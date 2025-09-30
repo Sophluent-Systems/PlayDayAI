@@ -1,49 +1,29 @@
+
 import React from 'react';
-import { Typography, Box } from '@mui/material';
-import { makeStyles } from 'tss-react/mui';
 import { defaultAppTheme } from '@src/common/theme';
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-    const {
-      colors,
-      fonts,
-    } = pageTheme;
-    return ({
-      titleContainer: {
-        height: '75px',
-        width: '100%',
-        alignContent: 'center',
-        backgroundColor: colors.titleBackgroundColor,
-      },
-      titleTypography: {
-        fontSize: '2em',
-        fontWeight: 'bold',
-        textTransform: 'uppercase',
-        letterSpacing: '0.2em',
-        fontFamily: fonts.titleFont,
-        color: colors.titleFontColor,
-        textAlign: 'center',
-        textShadow: `0px 0px 10px ${theme.palette.text.secondary}`,
-        marginBottom: '0',
-        marginTop: '0',
-      },
-    });
-  });
-  
+function Title({ title, theme }) {
+  const themeToUse = theme || defaultAppTheme;
+  const backgroundColor = themeToUse.colors?.titleBackgroundColor || '#0f172a';
+  const textColor = themeToUse.colors?.titleFontColor || '#f8fafc';
+  const fontFamily = themeToUse.fonts?.titleFont || 'Inter, sans-serif';
+  const textShadow = themeToUse.palette?.textSecondary
+    ? `0px 0px 10px ${themeToUse.palette.textSecondary}`
+    : '0px 0px 10px rgba(15,23,42,0.35)';
 
-
-function Title(props) {
-    const { title, theme } = props;
-    const themeToUse = theme || defaultAppTheme;
-    const { classes } = useStyles(themeToUse);
-
-    return (
-      <Box className={classes.titleContainer}>
-          <Typography variant="h4" className={classes.titleTypography}>
-            {title}
-          </Typography>
-      </Box>
-    );
+  return (
+    <div
+      className='flex h-[75px] w-full items-center justify-center bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-4'
+      style={{ backgroundColor }}
+    >
+      <h1
+        className='text-center text-2xl font-bold uppercase tracking-[0.2em] text-white'
+        style={{ color: textColor, fontFamily, textShadow }}
+      >
+        {title}
+      </h1>
+    </div>
+  );
 }
 
 export default Title;

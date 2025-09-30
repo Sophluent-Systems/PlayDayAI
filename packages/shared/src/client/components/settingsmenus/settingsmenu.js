@@ -20,11 +20,6 @@ import { nullUndefinedOrEmpty } from "@src/common/objects";
 import { stateManager } from "@src/client/statemanager.js";
 import { ImageGenParamsMenu } from "../versioneditor/imagegenparamsmenu.js";
 import { AudioGenParamsMenu } from "../versioneditor/audiogenparamsmenu.js";
-import { 
-  Box, 
-  Typography 
-} from "@mui/material";
-
 
 export function SettingsMenu({ menu, rootObject, onChange, readOnly }) {
   const { account } = React.useContext(stateManager);
@@ -265,9 +260,9 @@ export function SettingsMenu({ menu, rootObject, onChange, readOnly }) {
   };
 
   const renderSectionHeader = (field, rootObject, path) => (
-    <Typography key={path} variant="h6">
+    <h3 key={path} className="text-lg font-semibold text-slate-700 dark:text-slate-200">
       {field.label}
-    </Typography>
+    </h3>
   );
 
   const renderSubSection = (field, rootObject, path) => {
@@ -289,7 +284,9 @@ export function SettingsMenu({ menu, rootObject, onChange, readOnly }) {
           key={path}
           disabled={disabled}
         >
-          {field.fields && renderFieldList(field.fields, rootObject, path)}
+          <div className="space-y-4">
+            {field.fields && renderFieldList(field.fields, rootObject, path)}
+          </div>
         </CollapsibleSection>
       );
     }
@@ -349,16 +346,19 @@ export function SettingsMenu({ menu, rootObject, onChange, readOnly }) {
     const allFields = fieldList.map((field, index) => {
             const childPath = path + `.fields[${index}].${field.path ? field.path : (field.type ? field.type : field.label)}`;
             return (
-              <Box key={`${index}-${path}`} sx={{mt: 1.5, mb: 1.5}}>
+              <div key={`${index}-${path}`} className="my-4">
                 {renderField(field, rootObject, childPath)}
-              </Box>
+              </div>
             )
     });
     return allFields;
   }
 
   return (
-    <React.Fragment> 
-      {renderFieldList(menu, rootObject)}
-    </React.Fragment>);
+    <React.Fragment>
+      <div className="space-y-5">
+        {renderFieldList(menu, rootObject)}
+      </div>
+    </React.Fragment>
+  );
 }

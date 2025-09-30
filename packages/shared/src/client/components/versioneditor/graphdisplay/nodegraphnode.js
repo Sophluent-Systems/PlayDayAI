@@ -1,270 +1,355 @@
+'use client';
 import React, { useEffect, useState, memo } from 'react';
+
 import { Handle, Position, useStore } from 'reactflow';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
-import { Box, Paper, Typography } from '@mui/material';
+
+import clsx from 'clsx';
+
+import { GripVertical, Play, AlertCircle } from 'lucide-react';
+
 import { NodeContainer } from './nodecontainer';
+
 import { getNodePersonaDetails } from '@src/common/personainfo';
-import { getMessageStyling } from "@src/client/themestyling";
+
+import { getMessageStyling } from '@src/client/themestyling';
+
 import { getWarningsForNode } from '../versioneditorutils';
+
 import { getInputsAndOutputsForNode } from '@src/common/nodeMetadata';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
 
-const labelContainerStyle = {
-  display: 'flex',
-  flex: 1,
-  flexGrow: 1,
-  cursor: 'pointer',
-  height: '100%',
-  flexDirection: 'column', // Stack items vertically if needed
-  justifyContent: 'center', // Center items vertically in the container
-  alignItems: 'center', // Center items horizontally in the container
-  };
-
-const dragHandleStyle = {
-  position: 'absolute', // Position absolutely within the node container
-  left: '50%', // Position the handle 1px away from the node's left edge
-  top: '-15px', // Center vertically
-  transform: 'translateY(-50%)', // Adjust vertical position to truly center
-  cursor: 'grab', // Add grab cursor for drag interaction
-  display: 'flex',
-  alignItems: 'center', // Center the icon within the handle
-  justifyContent: 'center',
-  width: '60px', // Specify width and height for the handle area
-  height: '30px',
-  // dark gray background color
-  backgroundColor: "#808080", // Adjust handle background color as needed
-  borderRadius: '4px', // Adjust border radius as needed
-  color: "black",
-  transform: 'translateX(-50%)', // Adjust horizontal position to truly center
-  zIndex: 1000,
-};
-
-const targetHandleStyle = {
-  width: '100%',
-  height: '100%',
-  background: 'blue',
-  position: 'absolute',
-  top: '10px',
-  left: 0,
-  borderRadius: 0,
-  opacity: 0,
-  border: 'none',
- }
-
- const handleBaseStyle = {
-  width: '10px',
-  height: '20px',
-  background: 'transparent',
-  //border: 'lightgray 1px solid', // useful for debugging
-  border: 'transparent',
-  justifyContent: 'center',
-  alignItems: 'center',
-  alignContent: 'center',
-  display: 'flex',
-  position: 'absolute',
-  zIndex: 1000,
-};
-
-const inputOutputCircleStyle = {
-  width: '8px',
-  height: '8px',
-  borderRadius: '50%',
-  background: 'rgba(255, 255, 255, 0.9)',
-  zIndex: 0,
-  padding: 0,
-  margin: 0,
-};
-
-const handleContainerBoxStyle = {
-  display: 'flex', 
-  justifyContent: 'flex-start', 
-  alignItems: 'center', 
-  alignContent: 'center',
-  flexDirection: 'row',
-  margin: 0,
-  padding: 0,
-  zIndex: 0,  // Ensure this is lower or equal to handle but higher than -1
-  pointerEvents: 'none', 
-  position: 'absolute', // change to absolute
-  width: 'auto',
-}
 
 const IOTopOffset = 10;
+
 const IOHeight = 20;
-const IOIconSize=15;
-const defaultWidth = 180;
-const defaultHeight = 80;
+
+const IOIconSize = 15;
+
+const defaultWidth = 200;
+
+const defaultHeight = 88;
+
+
+
+const handleBaseStyle = {
+
+  width: '12px',
+
+  height: '22px',
+
+  background: 'transparent',
+
+  border: 'transparent',
+
+  justifyContent: 'center',
+
+  alignItems: 'center',
+
+  display: 'flex',
+
+  position: 'absolute',
+
+  zIndex: 1000,
+
+};
+
+
+
+const handleContainerStyle = {
+
+  display: 'flex',
+
+  alignItems: 'center',
+
+  gap: 4,
+
+  padding: '0 4px',
+
+  pointerEvents: 'none',
+
+};
+
+
+
+const indicatorPillClasses = 'absolute left-1/2 top-0 flex h-7 w-20 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 shadow-lg backdrop-blur';
+
+
+
+const labelClasses = 'flex flex-1 cursor-pointer flex-col items-center justify-center px-6 py-4 text-center';
+
+
 
 const NodeGraphNode = memo((props) => {
-  const { data, id, readOnly} = props;
+
+  const { data, id, readOnly } = props;
+
   const { theme, versionInfo, node, onClicked } = data;
+
   const connectionNodeId = useStore((state) => state.connectionNodeId);
+
   const isConnecting = !!connectionNodeId;
+
   const isTarget = connectionNodeId && connectionNodeId !== id;
+
   const [metadata, setMetadata] = useState(null);
+
   const [styling, setStyling] = useState(null);
 
 
+
   const persona = getNodePersonaDetails(versionInfo, node);
+
   const isSelected = data.isSelected;
 
-  const height = Math.max(defaultHeight, (metadata ? metadata.inputs.length + metadata.outputs.length + metadata.events.length : 0) * IOHeight);
+
+
+  const height = Math.max(
+
+    defaultHeight,
+
+    (metadata ? metadata.inputs.length + metadata.outputs.length + metadata.events.length : 0) * IOHeight
+
+  );
+
+
 
   const warnings = getWarningsForNode(node);
 
 
+
   useEffect(() => {
-    let newStyling = getMessageStyling(["text"], persona);
+
+    let newStyling = getMessageStyling(['text'], persona);
+
+
 
     newStyling = {
+
       ...newStyling,
-      backgroundColor: (isTarget || isSelected) ? '#ffcce3' : newStyling.backgroundColor,
+
+      backgroundColor: isTarget || isSelected ? 'rgba(56, 189, 248, 0.15)' : newStyling.backgroundColor,
+
       borderStyle: isTarget ? 'dashed' : 'solid',
-      display: 'flex',
-      flexDirection: 'column',
+
+      borderColor: isSelected ? 'rgba(56, 189, 248, 0.65)' : newStyling.borderColor,
+
+      className: clsx(
+
+        'transition-all duration-200',
+
+        isSelected ? 'ring-2 ring-sky-400/70 ring-offset-2 ring-offset-slate-950/50' : 'ring-0'
+
+      ),
+
     };
 
+
+
     setStyling(newStyling);
+
   }, [persona, isSelected, isTarget]);
 
+
+
   useEffect(() => {
+
     if (node) {
-      const metadata = getInputsAndOutputsForNode(node);
-      setMetadata(metadata);
+
+      const meta = getInputsAndOutputsForNode(node);
+
+      setMetadata(meta);
+
     }
+
   }, [node]);
 
 
+
   if (!metadata) {
+
     return null;
+
   }
 
+
+
+  const hasWarnings = warnings && warnings.length > 0;
+
+  const warningText = hasWarnings ? warnings.join('\n') : '';
+
+
+
   return (
+
     <NodeContainer styling={styling} height={height} width={defaultWidth}>
-      {/* If not the start node, the top left should be the default trigger */}
+
       {node.nodeType !== 'start' && (
+
         <Handle
-            key={`trigger-default`}
-            type="target"
-            position={Position.Left}
-            id={`trigger-default`}
-            style={{ ...handleBaseStyle, left: 0, top: `${IOTopOffset}px`}}
-            isConnectableStart={isConnecting}
-          >
-          <Box sx={{...handleContainerBoxStyle, left: 0}}>
-              <PlayArrowIcon style={{ color: '#fff', fontSize: `${IOIconSize}px`, margin: -5 }} />
-            </Box>
-        </Handle>
-      )}
-      {/* Inputs */}
-      {metadata.inputs.map((variable, index) => (
-        <Handle
-          key={`variable-${variable.value}`}
+
+          key={`trigger-default`}
+
           type="target"
+
           position={Position.Left}
-          id={`variable-${variable.value}`}
-          style={{ ...handleBaseStyle, left: 0, top: `${IOTopOffset + IOHeight + index * IOHeight}px` }}
+
+          id={`trigger-default`}
+
+          style={{ ...handleBaseStyle, left: 0, top: `${IOTopOffset}px` }}
+
           isConnectableStart={isConnecting}
-        >
-        <Box sx={{...handleContainerBoxStyle, left: 0}}>
-            <Box  style={inputOutputCircleStyle} />
-            <Typography 
-              variant="body1" 
-              fontSize="8px"
-              style={{ color: '#fff', marginLeft: '5px',zIndex: -1 }}
-            >
-                {variable.label}
-            </Typography>
-          </Box>
-        </Handle>
-      ))}
 
-      
-      <Box className="custom-drag-handle" style={dragHandleStyle}>
-        <DragIndicatorIcon sx={{ transform: 'rotate(90deg)' }} />
-      </Box>
-      
-      <Box sx={labelContainerStyle} onClick={onClicked}>
-        <Typography   
-          variant="body1"  
-          fontSize="1rem"
-          sx={{ color: styling.color, whiteSpace: "pre-wrap", zIndex: 0 }}
         >
-          {node.instanceName}
-        </Typography>
-      </Box>
-      
-      {/* Events */}
-      {!isConnecting && !readOnly && metadata.events.map((event, index) => (
-        <Handle
-          key={`event-${event}`}
-          type="source"
-          position={Position.Right}
-          id={`event-${event}`}
-          style={{ ...handleBaseStyle, right: 0, top: `${IOTopOffset + index * IOHeight}px`  }}
-        >
-        <Box sx={{...handleContainerBoxStyle, justifyContent: 'flex-start', right: 0 }}>
-            <Typography 
-              variant="body1" 
-              fontSize="8px"
-              style={{ color: '#fff', marginRight: '5px',  zIndex: -1 }}
-            >
-                {event}
-            </Typography>
-            <PlayArrowIcon style={{ color: '#fff', fontSize: `${IOIconSize}px`, margin: -5 }}  />
-          </Box>
-        </Handle>
-      ))}
-      {/* Outputs */}
-      {!isConnecting && !readOnly && metadata.outputs.map((output, index) => (
-        <Handle
-          key={`output-${output}`}
-          type="source"
-          position={Position.Right}
-          id={`output-${output}`}
-          style={{ ...handleBaseStyle, right: 0, top: `${IOTopOffset + (index + metadata.events.length) * IOHeight}px` }}
-        >
-        <Box sx={{...handleContainerBoxStyle, justifyContent: 'flex-start', right: 0 }}>
-              <Typography 
-                variant="body1" 
-                fontSize="8px"
-                style={{ color: '#fff', marginRight: '5px', zIndex: 0 }}
-              >
-                  {output}
-              </Typography>
-              <Box  style={inputOutputCircleStyle} />
-            </Box>
-        </Handle>
-      ))}
 
+          <div style={{ ...handleContainerStyle, color: '#fff' }}>
 
-      {/* Warnings */}
-      {warnings && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 2,
-            left: 2,
-            width: '20px',
-            height: '20px',
-            borderRadius: '50%',
-            backgroundColor: 'orange',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-        >
-          <Typography
-            variant="body1"
-            style={{ color: '#FFF', fontWeight: 'bold' }}
-          >
-            !
-          </Typography>
-        </Box>
+            <Play className="h-3.5 w-3.5" />
+
+          </div>
+
+        </Handle>
+
       )}
+
+
+
+      {metadata.inputs.map((variable, index) => (
+
+        <Handle
+
+          key={`variable-${variable.value}`}
+
+          type="target"
+
+          position={Position.Left}
+
+          id={`variable-${variable.value}`}
+
+          style={{ ...handleBaseStyle, left: 0, top: `${IOTopOffset + IOHeight + index * IOHeight}px` }}
+
+          isConnectableStart={isConnecting}
+
+        >
+
+          <div style={{ ...handleContainerStyle, color: '#fff' }}>
+
+            <span className="h-2 w-2 rounded-full bg-white/90" />
+
+            <span className="text-[10px] uppercase tracking-wider text-white/80">{variable.label}</span>
+
+          </div>
+
+        </Handle>
+
+      ))}
+
+
+
+      {!isConnecting && metadata.events.map((event, index) => (
+
+        <Handle
+
+          key={`event-${event.value}`}
+
+          type="source"
+
+          position={Position.Right}
+
+          id={`event-${event.value}`}
+
+          style={{ ...handleBaseStyle, right: 0, top: `${IOTopOffset + index * IOHeight}px` }}
+
+        >
+
+          <div style={{ ...handleContainerStyle, justifyContent: 'flex-end', color: '#fff' }}>
+
+            <span className="text-[10px] uppercase tracking-wider text-white/80">{event.label}</span>
+
+            <span className="h-2 w-2 rounded-full bg-white/90" />
+
+          </div>
+
+        </Handle>
+
+      ))}
+
+
+
+      {!isConnecting && metadata.outputs.map((output, index) => (
+
+        <Handle
+
+          key={`output-${output.value}`}
+
+          type="source"
+
+          position={Position.Right}
+
+          id={`output-${output.value}`}
+
+          style={{ ...handleBaseStyle, right: 0, top: `${IOTopOffset + (metadata.events.length + index) * IOHeight}px` }}
+
+        >
+
+          <div style={{ ...handleContainerStyle, justifyContent: 'flex-end', color: '#fff' }}>
+
+            <span className="text-[10px] uppercase tracking-wider text-white/80">{output.label}</span>
+
+            <span className="h-2 w-2 rounded-full bg-white/90" />
+
+          </div>
+
+        </Handle>
+
+      ))}
+
+
+
+      <div className={indicatorPillClasses}>
+
+        <GripVertical className="h-4 w-4" />
+
+      </div>
+
+
+
+      <div className={labelClasses} onClick={onClicked}>
+
+        <span
+
+          className="text-sm font-semibold tracking-wide"
+
+          style={{ color: styling?.color || '#f1f5f9' }}
+
+        >
+
+          {node.instanceName}
+
+        </span>
+
+        <span className="mt-1 text-[10px] uppercase tracking-[0.35em] text-white/40">{node.nodeType}</span>
+
+      </div>
+
+
+
+      {hasWarnings && (
+
+        <div className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-slate-900" title={warningText}>
+
+          <AlertCircle className="h-4 w-4" />
+
+        </div>
+
+      )}
+
     </NodeContainer>
+
   );
+
 });
 
+
+
 export default NodeGraphNode;
+

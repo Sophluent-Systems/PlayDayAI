@@ -1,33 +1,22 @@
+'use client';
 import React from 'react';
-import { Box } from '@mui/material';
-import { makeStyles } from 'tss-react/mui';
+import clsx from 'clsx';
 import { useAtom } from 'jotai';
 import { vhState } from '@src/client/states';
 
+export function StandardContentArea({ children, className = '', style }) {
+  const [vh] = useAtom(vhState);
+  const inlineStyle = { minHeight: String(vh || 0) + 'px', ...(style || {}) };
 
-const useStyles = makeStyles()((theme) => ({
-  contentContainer: {
-    display: 'flex',
-    flexDirection:"column",
-    justifyContent: 'flex-start',
-    alignItems: "center",
-    flex: 1,
-    paddingTop: theme.spacing(2),
-    backgroundColor: theme.palette.background.main, 
-  },
-}));
-
-
-export function StandardContentArea(props) {
-  const { classes } = useStyles();
-  const { children } = props;
-  const [vh, setVh] = useAtom(vhState);
-
-  return (<React.Fragment>
-       <Box className={classes.contentContainer} minHeight={`${vh}px`} >
-        { children }
-      </Box>
-      </React.Fragment>
+  return (
+    <div
+      className={clsx(
+        'flex w-full flex-1 flex-col items-center bg-slate-50 px-6 pb-10 pt-8 sm:px-8 lg:px-12',
+        className,
+      )}
+      style={inlineStyle}
+    >
+      {children}
+    </div>
   );
 }
-

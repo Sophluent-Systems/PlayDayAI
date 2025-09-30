@@ -1,31 +1,17 @@
 'use client';
 
-import { Paper, Box } from '@mui/material';
+import React from 'react';
+import clsx from 'clsx';
 
-export function InfoBubble(props) {
-  const { children } = props;
-
+export function InfoBubble({ children, className = '' }) {
   return (
-    <Paper
-      sx={{
-        width: '80%',
-        maxWidth: '800px',
-        padding: 2,
-        marginBottom: 2,
-        backgroundColor: 'background.paper',
-        boxShadow: '0 3px 5px rgba(0, 0, 0, 0.2)',
-        justifyContent: 'center',
-        alignItems: 'center',
-      }}
+    <div
+      className={clsx(
+        'relative w-full max-w-4xl rounded-3xl border border-slate-200 bg-white px-6 py-5 text-slate-900 shadow-[0_18px_45px_-25px_rgba(15,23,42,0.25)]',
+        className,
+      )}
     >
-      <Box
-        color="text.primary"
-        display="flex"
-        alignItems="center"
-        width="100%"
-      >
-        {children}
-      </Box>
-    </Paper>);
+      <div className="flex w-full items-start gap-4">{children}</div>
+    </div>
+  );
 }
-

@@ -1,39 +1,20 @@
+'use client';
 import { useRouter } from "next/router";
 import React, { memo, useState, useEffect, useRef } from "react";
 import { StandardContentArea } from "@src/client/components/standard/standardcontentarea";
 import { InfoBubble } from "@src/client/components/standard/infobubble";
 import { defaultAppTheme } from "@src/common/theme";
-import { Error as ErrorIcon } from "@mui/icons-material";
-import { makeStyles } from "tss-react/mui";
-import { CheckCircle } from "@mui/icons-material";
-import { Save } from "@mui/icons-material";
-import { DeleteForever } from "@mui/icons-material";
+import { AlertCircle, CheckCircle2, Play, Save, Trash2 } from "lucide-react";
 import { VersionSelector } from "@src/client/components/versionselector";
-import { PlayArrow } from "@mui/icons-material";
-import { useAtom } from 'jotai';
-import { vhState } from '@src/client/states';
-import { editorSaveRequestState, dirtyEditorState } from '@src/client/states';
-import {
-  Button,
-  Tooltip,
-  Box,
-  Typography,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  Paper,
-  Grid,
-  Menu,
-  MenuItem,
-} from "@mui/material";
+import { useAtom } from "jotai";
+import { vhState } from "@src/client/states";
+import { editorSaveRequestState, dirtyEditorState } from "@src/client/states";
 import {
   callGetVersionInfoForEdit,
   callReplaceAppVersion,
   callDeleteGameVersion,
 } from "@src/client/editor";
-import { useConfig } from '@src/client/configprovider';
+import { useConfig } from "@src/client/configprovider";
 import {
   objectDepthFirstSearch,
   flattenObject,
@@ -44,16 +25,15 @@ import { stateManager } from "@src/client/statemanager";
 import { diffLines, diffArrays } from "diff";
 import { nullUndefinedOrEmpty } from "@src/common/objects";
 import { NodeSettingsMenu } from "./nodesettingsmenu";
-import { SettingsMenu } from '@src/client/components/settingsmenus/settingsmenu';
+import { SettingsMenu } from "@src/client/components/settingsmenus/settingsmenu";
 import { VersionTemplates } from "./versiontemplates";
 import { NodeGraphDisplay } from "./graphdisplay/nodegraphdisplay";
 import { v4 as uuidv4 } from "uuid";
-import { ModalMenu } from '@src/client/components/standard/modalmenu';
-import ReactMarkdown from 'react-markdown';
-import { replacePlaceholderSettingWithFinalValue } from '@src/client/components/settingsmenus/menudatamodel';
-import{ getMetadataForNodeType } from '@src/common/nodeMetadata';
-import { getAddableNodeTypes } from '@src/common/nodeMetadata';
-import { analyticsReportEvent} from "@src/client/analytics";
+import { ModalMenu } from "@src/client/components/standard/modalmenu";
+import ReactMarkdown from "react-markdown";
+import { replacePlaceholderSettingWithFinalValue } from "@src/client/components/settingsmenus/menudatamodel";
+import { getMetadataForNodeType, getAddableNodeTypes } from "@src/common/nodeMetadata";
+import { analyticsReportEvent } from "@src/client/analytics";
 
 import "ace-builds/src-noconflict/mode-javascript";
 import "ace-builds/src-noconflict/theme-monokai";
@@ -78,97 +58,78 @@ const globalOptions = [
 
 const addableNodeTypes = getAddableNodeTypes();
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const { colors, fonts } = pageTheme;
-  return {
-    inputField: {
-      marginTop: theme.spacing(2),
-      marginBottom: theme.spacing(2),
-    },
-    themeEditorContainer: {
-      padding: theme.spacing(2),
-      marginBottom: theme.spacing(2),
-      borderWidth: 1,
-      borderColor: theme.palette.primary.main,
-      borderStyle: "solid",
-      borderRadius: theme.shape.borderRadius,
-      backgroundColor: theme.palette.background.main,
-      marginTop: theme.spacing(4),
-      width: "100%",
-    },
-    themeEditorTitle: {
-      marginBottom: theme.spacing(2),
-    },
-    themeEditorField: {
-      marginBottom: theme.spacing(2),
-      padding: theme.spacing(1),
-    },
-    scenarioStyle: {
-      padding: "8px",
-      marginBottom: "8px",
-      border: "1px solid #ccc",
-      borderRadius: "4px",
-      backgroundColor: colors.inputAreaTextEntryBackgroundColor,
-    },
-    outputDataFieldsStyle: {
-      padding: "8px",
-      marginBottom: "8px",
-      border: "1px solid #ccc",
-      borderRadius: "4px",
-      backgroundColor: colors.inputAreaTextEntryBackgroundColor,
-    },
-    gameTypography: {
-      fontSize: '1.5em',
-      fontWeight: 'bold',
-      textTransform: 'uppercase',
-      letterSpacing: '0.2em',
-      fontFamily: fonts.titleFont,
-      color: colors.titleFontColor,
-      left: 0, 
-      right: 0,
-      textAlign: 'center',
-      textShadow: `0px 0px 10px ${theme.palette.text.secondary}`,
-      marginBottom: '0',
-    },
-    versionTypography: {
-      fontSize: '1.5em',
-      letterSpacing: '0.2em',
-      fontFamily: fonts.titleFont,
-      color: colors.titleFontColor,
-      left: 0, 
-      right: 0,
-      textAlign: 'center',
-      marginBottom: '0',
-    },
-  };
-});
+function DialogShell({ open, onClose, title, description, children, actions, maxWidth = "max-w-lg" }) {
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
 
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        onClose?.();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4"
+      onClick={onClose}
+    >
+      <div
+        className={`relative w-full ${maxWidth} rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {title ? (
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
+        ) : null}
+        {description ? (
+          <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{description}</p>
+        ) : null}
+        {children ? (
+          <div className={title || description ? "mt-4" : ""}>{children}</div>
+        ) : null}
+        {actions ? (
+          <div className="mt-6 flex flex-wrap justify-end gap-3">{actions}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 export function TemplateChooser({ templateChosen }) {
   const handleTemplateClick = (template) => {
-      if (templateChosen) {
-          templateChosen(template);
-      }
+    if (templateChosen) {
+      templateChosen(template);
+    }
   };
 
   return (
-      <Grid container spacing={2} justifyContent="center">
-          {VersionTemplates.map((template, index) => (
-              <Grid item key={index} xs={12} sm={6} md={4} lg={3}>
-               <Button onClick={() => handleTemplateClick(template)}  >
-                  <Paper elevation={3} sx={{ padding: 2, textAlign: 'center' }}>
-                          {template.icon}
-                      <Typography variant="h6" component="div" sx={{ marginTop: 1 }}>
-                          {template.label}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                          {template.description}
-                      </Typography>
-                  </Paper>
-                </Button>
-              </Grid>
-          ))}
-      </Grid>
+    <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {VersionTemplates.map((template, index) => (
+        <button
+          key={template.label || index}
+          type="button"
+          onClick={() => handleTemplateClick(template)}
+          className="group flex h-full flex-col items-center rounded-lg border border-slate-200 bg-white p-4 text-center shadow-sm transition hover:-translate-y-1 hover:border-slate-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+        >
+          <div className="mb-3 text-slate-500 group-hover:text-slate-900 dark:text-slate-400 dark:group-hover:text-slate-200">
+            {template.icon}
+          </div>
+          <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">{template.label}</div>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{template.description}</p>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -176,7 +137,6 @@ function VersionEditor(props) {
   const { Constants } = useConfig();
   const router = useRouter();
   const { versionName } = router.query;
-  const { classes } = useStyles(defaultAppTheme);
   const {
     loading,
     account,
@@ -196,9 +156,8 @@ function VersionEditor(props) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [readOnly, setreadOnly] = useState(true);
   const [settingsDiff, setSettingsDiff] = useState(null);
-  const [menu, setMenu] = useState([]);
   const [vh] = useAtom(vhState);
-  const [addNodeAnchorEl, setAddNodeAnchorEl] = useState(null);
+  const [showAddNodeMenu, setShowAddNodeMenu] = useState(false);
   const settingsDiffTimeoutId = useRef(null);
   const versionInfoUpdateTimeoutId = useRef(null);
   const [modalEditingMode, setModalEditingMode] = useState(undefined);
@@ -208,6 +167,14 @@ function VersionEditor(props) {
   const [useAppKeysDialogOpen, setUseAppKeysDialogOpen] = useState(false);
 
   const gameTheme = game?.theme ? game.theme : defaultAppTheme;
+
+  const buttonStyles = {
+    subtle: "inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-slate-700",
+    primary: "inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 dark:focus:ring-slate-300",
+    accent: "inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-60",
+    danger: "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-rose-500 dark:hover:bg-rose-400 dark:focus:ring-rose-300",
+    outline: "inline-flex items-center gap-2 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-slate-500",
+  };
 
   async function submitNewVersionInfo() {
     console.log("++++++++++++++++++ SUBMITTING NEW VERSION INFO");
@@ -282,6 +249,12 @@ function VersionEditor(props) {
   }, [version]);
 
   useEffect(() => {
+    if (readOnly) {
+      setShowAddNodeMenu(false);
+    }
+  }, [readOnly]);
+
+  useEffect(() => {
     const handleBeforeUnload = (event) => {
       if (dirtyEditor) {
         // Display a confirmation dialog
@@ -340,8 +313,6 @@ function VersionEditor(props) {
         console.log("Error fetching version info:", error);
         router.replace("/");
       }
-    } else {
-      setMenu([]);
     }
   }
 
@@ -485,31 +456,28 @@ function VersionEditor(props) {
               if (part.added || part.removed) {
                 Constants.debug.logVersionDiffs && console.log("PRINTING DIFF: ", part.value);
                 return (
-                  <Typography
-                    key={index}
+                  <div
+                    key={`diff-${index}`}
                     style={{ color, display: "block" }}
-                    component="div"
                   >
                     <ReactMarkdown>{part.value + "\n\n"}</ReactMarkdown>
-                  </Typography>
+                  </div>
                 );
               }
             });
           }
 
-          setSettingsDiff(<Box sx={{ width: "100%" }}>{renderDiff}</Box>);
+          setSettingsDiff(<div className="w-full">{renderDiff}</div>);
       }, 300); // delay
   }
 
 
-  const handleAddNodeClose = () => {
-    setAddNodeAnchorEl(null);
-  };
-
-
-  const handleAddNode = (templateName) => {    
-    handleAddNodeClose();
-    onNodeStructureChange(null, "add", {templateName});
+  const handleAddNode = (templateName) => {
+    if (readOnly) {
+      return;
+    }
+    setShowAddNodeMenu(false);
+    onNodeStructureChange(null, "add", { templateName });
   };
 
   
@@ -955,118 +923,128 @@ function VersionEditor(props) {
   }
 
   return (
-    <Box
-      style={{
-        height: "100%",
-        width: "100%",
-        display: "flex",
-        overflowY: "auto",
-        flexDirection: "column",
-        position: "relative",
-      }}
-    >
+    <div className="relative flex h-full w-full flex-col overflow-y-auto">
       <StandardContentArea>
       
-      <Box sx={{ 
-        width: "60%",
-        justifyContent: 'space-between', 
-        display: 'flex',  
-        flexDirection: 'row',
-        marginTop: 1, 
-        }}
-        >
-        <VersionSelector allowNewGameOption={true} firstOptionUnselectable dropdown={true} chooseMostRecent={true}  />
-        
-        <Box sx={{ display: "flex", flexDirection: 'column' }}>
-          <Typography className={classes.gameTypography} >
+      <div className="mx-auto mt-4 flex w-full flex-col gap-4 md:w-3/5 md:flex-row md:items-center md:justify-between">
+        <div className="w-full md:w-auto">
+          <VersionSelector allowNewGameOption={true} firstOptionUnselectable dropdown={true} chooseMostRecent={true} />
+        </div>
+
+        <div className="flex flex-col items-center text-center md:items-end md:text-right">
+          <p
+            className="mb-0 text-xl font-semibold uppercase tracking-[0.2em]"
+            style={{
+              fontFamily: gameTheme?.fonts?.titleFont,
+              color: gameTheme?.colors?.titleFontColor,
+              textShadow: gameTheme?.palette?.textSecondary
+                ? "0px 0px 10px " + gameTheme.palette.textSecondary
+                : undefined,
+            }}
+          >
             {game ? game.title : "Loading"}
-          </Typography>
-          <Typography className={classes.versionTypography}>
+          </p>
+          <p
+            className="mb-0 text-xl tracking-[0.2em]"
+            style={{
+              fontFamily: gameTheme?.fonts?.titleFont,
+              color: gameTheme?.colors?.titleFontColor,
+            }}
+          >
             {versionInfo ? versionInfo.versionName : ""}
-          </Typography>
-        </Box>
-      </Box>
+          </p>
+        </div>
+      </div>
         {!versionName ? 
           renderWithFormatting(<h1>Select a version from the dropdown above (or hit + to add one)</h1>)
         : (!versionInfo) ? 
           renderWithFormatting(<h1>Loading...</h1>)        
         : (
-          <Box sx={{width:"100%", padding: 5}}>
+          <div className="w-full p-5">
 
               {newVersionInfoRef.current?.stateMachineDescription?.nodes ? (
-                  <Box>
-
-                    <Box sx={{ display: "flex", gap: "8px", justifyContent: 'flex-end', flexDirection: 'row', width: '100%', pr:2 }}>
-                        <Button
-                          variant="outlined"
-                          color="primary"
-                          className={classes.inputfield}
-                          onClick={handleDiscardChanges}
-                          disabled={!dirtyEditor}
-                          startIcon={<DeleteForever />}
-                        >
-                          Discard changes
-                        </Button>
-                        <Button
-                          variant="contained"
-                          color="primary"
-                          className={classes.inputfield}
-                          onClick={submitNewVersionInfo}
-                          disabled={readOnly || !dirtyEditor}
-                          startIcon={<Save />}
-                        >
-                          Save changes
-                          {dirtyEditor ? (
-                            <Tooltip title="Unsaved changes">
-                              <Box marginLeft={1}>
-                                <ErrorIcon color="error" />
-                              </Box>
-                            </Tooltip>
-                          ) : isUpdated ? (
-                            <Tooltip title="Changes saved">
-                              <Box marginLeft={1}>
-                                <CheckCircle color="action" />
-                              </Box>
-                            </Tooltip>
-                          ) : null}
-                        </Button>
-                        <Button
-                          variant="contained"
-                          color="secondary"
-                          onClick={() =>
-                            router.push(
-                              `/play/${game.url}?versionName=${versionInfo.versionName}`
-                            )
-                          }
-                          startIcon={<PlayArrow />}
-                        >
-                          Play
-                        </Button>
-                    </Box>
-                     <Box sx={{ padding: 2, height: `${vh-200}px`, width: "100%" }}>
-                        <NodeGraphDisplay 
-                              theme={gameTheme}
-                              versionInfo={newVersionInfoRef.current} 
-                              onNodeClicked={handleOpenNodeSettingsMenu}
-                              onNodeStructureChange={onNodeStructureChange}
-                              onEdgeClicked={handleOpenInputSettingsMenu}
-                              onPersonaListChange={onPersonaListChange}
-                              sx={{ margin: 2, height: '100%', width: "100%", backgroundColor: "green"  }}
-                              readOnly={readOnly}
-                        />
-                    </Box>
-                  
-                    
-                    <Menu
-                      id="node-type-menu"
-                      anchorEl={addNodeAnchorEl}
-                      keepMounted
-                      open={Boolean(addNodeAnchorEl)}
-                      onClose={handleAddNodeClose}
+                  <div className="space-y-4">
+                    <div className="flex w-full justify-end gap-2 pr-2">
+                      <button
+                        type="button"
+                        onClick={handleDiscardChanges}
+                        disabled={!dirtyEditor}
+                        className={buttonStyles.subtle}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Discard changes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={submitNewVersionInfo}
+                        disabled={readOnly || !dirtyEditor}
+                        className={buttonStyles.primary}
+                      >
+                        <Save className="h-4 w-4" />
+                        Save changes
+                        {dirtyEditor ? (
+                          <span title="Unsaved changes" className="ml-2 inline-flex items-center text-red-500">
+                            <AlertCircle className="h-5 w-5" />
+                          </span>
+                        ) : isUpdated ? (
+                          <span title="Changes saved" className="ml-2 inline-flex items-center text-slate-400">
+                            <CheckCircle2 className="h-5 w-5" />
+                          </span>
+                        ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          router.push('/play/' + game.url + '?versionName=' + versionInfo.versionName)
+                        }
+                        className={buttonStyles.accent}
+                      >
+                        <Play className="h-4 w-4" />
+                        Play
+                      </button>
+                    </div>
+                    <div
+                      className="w-full p-2"
+                      style={{ height: `${vh - 200}px` }}
                     >
-                      {addableNodeTypes.map((addableTemplate,index) =>  <MenuItem key={`addNode${index}`} onClick={() => handleAddNode(addableTemplate.nodeType)}>{addableTemplate.label}</MenuItem>)}
-                    </Menu>
-                  </Box>
+                      <NodeGraphDisplay
+                        theme={gameTheme}
+                        versionInfo={newVersionInfoRef.current}
+                        onNodeClicked={handleOpenNodeSettingsMenu}
+                        onNodeStructureChange={onNodeStructureChange}
+                        onEdgeClicked={handleOpenInputSettingsMenu}
+                        onPersonaListChange={onPersonaListChange}
+                        style={{ margin: 8, height: '100%', width: '100%', backgroundColor: 'green' }}
+                        readOnly={readOnly}
+                      />
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddNodeMenu((prev) => !prev)}
+                        disabled={readOnly}
+                        className={buttonStyles.subtle}
+                      >
+                        {showAddNodeMenu ? 'Close node menu' : 'Add node'}
+                      </button>
+                    </div>
+                    {showAddNodeMenu ? (
+                      <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                        {addableNodeTypes.map((addableTemplate) => (
+                          <button
+                            key={`addNode-${addableTemplate.nodeType}`}
+                            type="button"
+                            onClick={() => handleAddNode(addableTemplate.nodeType)}
+                            disabled={readOnly}
+                            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800"
+                          >
+                            {addableTemplate.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                 </div>
                 ) : (
 
                   <TemplateChooser
@@ -1086,25 +1064,20 @@ function VersionEditor(props) {
 
 
 
-              <Box
-                display="flex"
-                justifyContent="center"
-                marginTop={4}
-                marginBottom={2}
-              >
-                <Button
-                  variant="contained"
-                  color="error"
+              <div className="mt-4 mb-2 flex justify-center">
+                <button
+                  type="button"
                   onClick={handleDeleteVersion}
                   disabled={readOnly}
+                  className={buttonStyles.danger}
                 >
                   Delete version
-                </Button>
-              </Box>
+                </button>
+              </div>
 
               {dirtyEditor && settingsDiff}
 
-            </Box>
+            </div>
           )}
       </StandardContentArea>
       {modalEditingMode && 
@@ -1146,130 +1119,149 @@ function VersionEditor(props) {
           }
         </ModalMenu>
       }
-      <Dialog
+      <DialogShell
         open={deleteDialogOpen}
         onClose={handleCancelDelete}
-        aria-labelledby="delete-version-dialog-title"
-        aria-describedby="delete-version-dialog-description"
-      >
-        <DialogTitle id="delete-version-dialog-title">
-          Delete Game Version
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText id="delete-version-dialog-description">
-            Are you sure you want to permanently delete this app version? This
-            action cannot be undone.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCancelDelete} color="primary">
-            Cancel
-          </Button>
-          <Button onClick={handleConfirmDelete} color="error" autoFocus>
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
+        title="Delete Game Version"
+        description="Are you sure you want to permanently delete this app version? This action cannot be undone."
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={handleCancelDelete}
+              className={buttonStyles.outline}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDelete}
+              className={buttonStyles.danger}
+            >
+              Delete
+            </button>
+          </>
+        }
+      />
 
 
-      <Dialog
+      <DialogShell
         open={discardChangesDialogOpen}
         onClose={() => setDiscardChangesDialogOpen(false)}
-        aria-labelledby="delete-version-dialog-title"
-        aria-describedby="delete-version-dialog-description"
+        title="Discard Changes"
+        description="Are you sure you want to permanently undo all unsaved changes?"
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => setDiscardChangesDialogOpen(false)}
+              className={buttonStyles.outline}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => doDiscardChanges()}
+              className={buttonStyles.danger}
+            >
+              Discard
+            </button>
+          </>
+        }
+      />
+      <DialogShell
+        open={publishDialogOpen}
+        onClose={() => setPublishDialogOpen(false)}
+        title="Choose Publishing Mode"
+        description="Please select how you want to publish this version:"
+        maxWidth="max-w-2xl"
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              setPublishDialogOpen(false);
+              onVariableChanged(newVersionInfoRef.current, "published", false);
+            }}
+            className={buttonStyles.outline}
+          >
+            Cancel
+          </button>
+        }
       >
-        <DialogTitle id="delete-version-dialog-title">
-          Discard Changes
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText id="delete-version-dialog-description">
-            Are you sure you want to permanently undo all unsaved changes?.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDiscardChangesDialogOpen(false)} color="primary">
-            Cancel
-          </Button>
-          <Button onClick={() => doDiscardChanges()} color="error" autoFocus>
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <Dialog open={publishDialogOpen} onClose={() => setPublishDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Choose Publishing Mode</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Please select how you want to publish this version:
-          </DialogContentText>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-            <Button
-              variant="outlined"
+        <div className="mt-4 flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              onVariableChanged(newVersionInfoRef.current, "published", true);
+              onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
+              setPublishDialogOpen(false);
+            }}
+            className={buttonStyles.outline}
+          >
+            Require users to provide their own keys (Recommended)
+          </button>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Users get billed for their usage. If they don't configure API keys, your app will fail for them. You won't be billed for their usage.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              onVariableChanged(newVersionInfoRef.current, "published", true);
+              setPublishDialogOpen(false);
+              setUseAppKeysDialogOpen(true);
+            }}
+            className={buttonStyles.outline}
+          >
+            Your API keys are billed for all usage (Caution)
+          </button>
+          <p className="text-sm text-rose-600 dark:text-rose-400">
+            Warning: Users will use the API keys configured in your app's settings. You'll be billed for all users' API calls. This can lead to significant costs if not managed carefully.
+          </p>
+        </div>
+      </DialogShell>
+      <DialogShell
+        open={useAppKeysDialogOpen}
+        onClose={() => setUseAppKeysDialogOpen(false)}
+        title="Warning: Using App's AI Keys"
+        actions={
+          <>
+            <button
+              type="button"
               onClick={() => {
-                onVariableChanged(newVersionInfoRef.current, "published", true);
+                setUseAppKeysDialogOpen(false);
                 onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
-                setPublishDialogOpen(false);
               }}
+              className={buttonStyles.outline}
             >
-              Require users to provide their own keys (Recommended)
-            </Button>
-            <Typography variant="body2">
-              Users get billed for their usage. If they don't configure API keys, your app will fail for them. You won't be billed for their usage.
-            </Typography>
-
-            <Button
-              variant="outlined"
-              sx={{marginTop: 3}}
+              Cancel
+            </button>
+            <button
+              type="button"
               onClick={() => {
-                onVariableChanged(newVersionInfoRef.current, "published", true);
-                setPublishDialogOpen(false);
-                setUseAppKeysDialogOpen(true);
+                onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", true);
+                setUseAppKeysDialogOpen(false);
               }}
+              className={buttonStyles.primary}
             >
-               Your API keys are billed for all usage (Caution)
-            </Button>
-            <Typography variant="body2" color="error">
-              Warning: Users will use the API keys configured in your app's settings. You'll be billed for all users' API calls. This can lead to significant costs if not managed carefully.
-            </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setPublishDialogOpen(false);
-            onVariableChanged(newVersionInfoRef.current, "published", false);
-          }}>Cancel</Button>
-        </DialogActions>
-      </Dialog>
-      <Dialog open={useAppKeysDialogOpen} onClose={() => setUseAppKeysDialogOpen(false)}>
-        <DialogTitle>Warning: Using App's AI Keys</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            You've chosen to use the app's AI keys for all users. This means:
-            
-            1. All API calls will be billed to your account.
-            2. Users won't need to provide their own API keys.
-            3. Your costs may increase significantly based on usage.
-            
-            Please ensure you have appropriate access controls and usage limits in place to prevent unexpected charges.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setUseAppKeysDialogOpen(false);
-            onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
-          }}>
-            Cancel
-          </Button>
-          <Button onClick={() => {
-            onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", true);
-            setUseAppKeysDialogOpen(false);
-          }} 
-          color="primary">
-            I Understand
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+              I Understand
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+          <p>You've chosen to use the app's AI keys for all users. This means:</p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>All API calls will be billed to your account.</li>
+            <li>Users won't need to provide their own API keys.</li>
+            <li>Your costs may increase significantly based on usage.</li>
+          </ul>
+          <p>Please ensure you have appropriate access controls and usage limits in place to prevent unexpected charges.</p>
+        </div>
+      </DialogShell>
+    </div>
   );
 }
 
 export default memo(VersionEditor);
+
+

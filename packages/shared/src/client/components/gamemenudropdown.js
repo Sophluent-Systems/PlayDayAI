@@ -101,7 +101,7 @@ function getCachedVersions(accountID, gameUrl) {
   return request;
 }
 
-function MenuPanel({ anchorRect, isOpen, children, onClose }) {
+function MenuPanel({ anchorRect, anchorElement, isOpen, children, onClose }) {
   const panelRef = useRef(null);
 
   useEffect(() => {
@@ -109,9 +109,14 @@ function MenuPanel({ anchorRect, isOpen, children, onClose }) {
       if (!isOpen) {
         return;
       }
-      if (panelRef.current && !panelRef.current.contains(event.target)) {
-        onClose();
+      // Don't close if clicking inside the panel or on the anchor button
+      if (
+        (panelRef.current && panelRef.current.contains(event.target)) ||
+        (anchorElement && anchorElement.contains(event.target))
+      ) {
+        return;
       }
+      onClose();
     }
 
     function handleKey(event) {
@@ -120,14 +125,14 @@ function MenuPanel({ anchorRect, isOpen, children, onClose }) {
       }
     }
 
-    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('click', handleClick);
     document.addEventListener('keydown', handleKey);
 
     return () => {
-      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('click', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, anchorElement]);
 
   if (!isOpen || !anchorRect) {
     return null;
@@ -602,7 +607,7 @@ export function GameMenuDropdown({
   const combinedVersions = versions.length > 0 ? versions : versionList || [];
 
   return (
-    <MenuPanel anchorRect={anchorRect} isOpen={menuOpen} onClose={() => onMenuClose?.()}>
+    <MenuPanel anchorRect={anchorRect} anchorElement={anchor} isOpen={menuOpen} onClose={() => onMenuClose?.()}>
       <div className="overflow-hidden">
         <div className="border-b border-border/60 bg-gradient-to-r from-primary/12 via-surface/60 to-transparent px-5 py-4">
           <div className="flex items-center justify-between gap-4">

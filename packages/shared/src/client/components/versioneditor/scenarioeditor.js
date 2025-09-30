@@ -116,8 +116,8 @@ export function ScenarioEditor(props) {
       </Typography>
       <List>
         {(localCatalog && localCatalog.length > 0) ? localCatalog.map((scenario, index) => (
-        <Paper key={index} className={classes.scenarioStyle}>
-          <ListItem key={index}>
+        <Paper key={`scenario-${index}`} className={classes.scenarioStyle}>
+          <ListItem key={`scenario-${index}-item`}>
             {editingScenarioIndex === index ? (
               <Grid container alignItems="flex-start">
                 <Grid item xs={12} margin={1}>
@@ -172,3 +172,4 @@ export function ScenarioEditor(props) {
     </Box>
   );
 }
+

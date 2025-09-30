@@ -1,13 +1,10 @@
-import AddCircleIcon from '@mui/icons-material/AddCircle';
-import ChatIcon from '@mui/icons-material/Chat';
-import GavelIcon from '@mui/icons-material/Gavel';
-import ShieldIcon from '@mui/icons-material/Shield';
+import { PlusCircle, MessageSquare, Gavel, Shield } from "lucide-react";
 
 export const VersionTemplates = [
     {
         label: "Empty",
         description: "An empty version with only an input node.",
-        icon: <AddCircleIcon fontSize='large' />,
+        icon: <PlusCircle className='h-7 w-7' />,
         nodes: [
             {
               "nodeType": "start",
@@ -22,7 +19,7 @@ export const VersionTemplates = [
     {
         label: "Basic Assistant",
         description: "A basic assistant that responds to user input.",
-        icon: <ChatIcon fontSize='large' />,
+        icon: <MessageSquare className='h-7 w-7' />,
         nodes: [
           {
             "nodeType": "start",

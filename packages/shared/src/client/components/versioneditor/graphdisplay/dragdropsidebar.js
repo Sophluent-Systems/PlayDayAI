@@ -1,84 +1,86 @@
-import React from 'react';
-// import MUI typography
-import {
-    Typography,
-    Box,
-    Paper,
-} from '@mui/material';
-import { NodeContainer } from './nodecontainer';
-import { getPersonaFromLocation } from '@src/common/personainfo';
+'use client';
+import React from "react";
+import { NodeContainer } from "./nodecontainer";
+import { getPersonaFromLocation } from "@src/common/personainfo";
 import { getMessageStyling } from "@src/client/themestyling";
-import { getAddableNodeTypes } from '@src/common/nodeMetadata';
-import { getMetadataForNodeType } from '@src/common/nodeMetadata';
+import { getAddableNodeTypes } from "@src/common/nodeMetadata";
+import { getMetadataForNodeType } from "@src/common/nodeMetadata";
 
 const addableNodeTypes = getAddableNodeTypes();
 
-export const DragDropSidebar = (params) => {
-  const { theme, versionInfo, readOnly } = params;
+export const DragDropSidebar = ({ theme, versionInfo, readOnly }) => {
   const nodes = versionInfo.stateMachineDescription.nodes;
+
   const onDragStart = (event, nodeType) => {
-    event.dataTransfer.setData('application/reactflow', nodeType);
-    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData("application/reactflow", nodeType);
+    event.dataTransfer.effectAllowed = "move";
   };
-  
+
   if (!nodes) {
     return null;
   }
 
   return (
-      <Box sx={{
-        height: "100%",
-        width: "100%",
-        overflowY: "auto",
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 2, // Adjust the gap between items as needed
-        padding: 1,
-        // Other styles as needed, e.g., padding, background, etc.
-        }}
-      >
-        <Box sx={{width: '100%', marginBottom: '10px'}}>
-            <Typography variant="body1">Add a blank node from a template:</Typography>
-        </Box>
-        {addableNodeTypes.map((addableTemplate,index) => {
-            const nodeMetadata = getMetadataForNodeType(addableTemplate.nodeType);
-            const template = nodeMetadata.newNodeTemplate;
-            const nodeAttributes =  nodeMetadata.nodeAttributes;
-            const personaLocation = {
-              source: "builtin",
-              personaID: nodeMetadata.defaultPersona,
-            };
-            const persona = getPersonaFromLocation(versionInfo, personaLocation);
-            let styling = getMessageStyling(["text"], persona);
-            return (
-            <NodeContainer key={addableTemplate.nodeType} width={180} height={40} styling={styling} onDragStart={(event) => (!readOnly) && onDragStart(event, JSON.stringify({action: "add", template: addableTemplate.nodeType}))} draggable >
-                <Typography variant="body1" style={{ fontWeight: 'bold', color: styling.color }}>
-                    {addableTemplate.label}
-                </Typography>
-            </NodeContainer>
-            );
+    <div className="flex h-full w-full flex-wrap gap-3 overflow-y-auto p-4">
+      <div className="w-full text-xs font-semibold uppercase tracking-[0.35em] text-slate-300/90">
+        Add a blank node from a template
+      </div>
+      {addableNodeTypes.map((addableTemplate) => {
+        const nodeMetadata = getMetadataForNodeType(addableTemplate.nodeType);
+        const personaLocation = {
+          source: "builtin",
+          personaID: nodeMetadata.defaultPersona,
+        };
+        const persona = getPersonaFromLocation(versionInfo, personaLocation);
+        const styling = getMessageStyling(["text"], persona);
 
-        })}
-        <Box sx={{width: '100%', marginBottom: '10px'}}>
-            <Typography variant="body1">Or duplicate an existing node:</Typography>
-        </Box>
-        {nodes.map((node) => {
-            const nodeMetadata = getMetadataForNodeType(node.nodeType);
-            const nodeAttributes =  nodeMetadata.nodeAttributes;
-            const personaLocation = {
-              source: "builtin",
-              personaID: nodeMetadata.defaultPersona,
-            };
-            const persona = getPersonaFromLocation(versionInfo, personaLocation);
-            let styling = getMessageStyling(["text"], persona);
-            return (
-            <NodeContainer key={node.instanceID} width={180} height={40} styling={styling} onDragStart={(event) => (!readOnly) && onDragStart(event, JSON.stringify({action: "duplicate", node: node}))} draggable >
-                <Typography variant="body1" style={{ fontWeight: 'bold', color: styling.color }}>
-                    {node.instanceName}
-                </Typography>
-            </NodeContainer>
-            );
-        })}
-      </Box>
+        return (
+          <NodeContainer
+            key={addableTemplate.nodeType}
+            width={180}
+            height={48}
+            styling={styling}
+            draggable={!readOnly}
+            onDragStart={(event) =>
+              !readOnly && onDragStart(event, JSON.stringify({ action: "add", template: addableTemplate.nodeType }))
+            }
+          >
+            <span className="text-sm font-semibold" style={{ color: styling.color }}>
+              {addableTemplate.label}
+            </span>
+          </NodeContainer>
+        );
+      })}
+
+      <div className="w-full pt-4 text-xs font-semibold uppercase tracking-[0.35em] text-slate-300/90">
+        Or duplicate an existing node
+      </div>
+      {nodes.map((node) => {
+        const nodeMetadata = getMetadataForNodeType(node.nodeType);
+        const personaLocation = {
+          source: "builtin",
+          personaID: nodeMetadata.defaultPersona,
+        };
+        const persona = getPersonaFromLocation(versionInfo, personaLocation);
+        const styling = getMessageStyling(["text"], persona);
+
+        return (
+          <NodeContainer
+            key={node.instanceID}
+            width={180}
+            height={48}
+            styling={styling}
+            draggable={!readOnly}
+            onDragStart={(event) =>
+              !readOnly && onDragStart(event, JSON.stringify({ action: "duplicate", node }))
+            }
+          >
+            <span className="truncate text-sm font-semibold" style={{ color: styling.color }}>
+              {node.instanceName}
+            </span>
+          </NodeContainer>
+        );
+      })}
+    </div>
   );
 };

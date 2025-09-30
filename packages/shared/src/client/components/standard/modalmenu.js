@@ -1,43 +1,45 @@
-import React, { useState, useEffect } from 'react';
-import Modal from '@mui/material/Modal';
-import Box from '@mui/material/Box';
-import IconButton from '@mui/material/IconButton';
-import CloseIcon from '@mui/icons-material/Close';
-import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogTitle from '@mui/material/DialogTitle';
+'use client';
+import React, { useState } from "react";
+import clsx from "clsx";
+import { X } from "lucide-react";
 
-const style = {
-  position: 'absolute',
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: '90%',
-  maxHeight: '90%',
-  bgcolor: 'background.paper',
-  boxShadow: 24,
-  p: 4,
-  overflow: 'auto',
-};
+function ActionButton({ tone = "neutral", variant = "solid", className = "", children, ...props }) {
+  const baseClasses = "inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition";
+  const solidMap = {
+    neutral: "border border-slate-200 bg-slate-100 text-slate-900 hover:bg-slate-200",
+    primary: "border border-sky-500/90 bg-sky-500 text-white hover:bg-sky-400",
+    danger: "border border-rose-500/90 bg-rose-500 text-white hover:bg-rose-400",
+  };
+  const outlineMap = {
+    neutral: "border border-slate-300 text-slate-700 hover:bg-slate-100",
+    primary: "border border-sky-500 text-sky-600 hover:bg-sky-50",
+    danger: "border border-rose-500 text-rose-600 hover:bg-rose-50",
+  };
+
+  const palette = variant === "solid" ? solidMap : outlineMap;
+  const toneClasses = palette[tone] || solidMap.neutral;
+
+  return (
+    <button type="button" className={clsx(baseClasses, toneClasses, className)} {...props}>
+      {children}
+    </button>
+  );
+}
 
 export function ModalMenu({ children, onCloseRequest, onConfirm }) {
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [confirmMessage, setConfirmMessage] = useState("");
 
-
-  const handleClose = async () => {
-    onConfirm?.(false);
+  const handleClose = () => {
     if (!onConfirm) {
       onCloseRequest?.();
-    } else {
-      setConfirmMessage("Are you sure you want to close without saving?");
-      setConfirmDialogOpen(true);
-      onConfirm?.(false);
+      return;
     }
+
+    setConfirmDialogOpen(true);
+  };
+
+  const handleCancelClose = () => {
+    setConfirmDialogOpen(false);
   };
 
   const handleConfirmClose = () => {
@@ -46,53 +48,58 @@ export function ModalMenu({ children, onCloseRequest, onConfirm }) {
   };
 
   const handleOnConfirm = (confirmed) => {
-    onConfirm(confirmed);
-    onCloseRequest?.();
-  }
+    onConfirm?.(confirmed);
+    if (confirmed) {
+      onCloseRequest?.();
+    }
+  };
 
   return (
-    <div>
-      <Modal
-        open={true}
-        onClose={handleClose}
-        aria-labelledby="modal-modal-title"
-        aria-describedby="modal-modal-description"
-      >
-        <Box sx={style}>
-          <IconButton 
-            aria-label="close" 
-            onClick={handleClose} 
-            sx={{ position: 'absolute', right: 8, top: 8 }}
+    <>
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 backdrop-blur-sm">
+        <div className="relative w-full max-w-4xl rounded-3xl border border-slate-200 bg-white p-8 text-slate-900 shadow-2xl">
+          <button
+            type="button"
+            onClick={handleClose}
+            className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 text-slate-500 transition hover:border-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close"
           >
-            <CloseIcon />
-          </IconButton>
-          {children}
+            <X className="h-5 w-5" />
+          </button>
+
+          <div className="max-h-[75vh] overflow-y-auto pr-1">{children}</div>
 
           {onConfirm && (
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
-              <Button onClick={() => handleOnConfirm(false)} variant='outlined' sx={{margin:1}} >Cancel</Button>
-              <Button onClick={() => handleOnConfirm(true)} variant='contained' sx={{margin:1}} autoFocus>Done</Button>
-            </Box>
+            <div className="mt-8 flex justify-end gap-3">
+              <ActionButton variant="outline" onClick={() => handleOnConfirm(false)}>
+                Cancel
+              </ActionButton>
+              <ActionButton tone="primary" onClick={() => handleOnConfirm(true)}>
+                Done
+              </ActionButton>
+            </div>
           )}
-        </Box>
-      </Modal>
-      <Dialog
-        open={confirmDialogOpen}
-        onClose={() => setConfirmDialogOpen(false)}
-      >
-        <DialogTitle>{"Done?"}</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            {confirmMessage}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDialogOpen(false)}>No</Button>
-          <Button onClick={handleConfirmClose} autoFocus>
-            Yes
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </div>
+        </div>
+      </div>
+
+      {confirmDialogOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl">
+            <h3 className="text-lg font-semibold">Done?</h3>
+            <p className="mt-3 text-sm text-slate-600">
+              Are you sure you want to close without saving?
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <ActionButton variant="outline" onClick={handleCancelClose}>
+                No
+              </ActionButton>
+              <ActionButton tone="danger" onClick={handleConfirmClose}>
+                Yes
+              </ActionButton>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
-};
+}

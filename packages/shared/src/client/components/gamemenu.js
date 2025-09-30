@@ -4,7 +4,7 @@ import React, { useState, memo } from 'react';
 import { IconButton } from '@mui/material';
 import { Settings } from '@mui/icons-material';
 import { stateManager } from '@src/client/statemanager';
-import { GameMenuDropdown } from '@src/client/components/gamemenudropdown';
+import { GameMenuDropdown } from '@src/client/components/gamemenudropdown-lazy';
 
 function GameMenu({
   theme,

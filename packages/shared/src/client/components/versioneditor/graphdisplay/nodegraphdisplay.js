@@ -1,3 +1,4 @@
+'use client';
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import ReactFlow, { 
     useNodesState, 
@@ -13,11 +14,8 @@ import CustomSmartEdge from './customedges/customsmartedge';
 import { SmartBezierEdge } from '@tisoap/react-flow-smart-edge'
 import CurvyEdge from './customedges/curvyedge';
 import { DragDropSidebar } from "./dragdropsidebar";
-import { 
-    Box,
-    Menu,
-    MenuItem,
-} from "@mui/material";
+import { createPortal } from 'react-dom';
+import { Copy, Trash2, ClipboardPaste, SquareStack } from 'lucide-react';
 import FloatingEdge from './customedges/floatingedge';
 import CustomConnectionLine from './customedges/customconnectionline';
 import { copyDataToClipboard, pasteDataFromClipboard } from "@src/client/clipboard";
@@ -38,19 +36,19 @@ const edgeTypes = {
 const defaultViewport = { x: 0, y: 0, zoom: 0.75 };
 const edgeStyle = {
     strokeWidth: 2,
-    stroke: '#ff0072' 
+    stroke: '#38bdf8' 
 }; // Bright pink color
 
 const makerEndStyle = {
     type: MarkerType.ArrowClosed,
     width: 14,
     height: 14,
-    color: '#ff0072',
+    color: '#38bdf8',
 }
 
 const connectionLineStyle = {
   strokeWidth: 3,
-  stroke: '#ff0072',
+  stroke: '#38bdf8',
 };
 
 
@@ -60,6 +58,56 @@ const defaultEdgeOptions = {
     markerEnd: makerEndStyle,
   };
 
+
+
+const ContextMenu = ({ open, position, onClose, children }) => {
+  if (!open || !position || typeof window === 'undefined') {
+    return null;
+  }
+
+  const maxLeft = Math.max(16, window.innerWidth - 220);
+  const maxTop = Math.max(16, window.innerHeight - 200);
+  const left = Math.min(position.left, maxLeft);
+  const top = Math.min(position.top, maxTop);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[90]"
+      onClick={() => onClose?.()}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <div
+        className="absolute z-[95]"
+        style={{ top, left }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="min-w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 p-1 shadow-xl backdrop-blur">
+          {React.Children.map(children, (child) =>
+            React.isValidElement(child)
+              ? React.cloneElement(child, { onClose })
+              : child
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+const ContextMenuItem = ({ icon, children, onSelect, onClose }) => (
+  <button
+    type="button"
+    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-100 transition hover:bg-white/10"
+    onClick={(event) => {
+      event.stopPropagation();
+      onSelect?.(event);
+      onClose?.();
+    }}
+  >
+    {icon && <span className="flex h-4 w-4 items-center justify-center text-slate-300">{icon}</span>}
+    <span className="flex-1">{children}</span>
+  </button>
+);
 
 export function NodeGraphDisplay(params) {
     const { theme, versionInfo, onNodeClicked, onEdgeClicked, onNodeStructureChange, onPersonaListChange, readOnly } = params;
@@ -978,110 +1026,116 @@ export function NodeGraphDisplay(params) {
         console.warn(msg);
       }
 
-    return (
-        <Box sx={{ 
-                height: '100%', 
-                width: '100%', 
-                display: 'flex',
-                flexDirection: 'column',
-                // background color a midnight blue
-                //backgroundColor: '#1f1f3f',
-                backgroundColor: theme.colors.messagesAreaBackgroundColor,
-            }}
-            tabIndex={0}  // Makes the Box focusable
-            onKeyDown={handleKeyDown}
-        >
-                <Box sx={{
-                    height: '70%',
-                    width: '100%',
-                    border: 1, // sets the border width
-                    borderColor: 'black', // sets the border color
-                    borderStyle: 'solid',
-                }}
-                >
-                    <ReactFlowProvider>
-                        <ReactFlow
-                            ref={ref}
-                            nodes={graphNodes}
-                            edges={edges}
-                            onNodesChange={onNodesChange}
-                            onEdgesChange={onEdgesChange}
-                            defaultViewport={defaultViewport}
-                            attributionPosition="bottom-left"
-                            onInit={onInit}
-                            nodeTypes={nodeTypes}
-                            edgeTypes={edgeTypes}
-                            onNodeContextMenu={onNodeContextMenu}
-                            onDrop={onDrop}
-                            onDragOver={onDragOver}
-                            onPaneClick={onPaneClick}
-                            onPaneContextMenu={handlePaneContextMenu}
-                            onConnect={onConnect}
-                            onEdgeClick={(event, edge) => handleEdgeClicked(edge)}
-                            onEdgeContextMenu={(event, edge) => handleEdgeContextMenu(event, edge)}
-                            connectionLineComponent={CustomConnectionLine}
-                            connectionLineStyle={connectionLineStyle}
-                            defaultEdgeOptions={defaultEdgeOptions}
-                            autoPanOnNodeDrag={false}
-                            autoPanOnConnect={true}
-                            panOnDrag={[2]}
-                            selectionOnDrag={true}
-                            elevateNodesOnSelect={true}
-                            selectionMode="full"
-                            onSelectionChange={handleSelectionChange}
-                            onSelectionContextMenu={handleSelectionContextMenu}
-                            onError={onError}
-                            autoFocus={true}
-                            minZoom={0.1}
-                            maxZoom={2}
-                            fitView
-                        >
+    const canvasBackground = theme?.colors?.messagesAreaBackgroundColor || '#050b1b';
 
-                            <Controls />
-                            {/* Delete node menu */}
-                            <Menu
-                                    open={!!nodeMenu}
-                                    anchorReference="anchorPosition"
-                                    onClose={() => setNodeMenu(null)}
-                                    anchorPosition={nodeMenu ? { top: nodeMenu.top, left: nodeMenu.left} : {top:0, left:0}}
-                                >
-                                    <MenuItem key={"contextmenuitem-delete"} onClick={(event) => handleDeleteNodes(event)}>Delete</MenuItem>
-                                    <MenuItem key={"contextmenuitem-copy"} onClick={(event) => handleCopy(event)}>Copy</MenuItem>
-                            </Menu>
-                            {/* Delete edge menu */}
-                            <Menu
-                                    open={!!edgeMenu}
-                                    anchorReference="anchorPosition"
-                                    onClose={() => setEdgeMenu(null)}
-                                    anchorPosition={edgeMenu ? { top: edgeMenu.top, left: edgeMenu.left} : {top:0, left:0}}
-                                >
-                                    <MenuItem key={"contextmenuitem-delete"} onClick={(event) => handleDeleteEdge(event, edgeMenu.node, edgeMenu.edge)}>Delete Input</MenuItem>
-                            </Menu>
-                            {/* Delete edge menu */}
-                            <Menu
-                                    open={!!paneMenu}
-                                    anchorReference="anchorPosition"
-                                    onClose={() => setPaneMenu(null)}
-                                    anchorPosition={paneMenu ? { top: paneMenu.top, left: paneMenu.left} : {top:0, left:0}}
-                                >
-                                    <MenuItem key={"contextmenuitem-pase"} onClick={(event) => handlePaste(event)}>Paste</MenuItem>
-                                    <MenuItem key={"contextmenuitem-selectall"} onClick={(event) => handleSelectAll(event)}>Select All</MenuItem>
-                            </Menu>
-                        </ReactFlow>
-                    </ReactFlowProvider>
-                </Box>
-                <Box sx={{
-                    height:'30%',
-                    width: '100%',
-                    border: 1, // sets the border width
-                    borderColor: 'black', // sets the border color
-                    borderStyle: 'solid',
-                    // background color a medium gray with a hint of cobalt
-                    backgroundColor:  theme.colors.messagesAreaBackgroundColor,
-                }}
-                >
-                    <DragDropSidebar theme={theme} versionInfo={versionInfo} readOnly={readOnly} />
-                </Box>
-        </Box>
+    return (
+      <div
+        className="relative flex h-full w-full flex-col gap-4 rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-slate-100 shadow-[inset_0_1px_0_rgba(148,163,184,0.2)]"
+        style={{ background: 'radial-gradient(circle at top, rgba(56,189,248,0.12), transparent 65%)' }}
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+      >
+        <div className="absolute inset-0 -z-10 rounded-3xl bg-[radial-gradient(circle_at_20%_0%,rgba(56,189,248,0.12),transparent_60%)]" />
+
+        <div
+          className="relative flex flex-1 overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 shadow-[0_45px_90px_-60px_rgba(56,189,248,0.75)]"
+          style={{ backgroundColor: canvasBackground }}
+        >
+          <ReactFlowProvider>
+            <ReactFlow
+              ref={ref}
+              nodes={graphNodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              defaultViewport={defaultViewport}
+              attributionPosition="bottom-left"
+              onInit={onInit}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onNodeContextMenu={onNodeContextMenu}
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onPaneClick={onPaneClick}
+              onPaneContextMenu={handlePaneContextMenu}
+              onConnect={onConnect}
+              onEdgeClick={(event, edge) => handleEdgeClicked(edge)}
+              onEdgeContextMenu={(event, edge) => handleEdgeContextMenu(event, edge)}
+              connectionLineComponent={CustomConnectionLine}
+              connectionLineStyle={connectionLineStyle}
+              defaultEdgeOptions={defaultEdgeOptions}
+              autoPanOnNodeDrag={false}
+              autoPanOnConnect={true}
+              panOnDrag={[2]}
+              selectionOnDrag={true}
+              elevateNodesOnSelect={true}
+              selectionMode="full"
+              onSelectionChange={handleSelectionChange}
+              onSelectionContextMenu={handleSelectionContextMenu}
+              onError={onError}
+              autoFocus={true}
+              minZoom={0.1}
+              maxZoom={2}
+              fitView
+            >
+              <Controls className="!bg-slate-900/80 !text-slate-100" />
+            </ReactFlow>
+          </ReactFlowProvider>
+
+          <ContextMenu open={Boolean(nodeMenu)} position={nodeMenu} onClose={() => setNodeMenu(null)}>
+            <ContextMenuItem
+              icon={<Trash2 className="h-4 w-4" />}
+              onSelect={(event) => handleDeleteNodes(event)}
+            >
+              Delete Node
+            </ContextMenuItem>
+            <ContextMenuItem
+              icon={<Copy className="h-4 w-4" />}
+              onSelect={(event) => handleCopy(event)}
+            >
+              Copy Node
+            </ContextMenuItem>
+          </ContextMenu>
+
+          <ContextMenu
+            open={Boolean(edgeMenu)}
+            position={edgeMenu}
+            onClose={() => setEdgeMenu(null)}
+          >
+            <ContextMenuItem
+              icon={<Trash2 className="h-4 w-4" />}
+              onSelect={(event) => edgeMenu && handleDeleteEdge(event, edgeMenu.node, edgeMenu.edge)}
+            >
+              Delete Input
+            </ContextMenuItem>
+          </ContextMenu>
+
+          <ContextMenu
+            open={Boolean(paneMenu)}
+            position={paneMenu}
+            onClose={() => setPaneMenu(null)}
+          >
+            <ContextMenuItem
+              icon={<ClipboardPaste className="h-4 w-4" />}
+              onSelect={(event) => handlePaste(event)}
+            >
+              Paste
+            </ContextMenuItem>
+            <ContextMenuItem
+              icon={<SquareStack className="h-4 w-4" />}
+              onSelect={(event) => handleSelectAll(event)}
+            >
+              Select All
+            </ContextMenuItem>
+          </ContextMenu>
+        </div>
+
+        <div
+          className="min-h-[220px] w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70 shadow-inner"
+          style={{ backgroundColor: canvasBackground }}
+        >
+          <DragDropSidebar theme={theme} versionInfo={versionInfo} readOnly={readOnly} />
+        </div>
+      </div>
     );
 }

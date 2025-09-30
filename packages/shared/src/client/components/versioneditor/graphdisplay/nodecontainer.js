@@ -1,42 +1,35 @@
-import React from 'react';
-import { 
-    Box,
-    Paper,  
-} from '@mui/material';
-
+'use client';
+import React from "react";
+import clsx from "clsx";
 
 export function NodeContainer(props) {
-    const { styling, children, onDragStart, draggable, width, height } = props;
+    const { styling = {}, children, onDragStart, draggable, width, height } = props;
 
     if (!width || !height) {
         throw new Error("NodeContainer requires width and height props");
     }
 
-    const containerWidth = `${width}px`;
-    const containerHeight = `${height}px`;
+    const containerStyle = {
+        width: `${width}px`,
+        height: `${height}px`,
+        backgroundColor: styling.backgroundColor || "rgba(12, 26, 48, 0.85)",
+        color: styling.color || "#f8fafc",
+        borderStyle: styling.borderStyle || "solid",
+        borderColor: styling.borderColor || "rgba(148, 163, 184, 0.4)",
+    };
 
     return (
-        <Paper 
-            sx={{
-                display: 'flex', // Make sure the Paper acts as a flex container
-                flexDirection: 'row', // Arrange children in a row
-                alignItems: 'center', // Center children vertically
-                border: '1px solid gray',
-                borderRadius: '4px',
-                padding: '4px',
-                width: containerWidth,
-                height: containerHeight,
-                position: 'relative',
-                backgroundColor: styling.backgroundColor,
-                color: styling.color,
-                borderStyle: styling.borderStyle ? styling.borderStyle : 'solid',
-            }}
+        <div
+            className={clsx(
+                "relative flex items-center gap-2 rounded-2xl border px-4 py-2 shadow-[0_18px_45px_-30px_rgba(56,189,248,0.45)] backdrop-blur transition",
+                !draggable ? "cursor-default" : "cursor-grab active:cursor-grabbing",
+                styling.className
+            )}
+            style={containerStyle}
             onDragStart={onDragStart}
             draggable={draggable}
         >
-
-                {children}
-        
-        </Paper>
+            {children}
+        </div>
     );
 }

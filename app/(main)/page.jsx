@@ -23,7 +23,7 @@ import {
 import { stateManager } from '@src/client/statemanager';
 import { callGetGamesList, callCreateNewGame, callUpdateGameInfo } from '@src/client/gameplay';
 import { ThemeToggle } from '@src/client/components/ui/themetoggle';
-import { GameMenuDropdown } from '@src/client/components/gamemenudropdown';
+import { GameMenuDropdown } from '@src/client/components/gamemenudropdown-lazy';
 
 
 function hexToRgb(value) {
@@ -594,7 +594,6 @@ export default function HomePage() {
   }, [loading, accountID, fetchGames]);
 
   const handleOpenMenu = (gameUrl) => (event) => {
-    event.stopPropagation();
     setActiveMenu((prev) => {
       const next = {};
       Object.keys(prev).forEach((key) => {

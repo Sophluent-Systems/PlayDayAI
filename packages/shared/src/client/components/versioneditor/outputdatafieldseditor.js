@@ -121,8 +121,8 @@ export function OutputDataFieldsEditor(props) {
       </Typography>
       <List>
       {outputDataFieldsState ? outputDataFieldsState.map((dataField, index) => (
-        <Paper key={index} className={classes.outputDataFieldsStyle}>
-          <ListItem key={index}>
+        <Paper key={`output-field-${index}`} className={classes.outputDataFieldsStyle}>
+          <ListItem key={`output-field-${index}-item`}>
             {editingDataFieldIndex === index ? (
               
               <Grid container alignItems="flex-start">
@@ -227,3 +227,4 @@ export function OutputDataFieldsEditor(props) {
     </Box>
   );
 }
+

@@ -375,8 +375,8 @@ export function FileStoreEditor(props) {
       </Typography>
       <List>
         {filesState.map((file, index) => (
-          <Paper key={index} className={classes.fileItemStyle}>
-            <ListItem>
+          <Paper key={`file-${index}`} className={classes.fileItemStyle}>
+            <ListItem key={`file-${index}-item`}>
               {editingFileIndex === index ? (
                 <Grid container alignItems="flex-start">
                   <Grid item xs={12} className={classes.inputField}>

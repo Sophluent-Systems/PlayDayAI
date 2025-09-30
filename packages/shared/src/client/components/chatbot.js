@@ -16,8 +16,6 @@ import { callStateMachineContinuationRequest } from '@src/client/gameplay';
 import { useMessagesClient } from '../messagesClient';
 import { callSendInputData, callStateMachineHaltRequest } from '@src/client/gameplay';
 import { FilteredMessageList } from './filteredmessagelist';
-import { 
-} from '@mui/material';
 import { analyticsReportEvent} from "@src/client/analytics";
 import { useAtom } from 'jotai';
 import { vhState, editorSaveRequestState, dirtyEditorState } from '@src/client/states';

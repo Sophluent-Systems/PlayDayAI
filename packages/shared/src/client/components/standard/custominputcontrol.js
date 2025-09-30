@@ -1,28 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { FormControl, InputLabel, OutlinedInput } from '@mui/material';
+import React from 'react';
 
-export const CustomInputControl = ({ label, children }) => {
-
+export function CustomInputControl({ label, children }) {
   return (
-    <FormControl sx={{display: 'flex', flexGrow: 1, p:0, m:0}} variant="outlined">
-      <InputLabel shrink={true}  htmlFor="custom-input">{label}</InputLabel>
-      <OutlinedInput
-        id="custom-input"
-        label={label}
-        inputComponent="div" // Use "div" or another suitable element for your custom content
-        notched
-        inputProps={{ 
-          children: children, // Pass custom control as children
-        }}
-        sx={{
-            '& .MuiOutlinedInput-input': {
-                display: 'flex',
-                alignItems: 'center', // Adjust vertical alignment
-                pt: 3, // Adjust padding to reduce gap at the top and overflow at the bottom
-                pb: 3,
-            },
-        }}
-      />
-    </FormControl>
+    <div className="space-y-3">
+      {label ? (
+        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300">{label}</label>
+      ) : null}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        {children}
+      </div>
+    </div>
   );
-};
+}

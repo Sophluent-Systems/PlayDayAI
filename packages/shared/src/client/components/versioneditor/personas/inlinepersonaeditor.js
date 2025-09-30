@@ -1,72 +1,40 @@
-import React, { useEffect, useState } from 'react';
-import {
-    Box,
-    Button,
-    Typography,
-    Tooltip,
-} from '@mui/material';
+import React from 'react';
 import { PersonaEditor } from './personaeditor';
-import {
-    Cancel,
-    Save
-} from '@mui/icons-material';
+import { Undo2, Save } from 'lucide-react';
+
+const buttonStyles = {
+  outline: 'inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-slate-500',
+  primary: 'inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 dark:focus:ring-slate-300',
+};
 
 export function InlinePersonaEditor(props) {
-    const { theme, persona, onChange, onCancel, onSave, readOnly } = props;
-    const [currentPersona, setCurrentPersona] = useState(persona);
+  const { theme, persona, onChange, onCancel, onSave, readOnly } = props;
 
-    useEffect(() => {
-        if (persona != currentPersona) {
-            setCurrentPersona(persona);
-        }
-    }, [persona]);
+  return (
+    <div className='flex w-full flex-col gap-6'>
+      <div className='flex items-center justify-between gap-3'>
+        <h3 className='text-lg font-semibold text-slate-800 dark:text-slate-100'>Persona</h3>
+        <div className='flex items-center gap-2'>
+          <button
+            type='button'
+            onClick={onCancel}
+            className={buttonStyles.outline}
+          >
+            <Undo2 className='h-4 w-4' />
+            Discard
+          </button>
+          <button
+            type='button'
+            onClick={() => onSave?.(persona)}
+            className={buttonStyles.primary}
+          >
+            <Save className='h-4 w-4' />
+            Save
+          </button>
+        </div>
+      </div>
 
-
-
-    return (
-        <Box sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            width: '100%',
-            height: '100%',
-        }}>
-            
-            <Box sx={{
-                display: 'flex',
-                flexDirection: 'row',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                width: '100%',
-                padding: 1,
-            }}>
-                <Typography variant="h6" sx={{width: '100%'}}>Persona</Typography>
-            
-                <Tooltip title="Discard Changes">
-                    <Button
-                        variant={"outlined"}
-                        onClick={onCancel}
-                        startIcon={<Cancel />}
-                        aria-label="discard"
-                    >
-                        Discard
-                    </Button>
-                </Tooltip>
-                <Tooltip title="Save">
-                    <Button
-                        onClick={() => onSave(currentPersona)}
-                        startIcon={<Save />}
-                        aria-label="save"
-                        color="primary"
-                        variant="contained" // Optional: Gives the button a more pronounced look
-                        sx={{marginLeft: 1}}
-                    >
-                        Save
-                    </Button>
-                </Tooltip>
-            </Box>
-
-            <PersonaEditor theme={theme} persona={currentPersona} onChange={onChange} readOnly={readOnly} />
-
-        </Box>
-    );
+      <PersonaEditor theme={theme} persona={persona} onChange={onChange} readOnly={readOnly} />
+    </div>
+  );
 }

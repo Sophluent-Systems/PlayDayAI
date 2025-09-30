@@ -1,8 +1,6 @@
 'use client';
 import { useRouter } from "next/router";
 import React, { memo, useState, useEffect, useRef } from "react";
-import { StandardContentArea } from "@src/client/components/standard/standardcontentarea";
-import { InfoBubble } from "@src/client/components/standard/infobubble";
 import { defaultAppTheme } from "@src/common/theme";
 import { AlertCircle, CheckCircle2, Play, Save, Trash2 } from "lucide-react";
 import { VersionSelector } from "@src/client/components/versionselector";
@@ -57,6 +55,9 @@ const globalOptions = [
 ];
 
 const addableNodeTypes = getAddableNodeTypes();
+
+const contentAreaClassName = "flex w-full flex-1 flex-col items-center bg-slate-50 px-6 pb-10 pt-8 sm:px-8 lg:px-12";
+const infoBubbleClassName = "relative w-full max-w-4xl rounded-3xl border border-slate-200 bg-white px-6 py-5 text-slate-900 shadow-[0_18px_45px_-25px_rgba(15,23,42,0.25)] dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100";
 
 function DialogShell({ open, onClose, title, description, children, actions, maxWidth = "max-w-lg" }) {
   useEffect(() => {
@@ -157,6 +158,9 @@ function VersionEditor(props) {
   const [readOnly, setreadOnly] = useState(true);
   const [settingsDiff, setSettingsDiff] = useState(null);
   const [vh] = useAtom(vhState);
+  const contentAreaStyle = { minHeight: `${vh || 0}px` };
+  const graphAreaHeight = vh ? `${vh - 200}px` : 'auto';
+
   const [showAddNodeMenu, setShowAddNodeMenu] = useState(false);
   const settingsDiffTimeoutId = useRef(null);
   const versionInfoUpdateTimeoutId = useRef(null);
@@ -868,14 +872,25 @@ function VersionEditor(props) {
     return returnValue;
   }
   
-    function renderWithFormatting(children) {
-      return (
-        <StandardContentArea>
-          <InfoBubble>{children}</InfoBubble>
-        </StandardContentArea>
-      );
-    }
-  
+  function renderInfoBubble(content) {
+    return (
+      <div className={infoBubbleClassName}>
+        <div className="flex w-full items-start gap-4">{content}</div>
+      </div>
+    );
+  }
+
+  function renderWithFormatting(content) {
+    return (
+      <div
+        className={contentAreaClassName}
+        style={contentAreaStyle}
+      >
+        {renderInfoBubble(content)}
+      </div>
+    );
+  }
+
   const handleOpenNodeSettingsMenu = (node) => setModalEditingMode({
     nodeIndex: newVersionInfoRef.current.stateMachineDescription.nodes.findIndex((n) => n.instanceID == node.instanceID),
     mode: 'nodeDetails'
@@ -886,10 +901,7 @@ function VersionEditor(props) {
     mode: 'inputDetails'
   });
 
-
-
   const onPublishedSettingsChanged = (object, relativePath, newValue) => {
-
     if (relativePath === "published") {
       if (newValue) {
         if (!publishDialogOpen) {
@@ -901,7 +913,7 @@ function VersionEditor(props) {
     } else if (relativePath === "alwaysUseBuiltInKeys") {
       if (newValue) {
         if (!publishDialogOpen) {
-         setUseAppKeysDialogOpen(true);
+          setUseAppKeysDialogOpen(true);
         }
       } else {
         onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
@@ -910,7 +922,6 @@ function VersionEditor(props) {
       onVariableChanged(object, relativePath, newValue);
     }
   }
-
 
   if (!(account && gamePermissions)) {
     console.log("Account or game permissions not loaded yet: ",  account ? "account" : "gamePermissions");
@@ -924,188 +935,183 @@ function VersionEditor(props) {
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-y-auto">
-      <StandardContentArea>
-      
-      <div className="mx-auto mt-4 flex w-full flex-col gap-4 md:w-3/5 md:flex-row md:items-center md:justify-between">
-        <div className="w-full md:w-auto">
-          <VersionSelector allowNewGameOption={true} firstOptionUnselectable dropdown={true} chooseMostRecent={true} />
+      <div
+        className={contentAreaClassName}
+        style={contentAreaStyle}
+      >
+        <div className="mx-auto mt-4 flex w-full flex-col gap-4 md:w-3/5 md:flex-row md:items-center md:justify-between">
+          <div className="w-full md:w-auto">
+            <VersionSelector allowNewGameOption={true} firstOptionUnselectable dropdown={true} chooseMostRecent={true} />
+          </div>
+
+          <div className="flex flex-col items-center text-center md:items-end md:text-right">
+            <p
+              className="mb-0 text-xl font-semibold uppercase tracking-[0.2em]"
+              style={{
+                fontFamily: gameTheme?.fonts?.titleFont,
+                color: gameTheme?.colors?.titleFontColor,
+                textShadow: gameTheme?.palette?.textSecondary
+                  ? "0px 0px 10px " + gameTheme.palette.textSecondary
+                  : undefined,
+              }}
+            >
+              {game ? game.title : "Loading"}
+            </p>
+            <p
+              className="mb-0 text-xl tracking-[0.2em]"
+              style={{
+                fontFamily: gameTheme?.fonts?.titleFont,
+                color: gameTheme?.colors?.titleFontColor,
+              }}
+            >
+              {versionInfo ? versionInfo.versionName : ""}
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-col items-center text-center md:items-end md:text-right">
-          <p
-            className="mb-0 text-xl font-semibold uppercase tracking-[0.2em]"
-            style={{
-              fontFamily: gameTheme?.fonts?.titleFont,
-              color: gameTheme?.colors?.titleFontColor,
-              textShadow: gameTheme?.palette?.textSecondary
-                ? "0px 0px 10px " + gameTheme.palette.textSecondary
-                : undefined,
-            }}
-          >
-            {game ? game.title : "Loading"}
-          </p>
-          <p
-            className="mb-0 text-xl tracking-[0.2em]"
-            style={{
-              fontFamily: gameTheme?.fonts?.titleFont,
-              color: gameTheme?.colors?.titleFontColor,
-            }}
-          >
-            {versionInfo ? versionInfo.versionName : ""}
-          </p>
-        </div>
-      </div>
-        {!versionName ? 
-          renderWithFormatting(<h1>Select a version from the dropdown above (or hit + to add one)</h1>)
-        : (!versionInfo) ? 
-          renderWithFormatting(<h1>Loading...</h1>)        
-        : (
+        {!versionName ? (
+          renderInfoBubble(<h1>Select a version from the dropdown above (or hit + to add one)</h1>)
+        ) : !versionInfo ? (
+          renderInfoBubble(<h1>Loading...</h1>)
+        ) : (
           <div className="w-full p-5">
-
-              {newVersionInfoRef.current?.stateMachineDescription?.nodes ? (
-                  <div className="space-y-4">
-                    <div className="flex w-full justify-end gap-2 pr-2">
-                      <button
-                        type="button"
-                        onClick={handleDiscardChanges}
-                        disabled={!dirtyEditor}
-                        className={buttonStyles.subtle}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Discard changes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={submitNewVersionInfo}
-                        disabled={readOnly || !dirtyEditor}
-                        className={buttonStyles.primary}
-                      >
-                        <Save className="h-4 w-4" />
-                        Save changes
-                        {dirtyEditor ? (
-                          <span title="Unsaved changes" className="ml-2 inline-flex items-center text-red-500">
-                            <AlertCircle className="h-5 w-5" />
-                          </span>
-                        ) : isUpdated ? (
-                          <span title="Changes saved" className="ml-2 inline-flex items-center text-slate-400">
-                            <CheckCircle2 className="h-5 w-5" />
-                          </span>
-                        ) : null}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          router.push('/play/' + game.url + '?versionName=' + versionInfo.versionName)
-                        }
-                        className={buttonStyles.accent}
-                      >
-                        <Play className="h-4 w-4" />
-                        Play
-                      </button>
-                    </div>
-                    <div
-                      className="w-full p-2"
-                      style={{ height: `${vh - 200}px` }}
-                    >
-                      <NodeGraphDisplay
-                        theme={gameTheme}
-                        versionInfo={newVersionInfoRef.current}
-                        onNodeClicked={handleOpenNodeSettingsMenu}
-                        onNodeStructureChange={onNodeStructureChange}
-                        onEdgeClicked={handleOpenInputSettingsMenu}
-                        onPersonaListChange={onPersonaListChange}
-                        style={{ margin: 8, height: '100%', width: '100%', backgroundColor: 'green' }}
-                        readOnly={readOnly}
-                      />
-                    </div>
-
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setShowAddNodeMenu((prev) => !prev)}
-                        disabled={readOnly}
-                        className={buttonStyles.subtle}
-                      >
-                        {showAddNodeMenu ? 'Close node menu' : 'Add node'}
-                      </button>
-                    </div>
-                    {showAddNodeMenu ? (
-                      <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                        {addableNodeTypes.map((addableTemplate) => (
-                          <button
-                            key={`addNode-${addableTemplate.nodeType}`}
-                            type="button"
-                            onClick={() => handleAddNode(addableTemplate.nodeType)}
-                            disabled={readOnly}
-                            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800"
-                          >
-                            {addableTemplate.label}
-                          </button>
-                        ))}
-                      </div>
+            {newVersionInfoRef.current?.stateMachineDescription?.nodes ? (
+              <div className="space-y-4">
+                <div className="flex w-full justify-end gap-2 pr-2">
+                  <button
+                    type="button"
+                    onClick={handleDiscardChanges}
+                    disabled={!dirtyEditor}
+                    className={buttonStyles.subtle}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Discard changes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitNewVersionInfo}
+                    disabled={readOnly || !dirtyEditor}
+                    className={buttonStyles.primary}
+                  >
+                    <Save className="h-4 w-4" />
+                    Save changes
+                    {dirtyEditor ? (
+                      <span title="Unsaved changes" className="ml-2 inline-flex items-center text-red-500">
+                        <AlertCircle className="h-5 w-5" />
+                      </span>
+                    ) : isUpdated ? (
+                      <span title="Changes saved" className="ml-2 inline-flex items-center text-slate-400">
+                        <CheckCircle2 className="h-5 w-5" />
+                      </span>
                     ) : null}
-                 </div>
-                ) : (
-
-                  <TemplateChooser
-                    templateChosen={(template) => templateChosen(template)}
-                  />
-
-                )}
-
-
-              <SettingsMenu
-                menu={globalOptions}
-                rootObject={newVersionInfoRef.current}
-                onChange={onPublishedSettingsChanged}
-                key={"settingsEditor"}
-                readOnly={readOnly}
-              />
-
-
-
-              <div className="mt-4 mb-2 flex justify-center">
-                <button
-                  type="button"
-                  onClick={handleDeleteVersion}
-                  disabled={readOnly}
-                  className={buttonStyles.danger}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push('/play/' + game.url + '?versionName=' + versionInfo.versionName)
+                    }
+                    className={buttonStyles.accent}
+                  >
+                    <Play className="h-4 w-4" />
+                    Play
+                  </button>
+                </div>
+                <div
+                  className="w-full rounded-3xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900"
+                  style={{ height: graphAreaHeight }}
                 >
-                  Delete version
-                </button>
+                  <NodeGraphDisplay
+                    theme={gameTheme}
+                    versionInfo={newVersionInfoRef.current}
+                    onNodeClicked={handleOpenNodeSettingsMenu}
+                    onNodeStructureChange={onNodeStructureChange}
+                    onEdgeClicked={handleOpenInputSettingsMenu}
+                    onPersonaListChange={onPersonaListChange}
+                    readOnly={readOnly}
+                  />
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddNodeMenu((prev) => !prev)}
+                    disabled={readOnly}
+                    className={buttonStyles.subtle}
+                  >
+                    {showAddNodeMenu ? 'Close node menu' : 'Add node'}
+                  </button>
+                </div>
+                {showAddNodeMenu ? (
+                  <div className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                    {addableNodeTypes.map((addableTemplate) => (
+                      <button
+                        key={`addNode-${addableTemplate.nodeType}`}
+                        type="button"
+                        onClick={() => handleAddNode(addableTemplate.nodeType)}
+                        disabled={readOnly}
+                        className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800"
+                      >
+                        {addableTemplate.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
+            ) : (
+              <TemplateChooser
+                templateChosen={(template) => templateChosen(template)}
+              />
+            )}
 
-              {dirtyEditor && settingsDiff}
+            <SettingsMenu
+              menu={globalOptions}
+              rootObject={newVersionInfoRef.current}
+              onChange={onPublishedSettingsChanged}
+              key={"settingsEditor"}
+              readOnly={readOnly}
+            />
 
+            <div className="mt-4 mb-2 flex justify-center">
+              <button
+                type="button"
+                onClick={handleDeleteVersion}
+                disabled={readOnly}
+                className={buttonStyles.danger}
+              >
+                Delete version
+              </button>
             </div>
-          )}
-      </StandardContentArea>
+
+            {dirtyEditor && settingsDiff}
+          </div>
+        )}
+      </div>
       {modalEditingMode && 
         <ModalMenu
           onCloseRequest={() => setModalEditingMode(undefined)}
           onConfirm={modalEditingMode.onConfirm}
         >
           {(modalEditingMode.mode == 'nodeDetails') &&
-              <NodeSettingsMenu 
-                node={newVersionInfoRef.current?.stateMachineDescription?.nodes[modalEditingMode.nodeIndex]} 
-                readOnly={readOnly} 
-                nodes={newVersionInfoRef.current?.stateMachineDescription?.nodes} 
-                onChange={onVariableChanged} 
-                onNodeStructureChange={onNodeStructureChange}
-                onPersonaListChange={onPersonaListChange}
-                versionInfo={newVersionInfoRef.current}
-              />
+            <NodeSettingsMenu
+              node={newVersionInfoRef.current?.stateMachineDescription?.nodes[modalEditingMode.nodeIndex]}
+              readOnly={readOnly}
+              nodes={newVersionInfoRef.current?.stateMachineDescription?.nodes}
+              onChange={onVariableChanged}
+              onNodeStructureChange={onNodeStructureChange}
+              onPersonaListChange={onPersonaListChange}
+              versionInfo={newVersionInfoRef.current}
+            />
           }
           {(modalEditingMode.mode == 'inputDetails') &&
-              <NodeInputsEditor 
-                node={newVersionInfoRef.current?.stateMachineDescription?.nodes[modalEditingMode.nodeIndex]}
-                readOnly={readOnly} 
-                nodes={newVersionInfoRef.current?.stateMachineDescription?.nodes} 
-                onChange={onVariableChanged} 
-                onNodeStructureChange={onNodeStructureChange}
-                onPersonaListChange={onPersonaListChange}
-                producerNodeID={modalEditingMode.producerNode.instanceID}
-              />
+            <NodeInputsEditor
+              node={newVersionInfoRef.current?.stateMachineDescription?.nodes[modalEditingMode.nodeIndex]}
+              readOnly={readOnly}
+              nodes={newVersionInfoRef.current?.stateMachineDescription?.nodes}
+              onChange={onVariableChanged}
+              onNodeStructureChange={onNodeStructureChange}
+              onPersonaListChange={onPersonaListChange}
+              producerNodeID={modalEditingMode.producerNode.instanceID}
+            />
           }
           {(modalEditingMode.mode == 'nodeInit') &&
             <NodeInitMenu
@@ -1258,10 +1264,148 @@ function VersionEditor(props) {
           <p>Please ensure you have appropriate access controls and usage limits in place to prevent unexpected charges.</p>
         </div>
       </DialogShell>
+      <DialogShell
+        open={deleteDialogOpen}
+        onClose={handleCancelDelete}
+        title="Delete Game Version"
+        description="Are you sure you want to permanently delete this app version? This action cannot be undone."
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={handleCancelDelete}
+              className={buttonStyles.outline}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDelete}
+              className={buttonStyles.danger}
+            >
+              Delete
+            </button>
+          </>
+        }
+      />
+
+
+      <DialogShell
+        open={discardChangesDialogOpen}
+        onClose={() => setDiscardChangesDialogOpen(false)}
+        title="Discard Changes"
+        description="Are you sure you want to permanently undo all unsaved changes?"
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => setDiscardChangesDialogOpen(false)}
+              className={buttonStyles.outline}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => doDiscardChanges()}
+              className={buttonStyles.danger}
+            >
+              Discard
+            </button>
+          </>
+        }
+      />
+      <DialogShell
+        open={publishDialogOpen}
+        onClose={() => setPublishDialogOpen(false)}
+        title="Choose Publishing Mode"
+        description="Please select how you want to publish this version:"
+        maxWidth="max-w-2xl"
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              setPublishDialogOpen(false);
+              onVariableChanged(newVersionInfoRef.current, "published", false);
+            }}
+            className={buttonStyles.outline}
+          >
+            Cancel
+          </button>
+        }
+      >
+        <div className="mt-4 flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              onVariableChanged(newVersionInfoRef.current, "published", true);
+              onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
+              setPublishDialogOpen(false);
+            }}
+            className={buttonStyles.outline}
+          >
+            Require users to provide their own keys (Recommended)
+          </button>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Users get billed for their usage. If they don't configure API keys, your app will fail for them. You won't be billed for their usage.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              onVariableChanged(newVersionInfoRef.current, "published", true);
+              setPublishDialogOpen(false);
+              setUseAppKeysDialogOpen(true);
+            }}
+            className={buttonStyles.outline}
+          >
+            Your API keys are billed for all usage (Caution)
+          </button>
+          <p className="text-sm text-rose-600 dark:text-rose-400">
+            Warning: Users will use the API keys configured in your app's settings. You'll be billed for all users' API calls. This can lead to significant costs if not managed carefully.
+          </p>
+        </div>
+      </DialogShell>
+      <DialogShell
+        open={useAppKeysDialogOpen}
+        onClose={() => setUseAppKeysDialogOpen(false)}
+        title="Warning: Using App's AI Keys"
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setUseAppKeysDialogOpen(false);
+                onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
+              }}
+              className={buttonStyles.outline}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", true);
+                setUseAppKeysDialogOpen(false);
+              }}
+              className={buttonStyles.primary}
+            >
+              I Understand
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+          <p>You've chosen to use the app's AI keys for all users. This means:</p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>All API calls will be billed to your account.</li>
+            <li>Users won't need to provide their own API keys.</li>
+            <li>Your costs may increase significantly based on usage.</li>
+          </ul>
+          <p>Please ensure you have appropriate access controls and usage limits in place to prevent unexpected charges.</p>
+        </div>
+      </DialogShell>
     </div>
   );
 }
 
 export default memo(VersionEditor);
-
 

@@ -1,57 +1,10 @@
-import React, {useState, useEffect, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { NodeInputsEditor } from "./nodeinputseditor";
-import { SettingsMenu } from '@src/client/components/settingsmenus/settingsmenu';
+import { SettingsMenu } from "@src/client/components/settingsmenus/settingsmenu";
 import { nodeTypeMenus } from "./nodetypemenus.js";
-import { 
-  Box, 
-  Button,
-  Typography,
-  Dialog, 
-  DialogActions, 
-  DialogContent, 
-  DialogContentText, 
-  DialogTitle,
-  Paper,
-} from "@mui/material";
-import { makeStyles } from "tss-react/mui";
 import { defaultAppTheme } from "@src/common/theme";
 import { getWarningsForNode } from "./versioneditorutils";
 import { PersonaChooser } from "./personas/personachooser";
-
-
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const {
-    colors,
-    fonts,
-  } = pageTheme;
-  return ({
-  inputField: {
-    marginTop: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-  },
-  container: {
-    padding: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-    borderWidth: 1,
-    borderColor: theme.palette.primary.main,
-    borderStyle: 'solid',
-    borderRadius: theme.shape.borderRadius,
-    backgroundColor: theme.palette.background.main , 
-    marginTop: theme.spacing(4), 
-    width: '100%',
-  },
-  titleStyle: {
-    marginBottom: theme.spacing(2),
-  },
-  nodeInputStyle: {
-    padding: '8px',
-    marginBottom: '8px',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    backgroundColor: colors.inputAreaTextEntryBackgroundColor, 
-  },
-})});
-
 
 const treatAsDebugCheckbox = [{
   label: "Hide output (editors can toggle 'Showing debug messages' to see output)",
@@ -61,9 +14,42 @@ const treatAsDebugCheckbox = [{
   tooltip: "Hide output (editors can toggle 'Showing debug messages' to see output)",
 }];
 
+const buttonStyles = {
+  subtle: "inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:focus:ring-slate-500",
+  primary: "inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 dark:focus:ring-slate-300",
+  danger: "inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-rose-500 dark:hover:bg-rose-400 dark:focus:ring-rose-300",
+  outline: "inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-slate-500",
+};
+
+function ConfirmDialog({ open, title, description, onCancel, onConfirm }) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
+        {title ? <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h2> : null}
+        {description ? (
+          <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{description}</p>
+        ) : null}
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onCancel} className={buttonStyles.outline}>
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} className={buttonStyles.danger}>
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const warningStyles = "rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-700 shadow-sm dark:border-amber-400/50 dark:bg-amber-900/40 dark:text-amber-100";
+
 export function NodeSettingsMenu(params) {
   const { node, nodes, onChange, onNodeStructureChange, onPersonaListChange, readOnly, versionInfo } = params;
-  const { classes } = useStyles(defaultAppTheme);
   const [popupDialogOpen, setPopupDialogOpen] = useState(false);
   const [warningText, setWarningText] = useState(null);
   const [warningTitle, setWarningTitle] = useState(null);
@@ -75,169 +61,146 @@ export function NodeSettingsMenu(params) {
 
   const menu = nodeTypeMenus[node.nodeType];
 
-  function onVariableChanged(object, relativePath, newValue) {
+  const onVariableChanged = (object, relativePath, newValue) => {
     onChange?.(object, relativePath, newValue);
     if (relativePath === "instanceName" || relativePath === "inputs" || relativePath === "personaLocation") {
       onNodeStructureChange?.(node, "visualUpdateNeeded", {});
     }
-  }
+  };
 
   const handleDuplicate = () => {
-    onNodeStructureChange?.(node, "duplicate", {})
-  }
-  
+    onNodeStructureChange?.(node, "duplicate", {});
+  };
+
   const handleCancelPopup = () => {
-    setPopupDialogOpen(false); // Close the dialog
+    setPopupDialogOpen(false);
+    setWarningText(null);
+    setWarningTitle(null);
+    onConfirmRef.current = null;
   };
 
   const handleDelete = () => {
-    setWarningText(`Are you sure you want to permanently delete the node "${node.instanceName}"? You will
-    lose all settings perminantly.`)
-    setWarningTitle(`Delete Node "${node.instanceName}"?`)
+    setWarningText(`Are you sure you want to permanently delete the node "${node.instanceName}"? You will lose all settings permanently.`);
+    setWarningTitle(`Delete Node "${node.instanceName}"?`);
     onConfirmRef.current = () => onNodeStructureChange?.(node, "delete", {});
     setPopupDialogOpen(true);
   };
 
   const handleCopyParams = () => {
-    setWarningText(`Are you sure you want to overwrite the endpoint of all nodes of type "${node.nodeType}"? You will
-    lose all existing settings perminantly.`)
-    setWarningTitle(`Copy parameters`)
+    setWarningText(`Are you sure you want to overwrite the endpoint of all nodes of type "${node.nodeType}"? You will lose all existing settings permanently.`);
+    setWarningTitle("Copy parameters");
     onConfirmRef.current = () => onNodeStructureChange?.(node, "copyParamsToSameType", {});
     setPopupDialogOpen(true);
-  }
+  };
 
-
-  const handleConfirmPopup = async () => {
-    setPopupDialogOpen(false); // Close the dialog
-    onConfirmRef.current();
+  const handleConfirmPopup = () => {
+    setPopupDialogOpen(false);
+    const confirm = onConfirmRef.current;
+    onConfirmRef.current = null;
+    confirm?.();
   };
 
   const onInputChanged = (inputObject, path, newValue) => {
     onVariableChanged(inputObject, path, newValue);
-    onNodeStructureChange?.(node, "input", {})
-  }
+    onNodeStructureChange?.(node, "input", {});
+  };
 
-  const renderWarnings = (node) => {
-    const warnings = getWarningsForNode(node);
-    if (warnings) {
-      return (
-        <Box
-          sx={{
-            marginTop:2,
-            marginBottom:2,
-          }}
-        >
-          <Typography
-            variant="body1"
-            style={{ color: '#FF9800', fontWeight: 'bold' }} // Using deep orange color
-          >
-            {warnings.map((warning) => `Warning: ${warning}`).join("\n")}
-          </Typography>
-        </Box>
-      )
+  const renderWarnings = (nodeToCheck) => {
+    const warnings = getWarningsForNode(nodeToCheck);
+    if (!warnings || warnings.length === 0) {
+      return null;
     }
-    return null;
-  }
 
+    return (
+      <div className={warningStyles}>
+        <p className="text-sm font-semibold">Warnings</p>
+        <ul className="mt-2 space-y-1 text-sm leading-5">
+          {warnings.map((warning) => (
+            <li key={warning}>Warning: {warning}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  };
 
   return (
-    <Box>
-
+    <div className="space-y-6">
       {renderWarnings(node)}
 
-      {!node.isSourceNode &&
-          <NodeInputsEditor
-            node={node}
-            nodes={nodes}
-            readOnly={readOnly}
-            onChange={onInputChanged}
-          />
-      }
+      {!node.isSourceNode ? (
+        <NodeInputsEditor
+          node={node}
+          nodes={nodes}
+          readOnly={readOnly}
+          onChange={onInputChanged}
+        />
+      ) : null}
 
       <SettingsMenu
-            menu={treatAsDebugCheckbox}
-            rootObject={node}
-            onChange={onVariableChanged}
-            readOnly={readOnly}
-            key={"treatAsDebugCheckbox"}
-      />
-
-      <Typography>Persona</Typography>
-      <PersonaChooser
-        theme={defaultAppTheme}
-        node={node}
-        versionInfo={versionInfo}
+        menu={treatAsDebugCheckbox}
+        rootObject={node}
         onChange={onVariableChanged}
-        onPersonaListChange={onPersonaListChange}
         readOnly={readOnly}
+        key="treatAsDebugCheckbox"
       />
 
-      <Typography variant="body1" className={classes.titleStyle}>Options</Typography>
+      <div className="space-y-2">
+        <p className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Persona</p>
+        <PersonaChooser
+          theme={defaultAppTheme}
+          node={node}
+          versionInfo={versionInfo}
+          onChange={onVariableChanged}
+          onPersonaListChange={onPersonaListChange}
+          readOnly={readOnly}
+        />
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-base font-semibold text-slate-800 dark:text-slate-100">Options</p>
         <SettingsMenu
           menu={menu}
           rootObject={node}
           onChange={onVariableChanged}
           readOnly={readOnly}
-          key={"topLevelNodeOptions"}
+          key="topLevelNodeOptions"
         />
+      </div>
 
-        <Box
-              display="flex"
-              justifyContent="center"
-              marginTop={4}
-              marginBottom={2}
-            >
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={handleDuplicate} 
-              sx={{margin:2}}
-              disabled={readOnly}
-            >
-              Duplicate Node
-            </Button>
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={handleCopyParams} 
-              sx={{margin:2}}
-              disabled={readOnly}
-            >
-              Copy Parameters To All {node.nodeType} Nodes
-            </Button>
-              <Button
-                variant="contained"
-                color="error"
-                onClick={handleDelete} 
-                sx={{margin:2}}
-                disabled={readOnly}
-              >
-                Delete Node
-              </Button>
-        </Box>
-        <Dialog
-          open={popupDialogOpen}
-          onClose={() => handleCancelPopup()}
-          aria-labelledby="delete-node-dialog-title"
-          aria-describedby="delete-node-dialog-description"
+      <div className="flex flex-wrap justify-center gap-3">
+        <button
+          type="button"
+          onClick={handleDuplicate}
+          disabled={readOnly}
+          className={buttonStyles.primary}
         >
-          <DialogTitle id="delete-node-dialog-title">
-            {warningTitle}
-          </DialogTitle>
-          <DialogContent>
-            <DialogContentText id="delete-node-dialog-description">
-              {warningText}
-            </DialogContentText>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => handleCancelPopup()} color="primary">
-              Cancel
-            </Button>
-            <Button onClick={() => handleConfirmPopup()} color="error" autoFocus>
-              Confirm
-            </Button>
-          </DialogActions>
-        </Dialog>
-    </Box>
+          Duplicate Node
+        </button>
+        <button
+          type="button"
+          onClick={handleCopyParams}
+          disabled={readOnly}
+          className={buttonStyles.subtle}
+        >
+          Copy Parameters To All {node.nodeType} Nodes
+        </button>
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={readOnly}
+          className={buttonStyles.danger}
+        >
+          Delete Node
+        </button>
+      </div>
+
+      <ConfirmDialog
+        open={popupDialogOpen}
+        title={warningTitle}
+        description={warningText}
+        onCancel={handleCancelPopup}
+        onConfirm={handleConfirmPopup}
+      />
+    </div>
   );
 }

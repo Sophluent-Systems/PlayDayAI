@@ -1,6 +1,5 @@
 import { makeStyles } from 'tss-react/mui';
 import { Box, Paper } from '@mui/material';
-import { MainDrawer } from './maindrawer';
 import { OuterContainer } from './outercontainer';
 import { defaultAppTheme } from '@src/common/theme';
 import Title from './title';
@@ -75,7 +74,6 @@ export function DefaultLayout(props) {
         <Title title={title}   />
       )}
         {children}
-      <MainDrawer theme={themeToUse} />
     </OuterContainer>
   );
 }

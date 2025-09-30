@@ -1038,7 +1038,7 @@ export function NodeGraphDisplay(params) {
         <div className="absolute inset-0 -z-10 rounded-3xl bg-[radial-gradient(circle_at_20%_0%,rgba(56,189,248,0.12),transparent_60%)]" />
 
         <div
-          className="relative flex flex-1 overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 shadow-[0_45px_90px_-60px_rgba(56,189,248,0.75)]"
+          className="relative flex min-h-[240px] flex-1 overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 shadow-[0_45px_90px_-60px_rgba(56,189,248,0.75)]"
           style={{ backgroundColor: canvasBackground }}
         >
           <ReactFlowProvider>
@@ -1131,7 +1131,7 @@ export function NodeGraphDisplay(params) {
         </div>
 
         <div
-          className="min-h-[220px] w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70 shadow-inner"
+          className="flex-none h-[320px] w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70 shadow-inner"
           style={{ backgroundColor: canvasBackground }}
         >
           <DragDropSidebar theme={theme} versionInfo={versionInfo} readOnly={readOnly} />

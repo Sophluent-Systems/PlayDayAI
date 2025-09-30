@@ -131,13 +131,15 @@ export function CollapsiblePanelLayout({ panels, persistKey }) {
     return (
       <div
         key={panelIndex}
-        className={`relative flex h-full flex-col overflow-hidden border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 ${
+        className={`relative flex h-full flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 ${
           isLastPanel ? 'border-r-0' : ''
         }`}
         style={{ width: drawerWidth, minWidth: drawerWidth }}
       >
         {drawerOpen?.[panelIndex] ? (
-          panel.content
+          <div className='flex h-full flex-col overflow-y-auto overflow-x-hidden'>
+            {panel.content}
+          </div>
         ) : (
           <div className='flex h-full flex-col' style={{ height: `${vh}px` }} />
         )}
@@ -204,3 +206,4 @@ export function CollapsiblePanelLayout({ panels, persistKey }) {
     </div>
   );
 }
+

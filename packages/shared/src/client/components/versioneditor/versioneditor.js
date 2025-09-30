@@ -30,7 +30,7 @@ import { v4 as uuidv4 } from "uuid";
 import { ModalMenu } from "@src/client/components/standard/modalmenu";
 import ReactMarkdown from "react-markdown";
 import { replacePlaceholderSettingWithFinalValue } from "@src/client/components/settingsmenus/menudatamodel";
-import { getMetadataForNodeType, getAddableNodeTypes } from "@src/common/nodeMetadata";
+import { getMetadataForNodeType } from "@src/common/nodeMetadata";
 import { analyticsReportEvent } from "@src/client/analytics";
 
 import "ace-builds/src-noconflict/mode-javascript";
@@ -53,8 +53,6 @@ const globalOptions = [
     tooltip: "Allow all users to use the app's AI keys (you'll be billed for usage)",
   },
 ];
-
-const addableNodeTypes = getAddableNodeTypes();
 
 function parseRgbFromString(color) {
   if (!color || typeof color !== 'string') {
@@ -208,9 +206,8 @@ function VersionEditor(props) {
   const [readOnly, setreadOnly] = useState(true);
   const [settingsDiff, setSettingsDiff] = useState(null);
   const [vh] = useAtom(vhState);
-  const graphAreaHeight = vh ? `${vh - 200}px` : 'auto';
+  const graphAreaHeight = `${Math.max((vh ?? 0) - 160, 520)}px`;
 
-  const [showAddNodeMenu, setShowAddNodeMenu] = useState(false);
   const settingsDiffTimeoutId = useRef(null);
   const versionInfoUpdateTimeoutId = useRef(null);
   const [modalEditingMode, setModalEditingMode] = useState(undefined);
@@ -258,12 +255,6 @@ function VersionEditor(props) {
   const graphCardClass = isDarkTheme
     ? 'rounded-3xl border border-white/10 bg-slate-950/70 p-4 text-slate-100 shadow-[0_65px_150px_-70px_rgba(14,165,233,0.65)] backdrop-blur'
     : 'rounded-3xl border border-slate-200 bg-white p-4 text-slate-900 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.18)]';
-  const addNodeCardClass = isDarkTheme
-    ? 'flex flex-wrap gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 text-slate-100 shadow-[0_55px_140px_-65px_rgba(56,189,248,0.35)] backdrop-blur'
-    : 'flex flex-wrap gap-3 rounded-3xl border border-slate-200 bg-white p-4 text-slate-900 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.12)]';
-  const addNodeButtonClass = isDarkTheme
-    ? 'rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/40 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60'
-    : 'rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60';
   const dangerCardClass = isDarkTheme
     ? 'rounded-3xl border border-white/10 bg-white/5 p-6 text-center text-slate-100 shadow-[0_55px_140px_-65px_rgba(244,63,94,0.45)] backdrop-blur'
     : 'rounded-3xl border border-rose-200/60 bg-white p-6 text-center text-slate-900 shadow-[0_35px_90px_-45px_rgba(244,63,94,0.25)]';
@@ -335,12 +326,6 @@ function VersionEditor(props) {
       refreshVersionInfo();
     }
   }, [version]);
-
-  useEffect(() => {
-    if (readOnly) {
-      setShowAddNodeMenu(false);
-    }
-  }, [readOnly]);
 
   useEffect(() => {
     const handleBeforeUnload = (event) => {
@@ -568,14 +553,6 @@ const handleCancelDelete = () => {
       }, 300); // delay
   }
 
-
-  const handleAddNode = (templateName) => {
-    if (readOnly) {
-      return;
-    }
-    setShowAddNodeMenu(false);
-    onNodeStructureChange(null, "add", { templateName });
-  };
 
   
   function delayedUpdateVersionInfo() {
@@ -1128,32 +1105,6 @@ const handleCancelDelete = () => {
                     />
                   </div>
 
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setShowAddNodeMenu((prev) => !prev)}
-                      disabled={readOnly}
-                      className={buttonStyles.subtle}
-                    >
-                      {showAddNodeMenu ? 'Close node menu' : 'Add node'}
-                    </button>
-                  </div>
-
-                  {showAddNodeMenu ? (
-                    <div className={addNodeCardClass}>
-                      {addableNodeTypes.map((addableTemplate) => (
-                        <button
-                          key={`addNode-${addableTemplate.nodeType}`}
-                          type="button"
-                          onClick={() => handleAddNode(addableTemplate.nodeType)}
-                          disabled={readOnly}
-                          className={addNodeButtonClass}
-                        >
-                          {addableTemplate.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
               ) : (
                 <TemplateChooser templateChosen={(template) => templateChosen(template)} />
@@ -1368,7 +1319,5 @@ const handleCancelDelete = () => {
 }
 
 export default memo(VersionEditor);
-
-
 
 

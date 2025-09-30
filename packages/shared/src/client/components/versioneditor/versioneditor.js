@@ -108,7 +108,7 @@ function getLuminance(color) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-function DialogShell({ open, onClose, title, description, children, actions, maxWidth = "max-w-lg" }) {
+function DialogShell({ open, onClose, title, description, children, actions, maxWidth = "max-w-lg", tone = "light" }) {
   if (!open) {
     return null;
   }
@@ -129,23 +129,28 @@ function DialogShell({ open, onClose, title, description, children, actions, max
     };
   }, [open, onClose]);
 
+  const isDarkTone = tone === "dark";
+  const containerClasses = `relative w-full ${maxWidth} rounded-2xl border p-6 shadow-xl ${isDarkTone ? 'bg-slate-950/95 text-slate-100 border-white/10' : 'bg-white text-slate-900 border-slate-200'}`;
+  const descriptionClasses = isDarkTone ? 'mt-3 text-sm leading-6 text-slate-300' : 'mt-3 text-sm leading-6 text-slate-600';
+  const bodyClasses = `${title || description ? 'mt-4' : ''} ${isDarkTone ? 'text-slate-200' : 'text-slate-700'}`;
+
   return (
     <div
       className="fixed inset-0 z-[15000] flex items-center justify-center bg-slate-950/60 px-4"
       onClick={onClose}
     >
       <div
-        className={`relative w-full ${maxWidth} rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900`}
+        className={containerClasses}
         onClick={(event) => event.stopPropagation()}
       >
         {title ? (
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
+          <h2 className={isDarkTone ? 'text-lg font-semibold text-slate-100' : 'text-lg font-semibold text-slate-900'}>{title}</h2>
         ) : null}
         {description ? (
-          <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{description}</p>
+          <p className={descriptionClasses}>{description}</p>
         ) : null}
         {children ? (
-          <div className={title || description ? "mt-4" : ""}>{children}</div>
+          <div className={bodyClasses}>{children}</div>
         ) : null}
         {actions ? (
           <div className="mt-6 flex flex-wrap justify-end gap-3">{actions}</div>
@@ -258,21 +263,24 @@ function VersionEditor(props) {
   const dangerCardClass = isDarkTheme
     ? 'rounded-3xl border border-white/10 bg-white/5 p-6 text-center text-slate-100 shadow-[0_55px_140px_-65px_rgba(244,63,94,0.45)] backdrop-blur'
     : 'rounded-3xl border border-rose-200/60 bg-white p-6 text-center text-slate-900 shadow-[0_35px_90px_-45px_rgba(244,63,94,0.25)]';
-  const buttonStyles = isDarkTheme
-    ? {
-        subtle: 'inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/40 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60',
-        primary: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 via-sky-400 to-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(56,189,248,0.9)] transition hover:from-sky-400 hover:to-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60',
-        accent: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(16,185,129,0.9)] transition hover:from-emerald-400 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-60',
-        danger: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-rose-500 to-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(244,63,94,0.9)] transition hover:from-rose-400 hover:to-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60',
-        outline: 'inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/40 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60',
-      }
-    : {
-        subtle: 'inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60',
-        primary: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 to-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(56,189,248,0.6)] transition hover:from-sky-400 hover:to-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60',
-        accent: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(16,185,129,0.55)] transition hover:from-emerald-400 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-60',
-        danger: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-rose-500 to-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(244,63,94,0.55)] transition hover:from-rose-400 hover:to-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60',
-        outline: 'inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60',
-      };
+  const lightButtonStyles = {
+    subtle: 'inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60',
+    primary: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 to-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(56,189,248,0.6)] transition hover:from-sky-400 hover:to-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60',
+    accent: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(16,185,129,0.55)] transition hover:from-emerald-400 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-60',
+    danger: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-rose-500 to-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(244,63,94,0.55)] transition hover:from-rose-400 hover:to-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60',
+    outline: 'inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60',
+  };
+
+  const darkButtonStyles = {
+    subtle: 'inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/40 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60',
+    primary: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 via-sky-400 to-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(56,189,248,0.9)] transition hover:from-sky-400 hover:to-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60',
+    accent: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(16,185,129,0.9)] transition hover:from-emerald-400 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-60',
+    danger: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-rose-500 to-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(244,63,94,0.9)] transition hover:from-rose-400 hover:to-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60',
+    outline: 'inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/40 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-60',
+  };
+
+  const buttonStyles = isDarkTheme ? darkButtonStyles : lightButtonStyles;
+  const dialogButtonStyles = lightButtonStyles;
 
   async function submitNewVersionInfo() {
     try {
@@ -1185,14 +1193,14 @@ const handleCancelDelete = () => {
             <button
               type="button"
               onClick={handleCancelDelete}
-              className={buttonStyles.outline}
+              className={dialogButtonStyles.outline}
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={handleConfirmDelete}
-              className={buttonStyles.danger}
+              className={dialogButtonStyles.danger}
             >
               Delete
             </button>
@@ -1211,14 +1219,14 @@ const handleCancelDelete = () => {
             <button
               type="button"
               onClick={() => setDiscardChangesDialogOpen(false)}
-              className={buttonStyles.outline}
+              className={dialogButtonStyles.outline}
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={() => doDiscardChanges()}
-              className={buttonStyles.danger}
+              className={dialogButtonStyles.danger}
             >
               Discard
             </button>
@@ -1238,7 +1246,7 @@ const handleCancelDelete = () => {
               setPublishDialogOpen(false);
               onVariableChanged(newVersionInfoRef.current, "published", false);
             }}
-            className={buttonStyles.outline}
+            className={dialogButtonStyles.outline}
           >
             Cancel
           </button>
@@ -1252,7 +1260,7 @@ const handleCancelDelete = () => {
               onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
               setPublishDialogOpen(false);
             }}
-            className={buttonStyles.outline}
+            className={dialogButtonStyles.outline}
           >
             Require users to provide their own keys (Recommended)
           </button>
@@ -1266,7 +1274,7 @@ const handleCancelDelete = () => {
               setPublishDialogOpen(false);
               setUseAppKeysDialogOpen(true);
             }}
-            className={buttonStyles.outline}
+            className={dialogButtonStyles.outline}
           >
             Your API keys are billed for all usage (Caution)
           </button>
@@ -1287,7 +1295,7 @@ const handleCancelDelete = () => {
                 setUseAppKeysDialogOpen(false);
                 onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", false);
               }}
-              className={buttonStyles.outline}
+              className={dialogButtonStyles.outline}
             >
               Cancel
             </button>
@@ -1297,7 +1305,7 @@ const handleCancelDelete = () => {
                 onVariableChanged(newVersionInfoRef.current, "alwaysUseBuiltInKeys", true);
                 setUseAppKeysDialogOpen(false);
               }}
-              className={buttonStyles.primary}
+              className={dialogButtonStyles.primary}
             >
               I Understand
             </button>
@@ -1319,5 +1327,12 @@ const handleCancelDelete = () => {
 }
 
 export default memo(VersionEditor);
+
+
+
+
+
+
+
 
 

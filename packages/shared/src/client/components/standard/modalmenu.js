@@ -56,8 +56,8 @@ export function ModalMenu({ children, onCloseRequest, onConfirm }) {
 
   return (
     <>
-      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 backdrop-blur-sm">
-        <div className="relative w-full max-w-4xl rounded-3xl border border-slate-200 bg-white p-8 text-slate-900 shadow-2xl">
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 backdrop-blur-sm" onClick={handleClose}>
+        <div className="relative w-full max-w-4xl rounded-3xl border border-slate-200 bg-white p-8 text-slate-900 shadow-2xl" onClick={(event) => event.stopPropagation()}>
           <button
             type="button"
             onClick={handleClose}
@@ -83,8 +83,8 @@ export function ModalMenu({ children, onCloseRequest, onConfirm }) {
       </div>
 
       {confirmDialogOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 backdrop-blur-sm" onClick={handleCancelClose}>
+          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl" onClick={(event) => event.stopPropagation()}>
             <h3 className="text-lg font-semibold">Done?</h3>
             <p className="mt-3 text-sm text-slate-600">
               Are you sure you want to close without saving?
@@ -103,3 +103,4 @@ export function ModalMenu({ children, onCloseRequest, onConfirm }) {
     </>
   );
 }
+

@@ -209,6 +209,8 @@ const NodeGraphNode = memo((props) => {
   return (
 
     <NodeContainer styling={styling} height={height} width={defaultWidth}>
+      <div className="custom-drag-handle absolute inset-x-0 top-0 h-6 cursor-grab active:cursor-grabbing" />
+
 
       {node.nodeType !== 'start' && (
 
@@ -379,3 +381,4 @@ const NodeGraphNode = memo((props) => {
 
 
 export default NodeGraphNode;
+

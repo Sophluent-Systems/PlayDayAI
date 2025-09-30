@@ -1,3 +1,4 @@
+import { useTheme } from '@mui/material/styles';
 import React, { useState, useEffect, useRef } from 'react';
 import { defaultAppTheme } from '@src/common/theme';
 import {
@@ -440,15 +441,20 @@ const useStyles = makeStyles()((theme, pageTheme) => {
   };
 
   export function MenuCheckboxField(params) {
+    const theme = useTheme();
     const { classes } = useStyles(defaultAppTheme);
     const [currentValue, setCurrentValue] = useState((typeof params.value != 'undefined' && params.value != null) ? !!params.value : false);
     const field = params.field;
-  
+    const isDarkMode = theme.palette.mode === 'dark';
+    const uncheckedColor = isDarkMode ? 'rgba(226,232,240,0.75)' : '#475569';
+    const checkedColor = isDarkMode ? '#38bdf8' : '#0284c7';
+    const hoverColor = isDarkMode ? 'rgba(56,189,248,0.16)' : 'rgba(2,132,199,0.12)';
+
     function setNewValue(path, newValue) {
       setCurrentValue(newValue);
       params.onChange(params.rootObject, path, newValue);
     }
-  
+
     useEffect(() => {
       if (!nullUndefinedOrEmpty(params.value) && params.value != currentValue) {
         setCurrentValue(params.value);
@@ -456,27 +462,36 @@ const useStyles = makeStyles()((theme, pageTheme) => {
     }, [params.value]);
 
     if (nullUndefinedOrEmpty(currentValue)) {
-      return <React.Fragment  />;
+      return <React.Fragment />;
     }
 
     return (
-    <FormControlLabel
-      sx={{ width: '95%' }}
-      control={
-        <Checkbox
-          checked={currentValue}
-          onChange={(e) => {
-            e.stopPropagation();
-            setNewValue(field.path, e.target.checked);
-          }}
-          name={field.path}
-        />
-      }
-      label={field.label}
-      disabled={params.readOnly}
-    />);
+      <FormControlLabel
+        sx={{
+          width: '95%',
+          color: isDarkMode ? '#e2e8f0' : '#0f172a',
+          '& .MuiTypography-root': { fontWeight: 600 },
+        }}
+        control={
+          <Checkbox
+            checked={currentValue}
+            onChange={(e) => {
+              e.stopPropagation();
+              setNewValue(field.path, e.target.checked);
+            }}
+            name={field.path}
+            sx={{
+              color: uncheckedColor,
+              '&.Mui-checked': { color: checkedColor },
+              '&:hover': { backgroundColor: hoverColor },
+            }}
+          />
+        }
+        label={field.label}
+        disabled={params.readOnly}
+      />
+    );
   };
-  
   export function MenuSelectDropdown(params) {
     const { classes } = useStyles(defaultAppTheme);
     const [currentValue, setCurrentValue] = useState(params?.value);
@@ -558,3 +573,4 @@ const useStyles = makeStyles()((theme, pageTheme) => {
   
     
   
+

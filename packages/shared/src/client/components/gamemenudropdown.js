@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import clsx from 'clsx';
 import {
   BookmarkMinus,
@@ -141,7 +142,7 @@ function MenuPanel({ anchorRect, anchorElement, isOpen, children, onClose }) {
   const top = anchorRect.bottom + 12;
   const left = Math.max(16, anchorRect.left + anchorRect.width - MENU_WIDTH);
 
-  return (
+  const panel = (
     <div
       ref={panelRef}
       className="fixed z-50 w-[320px] overflow-hidden rounded-3xl border border-border/60 bg-surface/95 shadow-[0_28px_55px_-24px_rgba(15,23,42,0.55)] backdrop-blur-xl"
@@ -150,6 +151,12 @@ function MenuPanel({ anchorRect, anchorElement, isOpen, children, onClose }) {
       {children}
     </div>
   );
+
+  if (typeof document === 'undefined') {
+    return panel;
+  }
+
+  return createPortal(panel, document.body);
 }
 
 function MenuItem({ icon: Icon, label, description, onClick, disabled, trailing, isActive, variant = 'default' }) {

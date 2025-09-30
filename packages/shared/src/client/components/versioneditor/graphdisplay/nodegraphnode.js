@@ -71,6 +71,19 @@ const handleContainerStyle = {
 
 
 
+const normalizeOption = (option, index, prefix) => {
+  if (typeof option === 'string') {
+    return { value: option, label: option };
+  }
+  if (option && typeof option === 'object') {
+    const rawValue = option.value ?? option.key ?? option.name ?? option.label;
+    const value = rawValue ?? `${prefix}-${index}`;
+    const label = option.label ?? (typeof rawValue === 'string' ? rawValue : `${prefix} ${index + 1}`);
+    return { ...option, value, label };
+  }
+  const value = `${prefix}-${index}`;
+  return { value, label: `${prefix} ${index + 1}` };
+};
 const indicatorPillClasses = 'absolute left-1/2 top-0 flex h-7 w-20 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 shadow-lg backdrop-blur';
 
 
@@ -157,7 +170,14 @@ const NodeGraphNode = memo((props) => {
 
       const meta = getInputsAndOutputsForNode(node);
 
-      setMetadata(meta);
+      const normalizedMeta = {
+        ...meta,
+        inputs: (meta.inputs || []).map((input, index) => normalizeOption(input, index, 'input')),
+        outputs: (meta.outputs || []).map((output, index) => normalizeOption(output, index, 'output')),
+        events: (meta.events || []).map((event, index) => normalizeOption(event, index, 'event')),
+      };
+
+      setMetadata(normalizedMeta);
 
     }
 
@@ -249,7 +269,7 @@ const NodeGraphNode = memo((props) => {
 
         <Handle
 
-          key={`event-${event.value}`}
+          key={`event-${event.value}-${index}`}
 
           type="source"
 

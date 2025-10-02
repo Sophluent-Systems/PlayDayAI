@@ -1,13 +1,5 @@
-import React from 'react';
-import {
-    Box
- } from '@mui/material';
+﻿import React from "react";
 
-export function RawHTMLBox(params) {
-    return (
-        <Box
-            {...params}
-            dangerouslySetInnerHTML={{ __html: params.html }}
-        />
-    );
+export function RawHTMLBox({ html, ...rest }) {
+  return <div {...rest} dangerouslySetInnerHTML={{ __html: html }} />;
 }

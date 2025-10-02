@@ -1,11 +1,7 @@
 ﻿"use client";
 
-import React, { Suspense, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { CacheProvider } from "@emotion/react";
-import { ThemeProvider as MuiThemeProvider, CssBaseline } from "@mui/material";
+import React, { Suspense, useContext, useEffect, useRef, useState } from "react";
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
-import { createEmotionCache } from "@src/client/createEmotionCache";
-import { createAppTheme } from "@src/client/apptheme";
 import { Provider as JotaiProvider } from "jotai";
 import { QueryClient, QueryClientProvider } from "react-query";
 import { AlertProvider } from "@src/client/components/standard/AlertProvider";
@@ -25,6 +21,7 @@ function ThemeSynchronizer() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
   const preferredSetting = account?.preferences?.themeMode ?? "system";
   const lastProcessedPreferenceRef = useRef(preferredSetting);
   const pendingPreferenceRef = useRef(null);
@@ -76,7 +73,7 @@ function ThemeSynchronizer() {
       lastSyncedSettingRef.current = preferred;
       setTheme(preferred);
     }
-  }, [accountID, preferredSetting, mounted]);
+  }, [accountID, preferredSetting, mounted, setTheme, theme]);
 
   useEffect(() => {
     if (!accountID || !mounted) {
@@ -97,61 +94,37 @@ function ThemeSynchronizer() {
 }
 
 function ThemedProviders({ children, isSandbox, queryClient }) {
-  const { resolvedTheme } = useTheme();
-  const [muiMode, setMuiMode] = useState("dark");
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted || !resolvedTheme) {
-      return;
-    }
-
-    setMuiMode(resolvedTheme === "light" ? "light" : "dark");
-  }, [resolvedTheme, mounted]);
-
-  const muiTheme = useMemo(() => createAppTheme(muiMode), [muiMode]);
-
   return (
-    <MuiThemeProvider theme={muiTheme}>
-      <CssBaseline />
-      <JotaiProvider>
-        <QueryClientProvider client={queryClient}>
-          <ConfigProvider>
-            <AlertProvider>
-              <Suspense fallback={null}>
-                <StateProvider isSandbox={isSandbox}>
-                  <ThemeSynchronizer />
-                  {children}
-                </StateProvider>
-              </Suspense>
-            </AlertProvider>
-          </ConfigProvider>
-        </QueryClientProvider>
-      </JotaiProvider>
-    </MuiThemeProvider>
+    <JotaiProvider>
+      <QueryClientProvider client={queryClient}>
+        <ConfigProvider>
+          <AlertProvider>
+            <Suspense fallback={null}>
+              <StateProvider isSandbox={isSandbox}>
+                <ThemeSynchronizer />
+                {children}
+              </StateProvider>
+            </Suspense>
+          </AlertProvider>
+        </ConfigProvider>
+      </QueryClientProvider>
+    </JotaiProvider>
   );
 }
 
 export default function Providers({ children, isSandbox }) {
-  const [emotionCache] = useState(() => createEmotionCache());
   const [queryClient] = useState(() => new QueryClient());
 
   return (
-    <CacheProvider value={emotionCache}>
-      <NextThemesProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <ThemedProviders isSandbox={isSandbox} queryClient={queryClient}>
-          {children}
-        </ThemedProviders>
-      </NextThemesProvider>
-    </CacheProvider>
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+    >
+      <ThemedProviders isSandbox={isSandbox} queryClient={queryClient}>
+        {children}
+      </ThemedProviders>
+    </NextThemesProvider>
   );
 }

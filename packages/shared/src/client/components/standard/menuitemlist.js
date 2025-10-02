@@ -1,16 +1,10 @@
-﻿import React, { useState, useEffect } from 'react';
-import { List, ListItem, ListItemText } from '@mui/material';
+﻿"use client";
 
-export function MenuItemList(props) {
-  const { menuItems = [], onMenuItemSelected = () => {}, selectedIndex, autoSelect } = props;
+import React, { useEffect, useState } from "react";
+import clsx from "clsx";
+
+export function MenuItemList({ menuItems = [], onMenuItemSelected = () => {}, selectedIndex, autoSelect }) {
   const [selectedMenuItem, setSelectedMenuItem] = useState(null);
-
-  const handleMenuItemSelected = (index) => {
-    if (autoSelect) {
-      setSelectedMenuItem(index);
-    }
-    onMenuItemSelected(index);
-  };
 
   useEffect(() => {
     if (selectedIndex !== null && selectedIndex !== undefined) {
@@ -25,67 +19,56 @@ export function MenuItemList(props) {
     }
   }, [autoSelect, menuItems, onMenuItemSelected, selectedMenuItem]);
 
+  const handleMenuItemSelected = (index) => {
+    if (autoSelect) {
+      setSelectedMenuItem(index);
+    }
+    onMenuItemSelected(index);
+  };
+
   const renderMenuItem = (item, index) => {
     const isSelected = index === selectedMenuItem;
-    const highlightSx = isSelected ? { backgroundColor: 'rgba(0, 0, 0, 0.1)' } : null;
+    const baseClass = clsx(
+      "flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-4 py-2 text-left text-sm transition",
+      isSelected
+        ? "bg-primary/10 text-primary"
+        : "text-emphasis hover:bg-primary/5 hover:text-primary"
+    );
 
     if (React.isValidElement(item)) {
       const existingOnClick = item.props.onClick;
       const mergedOnClick = (event) => {
-        if (existingOnClick) {
-          existingOnClick(event);
-        }
+        existingOnClick?.(event);
         if (!event.defaultPrevented) {
           handleMenuItemSelected(index);
         }
       };
 
-      let mergedSx = item.props.sx;
-      if (highlightSx) {
-        if (Array.isArray(mergedSx)) {
-          mergedSx = [...mergedSx, highlightSx];
-        } else if (typeof mergedSx === 'function') {
-          mergedSx = [mergedSx, highlightSx];
-        } else if (mergedSx) {
-          mergedSx = { ...mergedSx, ...highlightSx };
-        } else {
-          mergedSx = highlightSx;
-        }
-      }
-
       return React.cloneElement(item, {
         key: item.key ?? index,
         onClick: mergedOnClick,
-        button: item.props.button ?? true,
-        selected: item.props.selected ?? isSelected,
-        sx: mergedSx,
+        className: clsx(baseClass, item.props.className),
       });
     }
 
-    let textContent = null;
-
-    if (item && typeof item === 'object' && !Array.isArray(item)) {
-      textContent = <ListItemText {...item} />;
-    } else if (item !== null && item !== undefined) {
-      textContent = <ListItemText primary={item} />;
+    let label = null;
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      label = item.label ?? item.primary ?? item.text ?? "";
+    } else {
+      label = item ?? "";
     }
 
     return (
-      <ListItem
-        button
+      <button
         key={index}
+        type="button"
         onClick={() => handleMenuItemSelected(index)}
-        selected={isSelected}
-        sx={highlightSx || undefined}
+        className={baseClass}
       >
-        {textContent}
-      </ListItem>
+        <span className="truncate">{label}</span>
+      </button>
     );
   };
 
-  return (
-    <List>
-      {menuItems.map((item, index) => renderMenuItem(item, index))}
-    </List>
-  );
+  return <div className="flex flex-col gap-1 py-1">{menuItems.map(renderMenuItem)}</div>;
 }

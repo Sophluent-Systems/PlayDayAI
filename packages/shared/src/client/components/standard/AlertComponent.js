@@ -1,29 +1,36 @@
+﻿import React from "react";
+import { Modal } from "../ui/modal";
 
-import { 
-    Dialog, 
-    DialogTitle,
-    DialogContent, 
-    DialogActions,
-    DialogContentText,
-    Button,
-  } from '@mui/material';
+export const AlertComponent = ({ title, message, actions = [], onClose }) => {
+  const footerButtons = actions.map((action, index) => {
+    const handleClick = () => {
+      action.onPress?.();
+      onClose?.();
+    };
 
-export const AlertComponent = ({ title, message, actions, onClose }) => {
+    const buttonClass = index === 0 ? "button-primary" : "button-secondary";
+
+    return (
+      <button key={index} type="button" className={buttonClass} onClick={handleClick}>
+        {action.text}
+      </button>
+    );
+  });
+
   return (
-    <Dialog open={true} onClose={onClose}>
-      <DialogTitle>{title}</DialogTitle>
-      <DialogContent>
-        <DialogContentText>
-          {message}
-        </DialogContentText>
-      </DialogContent>
-      <DialogActions>
-        {actions.map((action, index) => (
-          <Button key={index} onClick={() => { action.onPress(); onClose(); }} color="primary">
-            {action.text}
-          </Button>
-        ))}
-      </DialogActions>
-    </Dialog>
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      footer={footerButtons}
+    >
+      {message ? (
+        typeof message === "string" ? (
+          <p className="text-sm text-muted">{message}</p>
+        ) : (
+          <div className="text-sm text-muted">{message}</div>
+        )
+      ) : null}
+    </Modal>
   );
 };

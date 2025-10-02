@@ -1,65 +1,19 @@
-import React from 'react';
-import { 
-  Dialog, 
-  DialogContent, 
-  IconButton,
-  Slide,
-  Typography,
-} from '@mui/material';
-import { Close } from '@mui/icons-material';
-import { makeStyles } from 'tss-react/mui';
+﻿import React from "react";
+import { Modal } from "../ui/modal";
 
-const useStyles = makeStyles()((theme) => {
-  return ({
-  text: {
-    flex: 1,
-    color: 'black',
-    whiteSpace: 'pre-wrap',
-    direction: 'ltr', 
-  },
-})});
-
-
-function TextPreviewModal({ isOpen, text, onClose }) {
-  const classes = useStyles();
-
-  // Transition for the modal appearance
-  const Transition = React.forwardRef(function Transition(props, ref) {
-    return <Slide direction="up" ref={ref} {...props} />;
-  });
-
-  if (!isOpen) {
-    return null;
-  }
-
+function TextPreviewModal({ isOpen, text, onClose, title = "Preview" }) {
   return (
-    <Dialog
-      open={isOpen}
+    <Modal
+      open={Boolean(isOpen)}
       onClose={onClose}
-      fullWidth={true}
-      maxWidth="md" // can be changed to 'sm', 'xs', etc. to fit your needs
-      TransitionComponent={Transition}
+      title={title}
+      size="lg"
     >
-      <IconButton
-        edge="end"
-        color="inherit"
-        onClick={onClose}
-        aria-label="close"
-      >
-        <Close />
-      </IconButton>
-      <DialogContent>
-        <Typography variant="body1" display="block" className={classes.text}>
-        {text.split('\n').map((str, index, array) => 
-            index === array.length - 1 ? str : <React.Fragment key={`${index}`}>
-                {str}
-                <br />
-            </React.Fragment>
-        )}
-        </Typography>
-      </DialogContent>
-    </Dialog>
+      <div className="max-h-[60vh] overflow-auto rounded-2xl border border-border/60 bg-surface/90 p-4">
+        <pre className="whitespace-pre-wrap font-mono text-sm text-muted">{text ?? ""}</pre>
+      </div>
+    </Modal>
   );
-  }
-  
+}
+
 export default TextPreviewModal;

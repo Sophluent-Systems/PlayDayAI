@@ -1,5 +1,4 @@
-import { createTheme } from '@mui/material/styles';
-import { themePresets } from '@src/common/theme';
+﻿import { themePresets } from '@src/common/theme';
 
 const typography = {
   h1: {
@@ -95,74 +94,10 @@ const buildPalette = (mode) => {
   };
 };
 
-export const createAppTheme = (mode = 'dark') => {
-  const palette = buildPalette(mode);
-  const baseTheme = createTheme({
-    palette,
-    typography,
-  });
-
-  const withAlpha = (color, alphaHex) => `${color}${alphaHex}`;
-
-  baseTheme.components = {
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: 'none',
-          borderRadius: 999,
-          paddingInline: baseTheme.spacing(2.5),
-          paddingBlock: baseTheme.spacing(1),
-          fontWeight: 600,
-        },
-        containedPrimary: {
-          backgroundColor: baseTheme.palette.primary.main,
-          color: baseTheme.palette.primary.contrastText,
-          '&:hover': {
-            backgroundColor: baseTheme.palette.primary.dark || baseTheme.palette.primary.main,
-            color: baseTheme.palette.primary.contrastText,
-          },
-        },
-        containedSecondary: {
-          backgroundColor: baseTheme.palette.secondary.main,
-          color: baseTheme.palette.secondary.contrastText,
-          '&:hover': {
-            backgroundColor: baseTheme.palette.secondary.dark || baseTheme.palette.secondary.main,
-            color: baseTheme.palette.secondary.contrastText,
-          },
-        },
-        outlinedPrimary: {
-          borderColor: baseTheme.palette.primary.main,
-          color: baseTheme.palette.primary.main,
-          '&:hover': {
-            backgroundColor: withAlpha(baseTheme.palette.primary.main, '1a'),
-            borderColor: baseTheme.palette.primary.main,
-          },
-        },
-        outlinedSecondary: {
-          borderColor: baseTheme.palette.secondary.main,
-          color: baseTheme.palette.secondary.main,
-          '&:hover': {
-            backgroundColor: withAlpha(baseTheme.palette.secondary.main, '1a'),
-            borderColor: baseTheme.palette.secondary.main,
-          },
-        },
-        textPrimary: {
-          color: baseTheme.palette.primary.main,
-          '&:hover': {
-            backgroundColor: withAlpha(baseTheme.palette.primary.main, '12'),
-          },
-        },
-        textSecondary: {
-          color: baseTheme.palette.secondary.main,
-          '&:hover': {
-            backgroundColor: withAlpha(baseTheme.palette.secondary.main, '12'),
-          },
-        },
-      },
-    },
-  };
-
-  return baseTheme;
-};
+export const createAppTheme = (mode = 'dark') => ({
+  mode,
+  palette: buildPalette(mode),
+  typography,
+});
 
 export const theme = createAppTheme('dark');

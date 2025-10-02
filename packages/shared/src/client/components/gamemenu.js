@@ -1,22 +1,19 @@
-'use client';
+﻿"use client";
 
-import React, { useState, memo } from 'react';
-import { IconButton } from '@mui/material';
-import { Settings } from '@mui/icons-material';
-import { stateManager } from '@src/client/statemanager';
-import { GameMenuDropdown } from '@src/client/components/gamemenudropdown-lazy';
+import React, { memo, useState } from "react";
+import { Settings } from "lucide-react";
+import { stateManager } from "@src/client/statemanager";
+import { GameMenuDropdown } from "@src/client/components/gamemenudropdown-lazy";
 
 function GameMenu({
   theme,
   allowEditOptions = true,
   includePlayOption = true,
-  placement = 'floating',
+  placement = "floating",
   className,
 }) {
   const { game } = React.useContext(stateManager);
   const [anchorEl, setAnchorEl] = useState(null);
-  const [openConfirmModal, setOpenConfirmModal] = useState(false);
-  const [versionsAnchorEl, setVersionsAnchorEl] = useState(null);
 
   const handleButtonClick = (event) => {
     setAnchorEl(event.currentTarget);
@@ -26,58 +23,28 @@ function GameMenu({
     setAnchorEl(null);
   };
 
-  const menuColor = theme?.colors?.menuButtonColor || 'currentColor';
-  const iconButtonSx =
-    placement === 'inline'
-      ? {
-          position: 'static',
-          color: menuColor,
-          padding: 0,
-          minWidth: 0,
-          width: 36,
-          height: 36,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }
-      : {
-          position: 'absolute',
-          top: 15,
-          right: 25,
-          zIndex: 1200,
-          color: menuColor,
-          padding: 0,
-          width: 44,
-          height: 44,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        };
+  const buttonBaseClasses = [
+    "inline-flex h-11 w-11 items-center justify-center rounded-full",
+    "border border-border/70 bg-surface/80 text-muted shadow-soft",
+    "transition-colors duration-200 hover:border-primary/50 hover:text-primary",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+  ];
 
-  const inlineClasses = [
-    'inline-flex h-11 w-11 items-center justify-center rounded-full',
-    'border border-border/70 bg-surface/80 text-emphasis shadow-soft',
-    'transition-colors duration-200 hover:border-primary/50',
-    'hover:text-primary focus-visible:outline-none focus-visible:ring-2',
-    'focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
-  ].join(' ');
+  const placementOverrides =
+    placement === "inline"
+      ? ["relative border-border/60 text-emphasis"]
+      : ["absolute top-4 right-6 z-30"];
 
-  const floatingClasses = [
-    'inline-flex h-11 w-11 items-center justify-center rounded-full',
-    'border border-border/70 bg-surface/80 text-muted shadow-soft',
-    'transition-colors duration-200 hover:border-primary/50 hover:text-primary',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
-  ].join(' ');
+  const buttonClassName = [...buttonBaseClasses, ...placementOverrides, className]
+    .filter(Boolean)
+    .join(" ");
 
-  const buttonClassName =
-    placement === 'inline'
-      ? [inlineClasses, className].filter(Boolean).join(' ')
-      : [floatingClasses, className].filter(Boolean).join(' ');
+  const menuColor = theme?.colors?.menuButtonColor || undefined;
 
   return (
     <>
       <GameMenuDropdown
-        onMenuClose={() => handleMenuClose()}
+        onMenuClose={handleMenuClose}
         anchor={anchorEl}
         gameUrl={game?.url}
         gameID={game?.gameID}
@@ -85,20 +52,17 @@ function GameMenu({
         includePlayOption={includePlayOption}
       />
 
-      <IconButton
-        edge={placement === 'inline' ? false : 'end'}
+      <button
+        type="button"
         aria-label="Game options"
-        onClick={(event) => handleButtonClick(event)}
-        sx={iconButtonSx}
+        onClick={handleButtonClick}
         className={buttonClassName}
-        disableRipple={placement === 'inline'}
-        size={placement === 'inline' ? 'large' : 'medium'}
+        style={menuColor ? { color: menuColor } : undefined}
       >
-        <Settings fontSize="small" />
-      </IconButton>
+        <Settings className="h-4 w-4" aria-hidden="true" />
+      </button>
     </>
   );
 }
 
 export default memo(GameMenu);
-

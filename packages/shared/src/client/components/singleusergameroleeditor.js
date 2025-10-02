@@ -1,58 +1,48 @@
-import React, { useState, useEffect } from 'react';
-import {
-    Box,
-} from '@mui/material';
-import { TwoColumnSelector } from './standard/twocolumnselector';
-import { useConfig } from '@src/client/configprovider';
-import { callSetGameRolesForAccount } from '@src/client/permissions';
+﻿import React, { useEffect, useState } from "react";
+import { TwoColumnSelector } from "./standard/twocolumnselector";
+import { useConfig } from "@src/client/configprovider";
+import { callSetGameRolesForAccount } from "@src/client/permissions";
 
-export function SingleUserGameRoleEditor(params) {
-    const { Constants } = useConfig();
-    const { accountID, email, gameID, gameRoles } = params;
-    const [rolesGranted, setAccountRolesGranted] = useState([]);
-    const [rolesAvailable, setAccountRolesAvailable] = useState([]);
+export function SingleUserGameRoleEditor({ accountID, email, gameID, gameRoles = [] }) {
+  const { Constants } = useConfig();
+  const [rolesGranted, setAccountRolesGranted] = useState([]);
+  const [rolesAvailable, setAccountRolesAvailable] = useState([]);
 
-    function setNewRoleData(gameRoles) {
+  const setNewRoleData = (grantedRoles = []) => {
+    const normalizedRoles = Array.isArray(grantedRoles) ? grantedRoles : [];
+    setAccountRolesGranted(normalizedRoles);
 
-        console.log("setNewRoleData: ", gameRoles)
+    const availableRoles = (Constants?.gameRoles ?? []).filter((role) => !normalizedRoles.includes(role));
+    setAccountRolesAvailable(availableRoles);
+  };
 
-        // Fetch the user roles logic here
-        // For demo purposes, let's assume the fetched roles
-        setAccountRolesGranted(gameRoles);
-  
-        // roles available should be all roles minus the granted roles
-        // from Constants
-        const rolesAvailable = Constants.gameRoles.filter(role => !gameRoles.includes(role));
-        setAccountRolesAvailable(rolesAvailable);
+  useEffect(() => {
+    setNewRoleData(gameRoles);
+  }, [gameRoles]);
+
+  const onRequestMoveRoles = async (rolesToRemove, rolesToAdd) => {
+    try {
+      await callSetGameRolesForAccount(accountID, email, gameID, rolesToAdd, rolesToRemove);
+      return true;
+    } catch (error) {
+      console.error("Failed to update game roles", error);
+      return false;
     }
-  
-    useEffect(() => {
-        if (gameRoles) {
-            setNewRoleData(gameRoles);
-        }
-    }, [gameRoles]);
+  };
 
-    async function onRequestMoveRoles(rolesToRemove, rolesToAdd) {
-        try {
-          const roleData = await callSetGameRolesForAccount(accountID, email, gameID, rolesToAdd, rolesToRemove);
-          return true;
-        } catch (error) {
-          console.error("Error: ", error);
-          return false;
-        }
-      }
+  if (!gameRoles) {
+    return null;
+  }
 
-    return (
-        <Box>
-            {gameRoles &&
-                <TwoColumnSelector
-                    columnAlabel="Roles Granted"
-                    columnAdata={rolesGranted}
-                    columnBlabel="Roles Available"
-                    columnBdata={rolesAvailable}
-                    onAsynchronouslyMoveItems={onRequestMoveRoles}  // Ensure onRequestMoveRoles function exists in this component or passed down via props.
-                />
-            }
-        </Box>
-    );
+  return (
+    <div className="flex flex-col gap-6">
+      <TwoColumnSelector
+        columnAlabel="Roles Granted"
+        columnAdata={rolesGranted}
+        columnBlabel="Roles Available"
+        columnBdata={rolesAvailable}
+        onAsynchronouslyMoveItems={onRequestMoveRoles}
+      />
+    </div>
+  );
 }

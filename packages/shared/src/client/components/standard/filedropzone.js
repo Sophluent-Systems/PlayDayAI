@@ -1,42 +1,24 @@
-import React, { useState, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
-import { defaultAppTheme } from '@src/common/theme';
-import { makeStyles } from 'tss-react/mui';
-import {
-  Box,
-  Typography,
-  Paper,
-} from '@mui/material';
-import { InsertDriveFile as FileIcon } from '@mui/icons-material';
+﻿"use client";
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-    const { colors } = pageTheme;
-    return ({
-      dragDropArea: {
-        flex: 1,
-        border: '2px dashed #ccc',
-        borderRadius: '4px',
-        padding: '16px',
-        textAlign: 'center',
-        backgroundColor: '#f0f0f0',
-        cursor: 'pointer',
-        transition: 'border-color 0.3s ease',
-      },
-    });
-  });
-  
+import React, { useCallback, useState } from "react";
+import clsx from "clsx";
+import { useDropzone } from "react-dropzone";
+import { FileText } from "lucide-react";
 
-export const FileDropZone = ({ onFileDrop, disabled, file }) => {
+export function FileDropZone({ onFileDrop, disabled, file }) {
   const [isDragging, setIsDragging] = useState(false);
 
-  const onDrop = useCallback((acceptedFiles) => {
-    if (acceptedFiles.length > 0) {
-      onFileDrop(acceptedFiles[0]);
-    }
-    setIsDragging(false);
-  }, [onFileDrop]);
+  const onDrop = useCallback(
+    (acceptedFiles) => {
+      if (acceptedFiles.length > 0) {
+        onFileDrop?.(acceptedFiles[0]);
+      }
+      setIsDragging(false);
+    },
+    [onFileDrop]
+  );
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps } = useDropzone({
     onDrop,
     disabled,
     noClick: true,
@@ -45,49 +27,42 @@ export const FileDropZone = ({ onFileDrop, disabled, file }) => {
     onDragLeave: () => setIsDragging(false),
   });
 
+  const isActive = Boolean(file) || isDragging;
+
   return (
-    <Box
+    <div
       {...getRootProps()}
-      sx={{
-        border: file ? '2px solid #1976d2' : '2px dashed #ccc',
-        borderRadius: '4px',
-        padding: '16px',
-        textAlign: 'center',
-        backgroundColor: file ? '#e3f2fd' : '#f0f0f0',
-        cursor: 'pointer',
-        transition: 'all 0.3s ease',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '120px',
-        '&:hover': {
-          backgroundColor: file ? '#bbdefb' : '#e0e0e0',
-        },
-      }}
+      className={clsx(
+        "group relative flex min-h-[140px] w-full flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-10 text-center transition",
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+        isActive
+          ? "border-primary/60 bg-primary/10 text-primary shadow-[0_20px_45px_-28px_rgba(99,102,241,0.35)]"
+          : "border-border/60 bg-surface/80 text-muted hover:border-primary/40 hover:bg-primary/5"
+      )}
     >
       <input {...getInputProps()} />
       {file ? (
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <FileIcon sx={{ fontSize: 48, color: '#1976d2', mb: 1 }} />
-          <Paper
-            elevation={2}
-            sx={{
-              p: 1,
-              maxWidth: '200px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <Typography variant="body2">{file.name}</Typography>
-          </Paper>
-        </Box>
-      ) : isDragging ? (
-        <Typography>Drop the file here ...</Typography>
+        <div className="flex flex-col items-center gap-3">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/40 bg-primary/10 text-primary">
+            <FileText className="h-6 w-6" aria-hidden="true" />
+          </span>
+          <span className="max-w-[220px] truncate text-sm font-semibold text-emphasis">
+            {file.name}
+          </span>
+          <span className="text-xs text-muted">
+            {(file.size / 1024).toFixed(1)} KB
+          </span>
+        </div>
       ) : (
-        <Typography>Drag and drop a file here</Typography>
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-emphasis">
+            {isDragging ? "Drop the file here" : "Drag and drop a file"}
+          </p>
+          <p className="text-xs text-muted">
+            Supports documents, images, and audio clips.
+          </p>
+        </div>
       )}
-    </Box>
+    </div>
   );
-};
+}

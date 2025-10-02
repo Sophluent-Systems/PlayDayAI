@@ -1,126 +1,113 @@
-import React, { useState, useEffect } from "react";
-import {
-  Box, Select, MenuItem, FormControl, InputLabel, TextField
-} from "@mui/material";
+﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { SingleUserGameRoleEditor } from "./singleusergameroleeditor";
 import { callGetGamePermissionsForEditing } from "@src/client/permissions";
 
-export function AddAndEditGameUsers(params) {
-    const { gameID } = params;
-    const [selectedAccount, setSelectedAccount] = useState(null);
-    const [roleData, setRoleData] = useState([]); // [ { accountID: "123", access: "game_owner", ... }
-    const [manualEmailEntry, setManualEmailEntry] = useState(false);
-    const [email, setEmail] = useState("");
-    const [individualRolesGranted, setIndividualRolesGranted] = useState([]);
+export function AddAndEditGameUsers({ gameID }) {
+  const [selectedAccount, setSelectedAccount] = useState(null);
+  const [roleData, setRoleData] = useState({});
+  const [manualEmailEntry, setManualEmailEntry] = useState(false);
+  const [email, setEmail] = useState("");
+  const [individualRolesGranted, setIndividualRolesGranted] = useState([]);
 
-    useEffect(() => {
-        if (gameID) {
-            fetchRolesOnGameChange();
-        }
-    }, [gameID]);
+  const accountOptions = useMemo(() => Object.keys(roleData ?? {}), [roleData]);
 
-    useEffect(() => {
-      if (selectedAccount || (manualEmailEntry && validateEmail(email))) {
-          onAccountSelected();
-      }
-    }, [selectedAccount, email]);
-
-    async function fetchRolesOnGameChange() {
-          try {
-              let newRoleData = await callGetGamePermissionsForEditing(gameID);
-              console.log("game role data: ", newRoleData);
-              setRoleData(newRoleData);
-          } catch (error) {
-              console.error(error);
-          }
+  useEffect(() => {
+    if (!gameID) {
+      return;
     }
-    
-    async function onAccountSelected() {
-      let rolesGranted = null;
-      if (manualEmailEntry && validateEmail(email)) {
 
-        console.log("selectedAccount: ", email, roleData)
-        // check and see if this account is actually in the data we have
-        const accounts = Object.keys(roleData); 
-        for (let i = 0; i < accounts.length; i++) {
-          console.log("roleData[i].email: ", roleData[accounts[i]].email, email)
-          if (roleData[accounts[i]].email == email) {
-            rolesGranted = roleData[accounts[i]].roles;
-            break;
-          }
-        }
+    const fetchRoles = async () => {
+      try {
+        const response = await callGetGamePermissionsForEditing(gameID);
+        setRoleData(response ?? {});
+      } catch (error) {
+        console.error("Failed to load game permissions", error);
+      }
+    };
 
-        if (!rolesGranted) {
-          rolesGranted = [];
-        }
+    fetchRoles();
+  }, [gameID]);
 
-      } else if (selectedAccount) {
-        console.log("selectedAccount: ", selectedAccount)
-        try {
-          rolesGranted = roleData[selectedAccount]?.roles ? roleData[selectedAccount].roles : [];
-        } catch (error) {
-            console.error(error);
+  const validateEmail = useCallback((candidate) => {
+    const regex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return regex.test(candidate ?? "");
+  }, []);
+
+  const resolveSelectedRoles = useCallback(() => {
+    let rolesGranted = [];
+
+    if (manualEmailEntry && validateEmail(email)) {
+      for (const accountID of accountOptions) {
+        if (roleData[accountID]?.email === email) {
+          rolesGranted = roleData[accountID]?.roles ?? [];
+          break;
         }
       }
+    } else if (selectedAccount) {
+      rolesGranted = roleData[selectedAccount]?.roles ?? [];
+    }
 
-      console.log("rolesGranted: ", rolesGranted)
+    setIndividualRolesGranted(rolesGranted ?? []);
+  }, [accountOptions, email, manualEmailEntry, roleData, selectedAccount, validateEmail]);
 
-      setIndividualRolesGranted(rolesGranted);
-  }
+  useEffect(() => {
+    if (selectedAccount || (manualEmailEntry && validateEmail(email))) {
+      resolveSelectedRoles();
+    }
+  }, [selectedAccount, email, manualEmailEntry, validateEmail, resolveSelectedRoles]);
 
-    const validateEmail = (email) => {
-        const regex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
-        return regex.test(email);
-    };
+  const handleDropdownChange = (event) => {
+    const value = event.target.value;
+    if (value === "manual-entry") {
+      setManualEmailEntry(true);
+      setSelectedAccount(null);
+    } else {
+      setManualEmailEntry(false);
+      setEmail("");
+      setSelectedAccount(value || null);
+    }
+  };
 
-    const handleDropdownChange = (event) => {
-        const value = event.target.value;
-        if (value === "manual-entry") {
-            setManualEmailEntry(true);
-            setSelectedAccount(null);
-        } else {
-            setEmail("");
-            setManualEmailEntry(false);
-            setSelectedAccount(value);
-        }
-    };
+  return (
+    <div className="flex flex-col gap-6">
+      <label className="flex flex-col gap-2 text-sm font-semibold text-emphasis">
+        <span>Select account</span>
+        <select
+          value={manualEmailEntry ? "manual-entry" : selectedAccount ?? ""}
+          onChange={handleDropdownChange}
+          className="w-full rounded-2xl border border-border bg-surface px-4 py-2 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none"
+        >
+          <option value="" disabled>
+            Choose an account
+          </option>
+          {accountOptions.map((accountID) => (
+            <option key={accountID} value={accountID}>
+              {roleData[accountID]?.email ?? accountID}
+            </option>
+          ))}
+          <option value="manual-entry">Enter email manually</option>
+        </select>
+      </label>
 
-    return (
-      <Box sx={{dispay: 'flex', flexGrow: 1, flexDirection: 'column', justifyContent:'center', alignContent: 'center'}}>
-        <FormControl sx={{width:400}}>
-          <InputLabel id="account-select-label">Select Account</InputLabel>
-          <Select
-            labelId="account-select-label"
-            onChange={handleDropdownChange}
-            value={manualEmailEntry ? "manual-entry" : selectedAccount}
-          >
-            {Object.keys(roleData).map(accountID => (
-              <MenuItem key={accountID} value={accountID}>
-                {roleData[accountID].email}
-              </MenuItem>
-            ))}
-            <MenuItem value="manual-entry">Enter email manually</MenuItem>
-          </Select>
-        </FormControl>
-
-        {manualEmailEntry && (
-          <TextField
-            label="Enter Email"
+      {manualEmailEntry ? (
+        <label className="flex flex-col gap-2 text-sm font-semibold text-emphasis">
+          <span>Enter email</span>
+          <input
+            type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            fullWidth
-            margin="normal"
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="name@example.com"
+            className="w-full rounded-2xl border border-border bg-surface px-4 py-2 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none"
           />
-        )}
+        </label>
+      ) : null}
 
-        {roleData &&
-              <SingleUserGameRoleEditor 
-                  accountID={selectedAccount}
-                  email={email}
-                  gameID={gameID}
-                  gameRoles={individualRolesGranted}
-              />
-        }
-      </Box>
-    );
+      <SingleUserGameRoleEditor
+        accountID={selectedAccount}
+        email={manualEmailEntry ? email : roleData[selectedAccount]?.email}
+        gameID={gameID}
+        gameRoles={individualRolesGranted}
+      />
+    </div>
+  );
 }

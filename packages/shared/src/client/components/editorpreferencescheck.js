@@ -1,155 +1,133 @@
-import React, { useState, useEffect, memo } from 'react';
-import {
-    Button,
-    Dialog,
-    DialogContent,
-    DialogTitle,
-    DialogActions,
-    TextField,
-} from '@mui/material';
-import { stateManager } from '@src/client/statemanager';
-import { nullUndefinedOrEmpty } from '@src/common/objects';
-import { useAtom } from 'jotai';
-import { browserSessionIDState } from '@src/client/states';
+﻿import React, { useEffect, useState } from "react";
+import { Modal } from "./ui/modal";
+import { stateManager } from "@src/client/statemanager";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
+import { useAtom } from "jotai";
+import { browserSessionIDState } from "@src/client/states";
 
-
-
-export function EditorPreferencesCheck(props) {
+export function EditorPreferencesCheck() {
   const { account, editMode, globalTemporaryState, setAccountPreference, updateGlobalTemporaryStateSetting, version } = React.useContext(stateManager);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [newopenAIkey, setNewopenAIkey] = useState("");
+  const [newOpenAIKey, setNewOpenAIKey] = useState("");
   const [newAnthropicKey, setNewAnthropicKey] = useState("");
   const [newGoogleLLMKey, setNewGoogleLLMKey] = useState("");
   const [elevenLabsKey, setElevenLabsKey] = useState("");
   const [newStabilityAIKey, setNewStabilityAIKey] = useState("");
-  const [browserSessionID, browserSetSessionID] = useAtom(browserSessionIDState);
+  const [browserSessionID] = useAtom(browserSessionIDState);
 
-  
   useEffect(() => {
+    const needsKeys = editMode || (version && !version.alwaysUseBuiltInKeys);
 
-    const needKeys = (editMode || (version && !version.alwaysUseBuiltInKeys));
-
-    if (account && needKeys) {
-        
-        const APIKeyDialogState = globalTemporaryState.APIKeyDialogShown;
-        const dialogShown = !nullUndefinedOrEmpty(APIKeyDialogState);
-        const shownThisSession = dialogShown && APIKeyDialogState.browserSessionID === browserSessionID;
-        const neverShowAgain = dialogShown && APIKeyDialogState.neverShowAgain;
-        // 5 min in MS
-        const recentTimeMS = 1000 * 60 * 5;
-        const shownRecently = dialogShown && new Date() - new Date(APIKeyDialogState.lastShown) < recentTimeMS;
-        const shouldShow = !neverShowAgain && (!dialogShown || (!shownThisSession && !shownRecently));
-        const missingKeys = nullUndefinedOrEmpty(account.preferences.openAIkey) && nullUndefinedOrEmpty(account.preferences.anthropicKey) && nullUndefinedOrEmpty(account.preferences.googleLLMKey) && nullUndefinedOrEmpty(account.preferences.stabilityAIKey) && nullUndefinedOrEmpty(account.preferences.elevenLabsKey);
-
-        if (!account.preferences 
-            || 
-            (missingKeys && shouldShow)
-           ) {
-          setDialogOpen(true);
-        }
-
-        if (account.preferences) {
-          setNewopenAIkey(account.preferences.openAIkey);
-          setNewAnthropicKey(account.preferences.anthropicKey);
-        }
+    if (!account || !needsKeys) {
+      return;
     }
-  }, [account, editMode, version]);
+
+    const dialogState = globalTemporaryState.APIKeyDialogShown;
+    const dialogShown = !nullUndefinedOrEmpty(dialogState);
+    const shownThisSession = dialogShown && dialogState.browserSessionID === browserSessionID;
+    const neverShowAgain = dialogShown && dialogState.neverShowAgain;
+    const shownRecently = dialogShown && new Date() - new Date(dialogState.lastShown) < 5 * 60 * 1000;
+    const shouldShow = !neverShowAgain && (!dialogShown || (!shownThisSession && !shownRecently));
+
+    const missingKeys =
+      nullUndefinedOrEmpty(account.preferences?.openAIkey) &&
+      nullUndefinedOrEmpty(account.preferences?.anthropicKey) &&
+      nullUndefinedOrEmpty(account.preferences?.googleLLMKey) &&
+      nullUndefinedOrEmpty(account.preferences?.stabilityAIKey) &&
+      nullUndefinedOrEmpty(account.preferences?.elevenLabsKey);
+
+    if (!account.preferences || (missingKeys && shouldShow)) {
+      setDialogOpen(true);
+    }
+
+    if (account.preferences) {
+      setNewOpenAIKey(account.preferences.openAIkey ?? "");
+      setNewAnthropicKey(account.preferences.anthropicKey ?? "");
+      setNewGoogleLLMKey(account.preferences.googleLLMKey ?? "");
+      setNewStabilityAIKey(account.preferences.stabilityAIKey ?? "");
+      setElevenLabsKey(account.preferences.elevenLabsKey ?? "");
+    }
+  }, [account, editMode, version, globalTemporaryState, browserSessionID]);
 
   const handleDialogClose = (dontShowAgain) => {
     updateGlobalTemporaryStateSetting("APIKeyDialogShown", {
       neverShowAgain: dontShowAgain,
       lastShown: new Date(),
-      browserSessionID: browserSessionID,
-    })
+      browserSessionID,
+    });
     setDialogOpen(false);
   };
 
+  const canAddKey = (value) => !nullUndefinedOrEmpty(value);
+
   const handleSetPreferences = async () => {
-    if (!nullUndefinedOrEmpty(newopenAIkey)) {
-      setAccountPreference("openAIkey", newopenAIkey);
+    if (canAddKey(newOpenAIKey)) {
+      setAccountPreference("openAIkey", newOpenAIKey);
     }
-    if (!nullUndefinedOrEmpty(newAnthropicKey)) {
+    if (canAddKey(newAnthropicKey)) {
       setAccountPreference("anthropicKey", newAnthropicKey);
     }
-    if (!nullUndefinedOrEmpty(newGoogleLLMKey)) {
+    if (canAddKey(newGoogleLLMKey)) {
       setAccountPreference("googleLLMKey", newGoogleLLMKey);
     }
-    if (!nullUndefinedOrEmpty(newStabilityAIKey)) {
+    if (canAddKey(newStabilityAIKey)) {
       setAccountPreference("stabilityAIKey", newStabilityAIKey);
     }
-    if (!nullUndefinedOrEmpty(elevenLabsKey)) {
+    if (canAddKey(elevenLabsKey)) {
       setAccountPreference("elevenLabsKey", elevenLabsKey);
     }
-    handleDialogClose();
+    handleDialogClose(false);
   };
 
-  
-  const canAddKey = (value) => {
-    return !nullUndefinedOrEmpty(value);
-  };
+  const footerButtons = [
+    <button key="later" type="button" className="button-secondary" onClick={() => handleDialogClose(false)}>
+      Not right now
+    </button>,
+    <button key="never" type="button" className="button-secondary" onClick={() => handleDialogClose(true)}>
+      Never show again
+    </button>,
+    <button
+      key="save"
+      type="button"
+      className="button-primary"
+      onClick={handleSetPreferences}
+      disabled={!canAddKey(newOpenAIKey) && !canAddKey(newAnthropicKey)}
+    >
+      Add key(s)
+    </button>,
+  ];
 
   return (
-    <Dialog open={dialogOpen} onClose={() => handleDialogClose(false)}>
-        <DialogTitle>Would you like to add your AI keys to simplify AI editing? You can edit these later in "Preferences" using the menu on the top-left.</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            id="openAIkey"
-            label="OpenAI Key"
-            fullWidth
-            value={newopenAIkey}
-            onChange={(e) => setNewopenAIkey(e.target.value)}
-            error={!canAddKey(newopenAIkey)}
-          />
-          <TextField
-            margin="dense"
-            id="anthropicKey"
-            label="Anthropic (Claude) Key"
-            fullWidth
-            value={newAnthropicKey}
-            onChange={(e) => setNewAnthropicKey(e.target.value)}
-            error={!canAddKey(newAnthropicKey)}
-          />
-          <TextField
-            margin="dense"
-            id="googleLLMKey"
-            label="Google (Gemini) Key"
-            fullWidth
-            value={newGoogleLLMKey}
-            onChange={(e) => setNewGoogleLLMKey(e.target.value)}
-            error={!canAddKey(newGoogleLLMKey)}
-          />
-          <TextField
-            margin="dense"
-            id="elevenLabsKey"
-            label="Eleven Labs Key"
-            fullWidth
-            value={elevenLabsKey}
-            onChange={(e) => setElevenLabsKey(e.target.value)}
-            error={!canAddKey(elevenLabsKey)}
-          />
-          <TextField
-            margin="dense"
-            id="stabilityAIKey"
-            label="Stability AI Key"
-            fullWidth
-            value={newStabilityAIKey}
-            onChange={(e) => setNewStabilityAIKey(e.target.value)}
-            error={!canAddKey(newStabilityAIKey)}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => handleDialogClose(false)}>
-            Not right now
-          </Button>
-          <Button onClick={() => handleDialogClose(true)}>
-            Never show again
-          </Button>
-          <Button onClick={handleSetPreferences} disabled={!canAddKey(newopenAIkey) && !canAddKey(newAnthropicKey)}>
-            Add Key(s)
-          </Button>
-        </DialogActions>
-    </Dialog>
+    <Modal
+      open={dialogOpen}
+      onClose={() => handleDialogClose(false)}
+      title="Add your API keys to speed up editing"
+      description="You can manage these later in Preferences from the workspace menu."
+      size="md"
+      footer={footerButtons}
+    >
+      <div className="grid gap-4">
+        <InputRow label="OpenAI key" value={newOpenAIKey} onChange={setNewOpenAIKey} placeholder="sk-..." />
+        <InputRow label="Anthropic (Claude) key" value={newAnthropicKey} onChange={setNewAnthropicKey} placeholder="anthropic-..." />
+        <InputRow label="Google (Gemini) key" value={newGoogleLLMKey} onChange={setNewGoogleLLMKey} placeholder="AIza..." />
+        <InputRow label="Eleven Labs key" value={elevenLabsKey} onChange={setElevenLabsKey} />
+        <InputRow label="Stability AI key" value={newStabilityAIKey} onChange={setNewStabilityAIKey} />
+      </div>
+    </Modal>
+  );
+}
+
+function InputRow({ label, value, onChange, placeholder }) {
+  return (
+    <label className="flex flex-col gap-2 text-sm font-semibold text-emphasis">
+      <span>{label}</span>
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-2xl border border-border bg-surface px-4 py-2 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none"
+      />
+    </label>
   );
 }

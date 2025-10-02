@@ -288,15 +288,16 @@ export function topLevelStateController(props) {
         }
     }
 
-    async function startNewGameSession(url=null) {
-        Constants.debug.logStateManager && console.log("startNewGameSession: ", url, versionName)
-        let urlToUse = url ? url : game?.url;
+    async function startNewGameSession(url=null, versionOverride=null) {
+        Constants.debug.logStateManager && console.log("startNewGameSession: ", url, versionName, versionOverride);
+        const urlToUse = url ? url : game?.url;
+        const versionToUse = versionOverride ?? versionName ?? version?.versionName;
 
-        console.log("Starting new game for version=", versionName)
+        console.log("Starting new game for version=", versionToUse);
 
         let newSession;
         try {
-            newSession = await callStartNewGame(urlToUse, versionName);
+            newSession = await callStartNewGame(urlToUse, versionToUse);
         } catch (error) {
             console.error('Error starting new game session:', error);
         };
@@ -307,20 +308,24 @@ export function topLevelStateController(props) {
             return null;
         }
 
-        //setSession(newSession);
         switchSessionID(newSession.sessionID);
+
+        const versionRecord = versionOverride
+            ? versionList?.find((item) => item.versionName === versionOverride)
+            : version;
+        const targetVersionID = versionRecord?.versionID ?? version?.versionID ?? null;
 
         analyticsReportEvent('new_session', {
             event_category: 'App',
             event_label: 'Start new session',
-            gameID: game?.gameID,    // Unique identifier for the game
-            versionID: version?.versionID,  // Version of the game being played
-            sessionID: newSession.sessionID   // Identifier for the user session
+            gameID: game?.gameID,
+            versionID: targetVersionID,
+            sessionID: newSession.sessionID
           });
 
         return newSession;
     }
-    
+
     function updateUrl(props) {
         const { navigationPath, mode, newGameUrl, clearParams, newSessionID, newVersionName } = props ?? {};
         const { query, pathname } = router;

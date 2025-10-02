@@ -2,284 +2,41 @@
 
 import React, { memo, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import clsx from 'clsx';
-import { createPortal } from 'react-dom';
-import {
-  ChevronDown,
-  Layers,
-  Sparkles,
-  Clock,
-  ListFilter,
-  Users,
-  Pencil,
-  Trash2,
-  Plus,
-  RefreshCcw,
-  X,
-} from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { ChevronDown, Layers, Plus, RefreshCcw, Users } from 'lucide-react';
 import ChatBot from '@src/client/components/chatbot';
 import { RequireAuthentication } from '@src/client/components/standard/requireauthentication';
 import { stateManager } from '@src/client/statemanager';
 import { useViewportDimensions } from '@src/client/hooks/useViewportDimensions';
 import { defaultAppTheme } from '@src/common/theme';
 import { callGetAllSessionsForGame, callAddGameVersion } from '@src/client/editor';
-import { callDeleteGameSession, callRenameSession } from '@src/client/gameplay';
 import { PrettyDate } from '@src/common/date';
 import { analyticsReportEvent } from '@src/client/analytics';
 
-function overlayPortal(content) {
-  if (typeof document === 'undefined') {
-    return null;
+const SESSION_NAME_FALLBACK = 'Untitled session';
+
+function filterSessionsForAccount(list, accountID) {
+  if (!Array.isArray(list) || !accountID) {
+    return [];
   }
-  return createPortal(content, document.body);
+  return list.filter((item) => {
+    const ownerID = item?.accountID ?? item?.account?.accountID;
+    return ownerID === accountID;
+  });
 }
 
-function SelectionSheet({ open, title, description, onClose, children, footer }) {
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-    function handleKey(event) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [open, onClose]);
+function formatSessionName(session) {
+  return session?.assignedName?.trim() ? session.assignedName : SESSION_NAME_FALLBACK;
+}
 
-  const handleBackdropClick = (event) => {
-    if (event.target === event.currentTarget) {
-      onClose();
-    }
-  };
-
-  if (!open) {
-    return null;
+function formatSessionUpdatedLabel(session) {
+  const timestamp = session?.latestUpdate || session?.lastUpdatedDate || session?.updatedAt;
+  if (!timestamp) {
+    return '--';
   }
-
-  return overlayPortal(
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-4 backdrop-blur"
-      onPointerDown={handleBackdropClick}
-    >
-      <div className="w-full max-w-3xl rounded-3xl border border-border/70 bg-surface p-6 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.6)]">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-emphasis">{title}</h2>
-            {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-border/70 p-2 text-muted transition-colors hover:border-primary/50 hover:text-primary"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-        <div className="mt-6 max-h-[60vh] overflow-y-auto pr-1">{children}</div>
-        {footer ? <div className="mt-6 flex flex-wrap justify-end gap-3">{footer}</div> : null}
-      </div>
-    </div>
-  );
-}
-
-function RenameDialog({ open, initialValue, onSubmit, onCancel }) {
-  const [value, setValue] = useState(initialValue || '');
-
-  useEffect(() => {
-    if (open) {
-      setValue(initialValue || '');
-    }
-  }, [open, initialValue]);
-
-  return (
-    <SelectionSheet
-      open={open}
-      title="Rename session"
-      description="Give your session a friendly name so teammates can find it quickly."
-      onClose={onCancel}
-      footer={[
-        <button
-          key="cancel"
-          type="button"
-          onClick={onCancel}
-          className="rounded-full border border-border px-4 py-2 text-sm font-semibold text-muted transition-colors hover:text-emphasis"
-        >
-          Cancel
-        </button>,
-        <button
-          key="save"
-          type="button"
-          onClick={() => onSubmit(value.trim())}
-          className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 hover:shadow-[0_18px_32px_-18px_rgba(99,102,241,0.6)]"
-          disabled={!value.trim()}
-        >
-          Save name
-        </button>,
-      ]}
-    >
-      <label className="block text-sm font-medium text-emphasis">
-        Session title
-        <input
-          className="mt-2 w-full rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-emphasis focus:border-primary focus:outline-none"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          placeholder="e.g. Playtest with Sam"
-        />
-      </label>
-    </SelectionSheet>
-  );
-}
-
-function VersionList({
-  versions,
-  activeVersionName,
-  onSelect,
-  allowAdd,
-  onCreate,
-  creating,
-}) {
-  return (
-    <div className="space-y-3">
-      <ul className="space-y-2">
-        {versions.length === 0 ? (
-          <li className="rounded-2xl border border-dashed border-border/70 bg-surface/80 px-4 py-6 text-center text-sm text-muted">
-            No versions yet. Create one to start playtesting.
-          </li>
-        ) : (
-          versions.map((version) => {
-            const isActive = version.versionName === activeVersionName;
-            return (
-              <li key={version.versionID}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(version.versionName)}
-                  className={clsx(
-                    'flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-all duration-200',
-                    isActive
-                      ? 'border-primary/60 bg-primary/10 text-primary'
-                      : 'border-border/60 bg-surface/80 text-emphasis hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10'
-                  )}
-                >
-                  <div>
-                    <p className="text-sm font-semibold">{version.versionName}</p>
-                    <p className="mt-1 text-xs text-muted">Updated {PrettyDate(version.lastUpdatedDate)}</p>
-                  </div>
-                  {version.published ? (
-                    <span className="rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
-                      Live
-                    </span>
-                  ) : null}
-                </button>
-              </li>
-            );
-          })
-        )}
-      </ul>
-      {allowAdd ? (
-        <button
-          type="button"
-          onClick={onCreate}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/60 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
-          disabled={creating}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          New version
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function SessionList({
-  sessions,
-  activeSessionID,
-  onSelect,
-  onRename,
-  onDelete,
-}) {
-  if (!sessions || sessions.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-border/70 bg-surface/80 px-6 py-8 text-center text-sm text-muted">
-        No saved sessions yet. Launch the experience to create one.
-      </div>
-    );
-  }
-
-  return (
-    <ul className="space-y-2">
-      {sessions.map((item) => {
-        const assignedName = item.assignedName || 'Untitled session';
-        const accountName = item?.account?.email || item.accountID;
-        const isActive = item.sessionID === activeSessionID;
-        return (
-          <li key={item.sessionID}>
-            <div
-              className={clsx(
-                'flex flex-col gap-3 rounded-2xl border px-4 py-4 transition-all duration-200 sm:flex-row sm:items-center sm:justify-between',
-                isActive
-                  ? 'border-primary/60 bg-primary/10 text-primary'
-                  : 'border-border/60 bg-surface/80 text-emphasis hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10'
-              )}
-            >
-              <div className="space-y-1">
-                <button
-                  type="button"
-                  onClick={() => onSelect(item.sessionID)}
-                  className="text-left"
-                >
-                  <p className="text-sm font-semibold">{assignedName}</p>
-                  <p className="text-xs text-muted">
-                    Player: {accountName} - Last played {PrettyDate(item.latestUpdate)} - Version {item.versionInfo.versionName}
-                  </p>
-                </button>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted">
-                <button
-                  type="button"
-                  onClick={() => onRename(item)}
-                  className="inline-flex items-center gap-1 rounded-full border border-border/60 px-3 py-1 transition-colors hover:border-primary/40 hover:text-primary"
-                >
-                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                  Rename
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(item.sessionID)}
-                  className="inline-flex items-center gap-1 rounded-full border border-border/60 px-3 py-1 transition-colors hover:border-red-400 hover:text-red-500"
-                >
-                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  Delete
-                </button>
-              </div>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-const defaultThemeCard = {
-  gradient: 'linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(56,189,248,0.12) 100%)',
-};
-
-function buildThemeCard(theme) {
-  if (!theme) {
-    return defaultThemeCard;
-  }
-  const colors = theme.colors || {};
-  const primary = colors.buttonColor || colors.messageBackgroundColor || '#6366f1';
-  const secondary = colors.messageTextColor || '#14b8a6';
-  return {
-    gradient: `linear-gradient(135deg, ${primary}26 0%, ${secondary}1f 100%)`,
-  };
+  return PrettyDate(timestamp);
 }
 
 function Home() {
-  const router = useRouter();
   const {
     account,
     loading,
@@ -291,19 +48,20 @@ function Home() {
     gamePermissions,
     editMode,
     switchSessionID,
+    startNewGameSession,
   } = useContext(stateManager);
 
   const [sessions, setSessions] = useState([]);
-  const [sessionsOpen, setSessionsOpen] = useState(false);
-  const [versionsOpen, setVersionsOpen] = useState(false);
-  const [renameSession, setRenameSession] = useState(null);
-  const [creatingVersion, setCreatingVersion] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [creatingVersion, setCreatingVersion] = useState(false);
+  const [pendingVersionName, setPendingVersionName] = useState(null);
+
   const chatContainerRef = useRef(null);
+  const menuContainerRef = useRef(null);
   const { width: viewportWidth, height: viewportHeight } = useViewportDimensions();
 
   const themeToUse = game?.theme || defaultAppTheme;
-  const themeCard = useMemo(() => buildThemeCard(themeToUse), [themeToUse]);
   const activeVersionName = version?.versionName;
   const activeSessionID = session?.sessionID;
 
@@ -320,60 +78,67 @@ function Home() {
     }
   }, [account, versionList, game, version, switchVersionByName]);
 
-  const refreshGameSessions = useCallback(async () => {
-    if (!game?.gameID || !version?.versionID || !account?.accountID) {
-      return;
-    }
-    try {
-      setLoadingSessions(true);
-      const sessionList = await callGetAllSessionsForGame(game.gameID, version.versionID, account.accountID);
-      setSessions(sessionList || []);
-    } catch (error) {
-      console.error('Error fetching game sessions:', error);
-    } finally {
-      setLoadingSessions(false);
-    }
-  }, [game?.gameID, version?.versionID, account?.accountID]);
+  const refreshGameSessions = useCallback(
+    async (versionIDOverride) => {
+      const effectiveVersionID = versionIDOverride ?? version?.versionID;
+      if (!game?.gameID || !account?.accountID || !effectiveVersionID) {
+        if (!versionIDOverride) {
+          setSessions([]);
+        }
+        return;
+      }
+      try {
+        setLoadingSessions(true);
+        const sessionList = await callGetAllSessionsForGame(game.gameID, effectiveVersionID, account.accountID);
+        setSessions(filterSessionsForAccount(sessionList, account.accountID));
+      } catch (error) {
+        console.error('Error fetching game sessions:', error);
+      } finally {
+        setLoadingSessions(false);
+      }
+    },
+    [account?.accountID, game?.gameID, version?.versionID]
+  );
 
   useEffect(() => {
-    if (version && account) {
-      refreshGameSessions();
+    if (!account?.accountID || !version?.versionID) {
+      setSessions([]);
+      return;
     }
-  }, [version, account, refreshGameSessions]);
+    refreshGameSessions();
+  }, [account?.accountID, version?.versionID, refreshGameSessions]);
 
-  const headerSubtitle = useMemo(() => {
-    if (!game) {
-      return '';
+  useEffect(() => {
+    if (!menuOpen || typeof document === 'undefined') {
+      return undefined;
     }
-    const totalSessions = sessions?.length || 0;
-    return `${totalSessions} saved ${totalSessions === 1 ? 'session' : 'sessions'} - ${versionList?.length || 0} versions`;
-  }, [game, sessions?.length, versionList?.length]);
-
-  // Calculate concrete dimensions for ChatBot
-  const chatBotDimensions = useMemo(() => {
-    if (!editMode) {
-      // Full screen mode - use full viewport
-      return {
-        width: viewportWidth,
-        height: viewportHeight,
-      };
+    function handlePointerDown(event) {
+      const container = menuContainerRef.current;
+      if (container && container.contains(event.target)) {
+        return;
+      }
+      setMenuOpen(false);
     }
-
-    // Edit mode - calculate available space
-    // Account for: page padding (96px total), header area (~180px), panel padding (48px total)
-    const horizontalPadding = 96; // 48px each side for page padding
-    const verticalReserved = 180 + 48; // header + panel padding
-    
-    const availableWidth = Math.max(viewportWidth - horizontalPadding, 320);
-    const availableHeight = Math.max(viewportHeight - verticalReserved, 300);
-
-    return {
-      width: Math.min(availableWidth, 1152), // max-w-6xl equivalent
-      height: availableHeight,
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [editMode, viewportWidth, viewportHeight]);
+  }, [menuOpen]);
 
-  // Style for ChatBot container with concrete dimensions
+  const chatBotDimensions = useMemo(() => {
+    return {
+      width: viewportWidth,
+      height: viewportHeight,
+    };
+  }, [viewportWidth, viewportHeight]);
+
   const chatBotContainerStyle = useMemo(() => {
     return {
       width: `${chatBotDimensions.width}px`,
@@ -389,47 +154,50 @@ function Home() {
 
   const handleSelectSession = useCallback(
     (sessionID) => {
-      if (!sessionID || sessionID === session?.sessionID) {
+      if (!sessionID) {
         return;
       }
-      switchSessionID(sessionID);
-      setSessionsOpen(false);
+      if (sessionID !== session?.sessionID) {
+        switchSessionID(sessionID);
+      }
+      setMenuOpen(false);
     },
     [session?.sessionID, switchSessionID]
   );
 
-  const handleDeleteSession = useCallback(
-    async (sessionID) => {
-      try {
-        await callDeleteGameSession(sessionID);
-        await refreshGameSessions();
-      } catch (error) {
-        console.error('Failed to delete session', error);
-      }
-    },
-    [refreshGameSessions]
-  );
-
-  const handleRenameSession = useCallback(
-    async (newName) => {
-      if (!renameSession || !newName) {
-        setRenameSession(null);
+  const handleVersionSelect = useCallback(
+    async (targetVersionName) => {
+      if (!targetVersionName || !game?.url) {
         return;
       }
-      if (newName !== renameSession.assignedName) {
-        try {
-          await callRenameSession(game.gameID, renameSession.sessionID, newName);
-          await refreshGameSessions();
-        } catch (error) {
-          console.error('Failed to rename session', error);
+      setPendingVersionName(targetVersionName);
+      try {
+        await switchVersionByName(targetVersionName);
+        const newSession = await startNewGameSession(game.url, targetVersionName);
+        if (newSession?.versionID) {
+          await refreshGameSessions(newSession.versionID);
+        } else {
+          const candidate = versionList?.find((item) => item.versionName === targetVersionName);
+          if (candidate?.versionID) {
+            await refreshGameSessions(candidate.versionID);
+          } else {
+            await refreshGameSessions();
+          }
         }
+        setMenuOpen(false);
+      } catch (error) {
+        console.error('Failed to start session for version', error);
+      } finally {
+        setPendingVersionName(null);
       }
-      setRenameSession(null);
     },
-    [renameSession, game?.gameID, refreshGameSessions]
+    [game?.url, refreshGameSessions, startNewGameSession, switchVersionByName, versionList]
   );
 
   const handleCreateVersion = useCallback(async () => {
+    if (!game?.gameID) {
+      return;
+    }
     const baseName = `v${(versionList?.length || 0) + 1}`;
     let proposed = baseName;
     let suffix = 1;
@@ -447,14 +215,13 @@ function Home() {
         gameID: game.gameID,
         versionName: proposed,
       });
-      await refreshGameSessions();
-      switchVersionByName(proposed);
+      await handleVersionSelect(proposed);
     } catch (error) {
       console.error('Failed to create version', error);
     } finally {
       setCreatingVersion(false);
     }
-  }, [game?.gameID, versionList, version?.versionName, refreshGameSessions, switchVersionByName]);
+  }, [game?.gameID, versionList, version?.versionName, handleVersionSelect]);
 
   const renderContent = () => {
     if (loading || !account || !gamePermissions) {
@@ -473,133 +240,155 @@ function Home() {
       );
     }
 
-    const headerPrimary = (
-      <div className="space-y-1">
-        <p className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted">
-          <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-          Play Day - Live preview
-        </p>
-        <h1 className="text-3xl font-semibold text-emphasis sm:text-4xl">{game?.title}</h1>
-        <p className="text-sm text-muted">{headerSubtitle}</p>
-      </div>
-    );
-
-    const headerActions = (
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3 sm:pr-2">
-          <button
-            type="button"
-            onClick={() => setVersionsOpen(true)}
-            className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary sm:w-auto"
-          >
-            <Layers className="h-4 w-4" aria-hidden="true" />
-            {activeVersionName || 'Select version'}
-            <ChevronDown className="h-4 w-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setSessionsOpen(true)}
-            className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary sm:w-auto"
-          >
-            <Users className="h-4 w-4" aria-hidden="true" />
-            {activeSessionID ? 'Switch session' : 'Choose session'}
-            <ChevronDown className="h-4 w-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={refreshGameSessions}
-            className="inline-flex w-full items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted transition-colors hover:border-primary/50 hover:text-primary sm:w-auto"
-          >
-            <RefreshCcw className="h-3.5 w-3.5" aria-hidden="true" />
-            Refresh
-          </button>
-        </div>
-      </div>
-    );
-
-    const headerSection = (
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        {headerPrimary}
-        {headerActions}
-      </div>
-    );
-
-    const renderInfoBadges = () => (
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-        {game?.url ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1 font-medium text-emphasis">
-            <ListFilter className="h-3 w-3" aria-hidden="true" />
-            {game.url}
-          </span>
-        ) : null}
-        <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1 font-medium text-emphasis">
-          <Layers className="h-3 w-3" aria-hidden="true" />
-          {activeVersionName || 'Version TBD'}
-        </span>
-        <span className="inline-flex items-center gap-1 rounded-full bg-surface/70 px-3 py-1 font-medium text-emphasis">
-          <Clock className="h-3 w-3" aria-hidden="true" />
-          Updated {version ? PrettyDate(version.lastUpdatedDate) : '--'}
-        </span>
-      </div>
-    );
-
-    if (!editMode) {
-      return (
-        <div className="relative flex min-h-0 flex-1 bg-background items-center justify-center">
-          <div
-            ref={chatContainerRef}
-            style={chatBotContainerStyle}
-            className="flex"
-          >
-            <ChatBot
-              url={game?.url}
-              title={game?.title}
-              theme={themeToUse}
-              session={session}
-              version={version}
-              versionList={versionList}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    const editPanel = (
-      <div className="mx-auto w-full max-w-6xl flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-border/60 bg-surface/95 shadow-[0_40px_120px_-45px_rgba(15,23,42,0.5)]"
-        style={{
-          backgroundImage: themeCard.gradient,
-        }}
-      >
-        <div className="px-6 py-4 space-y-4">
-          {headerSection}
-          {renderInfoBadges()}
-        </div>
-        <div className="flex flex-1 min-h-0 flex-col px-6 pb-6 items-center justify-center">
-          <div
-            ref={chatContainerRef}
-            style={chatBotContainerStyle}
-            className="overflow-hidden rounded-2xl border border-border/60 bg-background/95"
-          >
-            <ChatBot
-              url={game?.url}
-              title={game?.title}
-              theme={themeToUse}
-              session={session}
-              version={version}
-              versionList={versionList}
-            />
-          </div>
-        </div>
-      </div>
-    );
-
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {editPanel}
+      <div className="relative flex min-h-0 flex-1 items-center justify-center">
+        <div
+          ref={chatContainerRef}
+          style={chatBotContainerStyle}
+          className="flex"
+        >
+          <ChatBot
+            url={game?.url}
+            title={game?.title}
+            theme={themeToUse}
+            session={session}
+            version={version}
+            versionList={versionList}
+          />
+        </div>
+        {editMode ? (
+          <div className="absolute top-20 left-4 z-40 sm:top-24 sm:left-8">
+            <div ref={menuContainerRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((prev) => !prev)}
+                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-4 py-2 text-sm font-semibold text-emphasis transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                <Layers className="h-4 w-4" aria-hidden="true" />
+                <span>{activeVersionName || 'Select version'}</span>
+                <ChevronDown className={clsx('h-4 w-4 transition-transform', menuOpen ? 'rotate-180 text-primary' : 'text-muted')} aria-hidden="true" />
+              </button>
+              {menuOpen ? (
+                <div className="absolute left-0 mt-2 w-72 max-w-[calc(100vw-2.5rem)] sm:w-80 sm:max-w-none rounded-2xl border border-border/70 bg-surface/95 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
+                  <div className="border-b border-border/60 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Versions</p>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto px-2 py-2">
+                    {(versionList || []).length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-border/60 px-3 py-4 text-center text-xs text-muted">
+                        No versions yet. Create one to start playtesting.
+                      </div>
+                    ) : (
+                      (versionList || []).map((item) => {
+                        const isActive = item.versionName === activeVersionName;
+                        const isPending = pendingVersionName === item.versionName;
+                        const updatedLabel = formatSessionUpdatedLabel(item);
+                        return (
+                          <button
+                            key={item.versionID ?? item.versionName}
+                            type="button"
+                            onClick={() => handleVersionSelect(item.versionName)}
+                            disabled={isPending}
+                            className={clsx(
+                              'flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition-all duration-200',
+                              isActive
+                                ? 'border-primary/60 bg-primary/10 text-primary'
+                                : 'border-border/60 bg-surface/80 text-emphasis hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10',
+                              isPending && 'cursor-wait opacity-75'
+                            )}
+                          >
+                            <div>
+                              <p className="text-sm font-semibold">{item.versionName}</p>
+                              <p className="mt-0.5 text-[11px] text-muted">Updated {updatedLabel}</p>
+                            </div>
+                            {isPending ? (
+                              <RefreshCcw className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+                            ) : isActive ? (
+                              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                Active
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  {canCreateVersion ? (
+                    <div className="border-t border-border/60 px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={handleCreateVersion}
+                        disabled={creatingVersion}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/60 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Plus className="h-4 w-4" aria-hidden="true" />
+                        New version
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="border-t border-border/60 px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Sessions</p>
+                      <button
+                        type="button"
+                        onClick={() => refreshGameSessions()}
+                        disabled={loadingSessions}
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <RefreshCcw className={clsx('h-3.5 w-3.5', loadingSessions && 'animate-spin text-primary')} aria-hidden="true" />
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto px-2 py-2">
+                    {loadingSessions ? (
+                      <div className="rounded-xl border border-dashed border-border/60 px-3 py-4 text-center text-xs text-muted">
+                        Syncing latest sessions...
+                      </div>
+                    ) : sessions.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-border/60 px-3 py-4 text-center text-xs text-muted">
+                        No saved sessions yet. Launch the experience to create one.
+                      </div>
+                    ) : (
+                      sessions.map((item) => {
+                        const isActive = item.sessionID === activeSessionID;
+                        const updatedLabel = formatSessionUpdatedLabel(item);
+                        return (
+                          <button
+                            key={item.sessionID}
+                            type="button"
+                            onClick={() => handleSelectSession(item.sessionID)}
+                            className={clsx(
+                              'flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all duration-200',
+                              isActive
+                                ? 'border-primary/60 bg-primary/10 text-primary'
+                                : 'border-border/60 bg-surface/80 text-emphasis hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10'
+                            )}
+                          >
+                            <div>
+                              <p className="text-sm font-semibold">{formatSessionName(item)}</p>
+                              <p className="mt-0.5 text-[11px] text-muted">Updated {updatedLabel}</p>
+                            </div>
+                            {isActive ? (
+                              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                Current
+                              </span>
+                            ) : (
+                              <Users className="h-4 w-4 text-muted" aria-hidden="true" />
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   };
-
 
   return (
     <RequireAuthentication>
@@ -612,55 +401,13 @@ function Home() {
           className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-gradient-to-b from-primary/15 via-background to-transparent"
           aria-hidden="true"
         />
-        <div
-          className={clsx(
-            'relative z-10 flex w-full flex-1 flex-col min-h-0',
-            editMode ? 'mx-auto max-w-7xl px-4 pt-8 sm:px-8 lg:px-12' : ''
-          )}
-        >
+        <div className="relative z-10 flex w-full flex-1 flex-col min-h-0">
           {renderContent()}
         </div>
-        <SelectionSheet
-          open={versionsOpen}
-          onClose={() => setVersionsOpen(false)}
-          title="Switch version"
-          description="Pick which build of this experience you want to launch."
-        >
-          <VersionList
-            versions={versionList || []}
-            activeVersionName={activeVersionName}
-            onSelect={(name) => {
-              switchVersionByName(name);
-              setVersionsOpen(false);
-            }}
-            allowAdd={canCreateVersion}
-            onCreate={handleCreateVersion}
-            creating={creatingVersion}
-          />
-        </SelectionSheet>
-        <SelectionSheet
-          open={sessionsOpen}
-          onClose={() => setSessionsOpen(false)}
-          title="Play sessions"
-          description={loadingSessions ? 'Syncing latest sessions...' : 'Select a session to resume or manage saves.'}
-        >
-          <SessionList
-            sessions={sessions}
-            activeSessionID={activeSessionID}
-            onSelect={handleSelectSession}
-            onRename={(item) => setRenameSession(item)}
-            onDelete={handleDeleteSession}
-          />
-        </SelectionSheet>
-        <RenameDialog
-          open={!!renameSession}
-          initialValue={renameSession?.assignedName || ''}
-          onSubmit={handleRenameSession}
-          onCancel={() => setRenameSession(null)}
-        />
       </div>
     </RequireAuthentication>
   );
 }
 
 export default memo(Home);
+

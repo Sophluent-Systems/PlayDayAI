@@ -483,6 +483,7 @@ export default function HomePage() {
   const [featuredGames, setFeaturedGames] = useState([]);
   const [myGames, setMyGames] = useState([]);
   const [communityGames, setCommunityGames] = useState([]);
+  const [gamesLoaded, setGamesLoaded] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [newGameTitle, setNewGameTitle] = useState('');
   const [newGameUrl, setNewGameUrl] = useState('');
@@ -494,33 +495,37 @@ export default function HomePage() {
   const accountID = account?.accountID ?? null;
 
   const fetchGames = useCallback(async () => {
-    const response = await callGetGamesList();
-    if (!response) {
-      return;
+    try {
+      const response = await callGetGamesList();
+      if (!response) {
+        return;
+      }
+
+      const normalized = response.map((item) => ({ ...item }));
+      const featured = [];
+      const mine = [];
+      const others = [];
+
+      normalized.forEach((game) => {
+        if (game.featuredIndex && game.featuredIndex > 0) {
+          featured.push({ ...game });
+        }
+        if (accountID && game.creatorAccountID === accountID) {
+          mine.push(game);
+        } else {
+          others.push(game);
+        }
+      });
+
+      featured.sort((a, b) => (a.featuredIndex || 0) - (b.featuredIndex || 0));
+
+      setFeaturedGames(featured);
+      setMyGames(mine);
+      setCommunityGames(others);
+      setGames(normalized);
+    } finally {
+      setGamesLoaded(true);
     }
-
-    const normalized = response.map((item) => ({ ...item }));
-    const featured = [];
-    const mine = [];
-    const others = [];
-
-    normalized.forEach((game) => {
-      if (game.featuredIndex && game.featuredIndex > 0) {
-        featured.push({ ...game });
-      }
-      if (accountID && game.creatorAccountID === accountID) {
-        mine.push(game);
-      } else {
-        others.push(game);
-      }
-    });
-
-    featured.sort((a, b) => (a.featuredIndex || 0) - (b.featuredIndex || 0));
-
-    setFeaturedGames(featured);
-    setMyGames(mine);
-    setCommunityGames(others);
-    setGames(normalized);
   }, [accountID]);
 
   const applyFeaturedUpdates = useCallback(
@@ -589,6 +594,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!loading && accountID) {
+      setGamesLoaded(false);
       fetchGames();
     }
   }, [loading, accountID, fetchGames]);
@@ -812,7 +818,19 @@ export default function HomePage() {
                 </SecondaryButton>
               ) : null}
             </div>
-            {!hasPersonalProjects ? (
+            {!gamesLoaded ? (
+              <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="min-h-[280px] rounded-3xl border border-border/70 bg-surface/60 p-6">
+                  <div className="h-full w-full animate-pulse rounded-2xl bg-border/40" />
+                </div>
+                <div className="min-h-[280px] rounded-3xl border border-border/70 bg-surface/60 p-6">
+                  <div className="h-full w-full animate-pulse rounded-2xl bg-border/40" />
+                </div>
+                <div className="hidden min-h-[280px] rounded-3xl border border-border/70 bg-surface/60 p-6 sm:block">
+                  <div className="h-full w-full animate-pulse rounded-2xl bg-border/40" />
+                </div>
+              </div>
+            ) : !hasPersonalProjects ? (
               <EmptyState
                 title="No projects yet"
                 description="Start a new concept or ask a teammate to share one with you."

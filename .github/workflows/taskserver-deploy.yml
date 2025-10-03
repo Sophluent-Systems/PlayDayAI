@@ -59,10 +59,10 @@ jobs:
       - name: Deploy over SSH (pull only taskserver & restart)
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.DO_HOST }}
-          username: ${{ secrets.DO_USER }}
-          key: ${{ secrets.DO_SSH_KEY }}
-          port: ${{ secrets.DO_SSH_PORT || 22 }}
+          host: ${{ secrets.TASKSERVER_HOST }}
+          username: ${{ secrets.TASKSERVER_USER }}
+          key: ${{ secrets.TASKSERVER_SSH_KEY }}
+          port: ${{ secrets.TASKSERVER_SSH_PORT || 22 }}
           script: |
             set -euo pipefail
             cd $HOME/your-app-repo   # adjust to your path on the droplet

@@ -1,175 +1,205 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { defaultAppTheme } from '@src/common/theme';
-import { makeStyles } from 'tss-react/mui';
-import { Delete } from '@mui/icons-material';
-import { Edit } from '@mui/icons-material';
-import { Add } from '@mui/icons-material';
-import {
-  TextField,
-  Button,
-  Box,
-  Paper, 
-  Typography,
-  List,
-  ListItem,
-  ListItemText,
-  IconButton,
-  Grid,
-} from '@mui/material';
-import { Save } from '@mui/icons-material';
+"use client";
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const {
-    colors,
-    fonts,
-  } = pageTheme;
-  return ({
-  inputField: {
-    marginTop: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-  },
-  themeEditorContainer: {
-    padding: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-    borderWidth: 1,
-    borderColor: theme.palette.primary.main,
-    borderStyle: 'solid',
-    borderRadius: theme.shape.borderRadius,
-    backgroundColor: theme.palette.background.main , 
-    marginTop: theme.spacing(4), 
-    width: '100%',
-  },
-  themeEditorTitle: {
-    marginBottom: theme.spacing(2),
-  },
-  themeEditorField: {
-    marginBottom: theme.spacing(2),
-    padding: theme.spacing(1),
-  },
-  scenarioStyle: {
-    padding: '8px',
-    marginBottom: '8px',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    backgroundColor: colors.inputAreaTextEntryBackgroundColor, 
-  },
-})});
+import React, { useEffect, useRef, useState } from "react";
+import clsx from "clsx";
+import { Plus, Pencil, Trash2, Save } from "lucide-react";
 
+const cardClass = "rounded-2xl border border-border/60 bg-surface/80 p-4 shadow-soft";
+const labelClass = "text-xs font-semibold uppercase tracking-[0.3em] text-muted";
+const inputClass =
+  "w-full rounded-2xl border border-border/60 bg-surface px-4 py-2 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
+const textAreaClass = `${inputClass} min-h-[120px] resize-y`;
+const iconButtonClass =
+  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-surface text-muted transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-40";
 
-export function ScenarioEditor(props) {
-  const { classes } = useStyles(defaultAppTheme);
-  const { rootObject,field, value, onChange, readOnly } = props;
-  const [editingScenarioIndex, setEditingScenarioIndex] = useState(null);
-  const [localCatalog, setLocalCatalog] = useState(null);
-  const localCatalogRef = useRef(null);
+export function ScenarioEditor({ rootObject, field, value, onChange, readOnly }) {
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [localCatalog, setLocalCatalog] = useState([]);
+  const catalogRef = useRef([]);
 
   useEffect(() => {
     if (Array.isArray(value)) {
-      localCatalogRef.current = JSON.parse(JSON.stringify(value));
-      setLocalCatalog(localCatalogRef.current);
+      const clone = JSON.parse(JSON.stringify(value));
+      catalogRef.current = clone;
+      setLocalCatalog(clone);
+    } else {
+      catalogRef.current = [];
+      setLocalCatalog([]);
     }
   }, [value]);
 
+  const commit = (next) => {
+    catalogRef.current = next;
+    setLocalCatalog(next);
+    onChange?.(rootObject, field.path, next);
+  };
+
   const handleAddScenario = () => {
-    localCatalogRef.current = [...localCatalogRef.current, 
+    const next = [
+      ...catalogRef.current,
       {
-        name: `Scenario ${localCatalogRef.current.length+1}`,
+        name: `Scenario ${catalogRef.current.length + 1}`,
         text: "",
         firstEligibleTurn: 3,
         lastEligibleTurn: 999,
-      }
+      },
     ];
-    setLocalCatalog(localCatalogRef.current);
-    setEditingScenarioIndex(localCatalogRef.current.length - 1);
+    setEditingIndex(next.length - 1);
+    catalogRef.current = next;
+    setLocalCatalog(next);
   };
-  
-  const handleEditScenario = (index) => {
-    setEditingScenarioIndex(index);
-  };
-  
-  const handleScenarioChange = (index, e) => {
-    const { name, value } = e.target;
-    localCatalogRef.current = [...localCatalogRef.current];
-    let editScenario = {...localCatalogRef.current[index]}
-    editScenario[name] = value;
-    localCatalogRef.current[index] = editScenario;
-    setLocalCatalog(localCatalogRef.current);
-  };
+
+  const handleEditScenario = (index) => setEditingIndex(index);
 
   const handleDeleteScenario = (index) => {
-    localCatalogRef.current = [...localCatalogRef.current];
-    localCatalogRef.current.splice(index, 1);
-    setLocalCatalog(localCatalogRef.current);
-    onChange(rootObject, field.path, localCatalogRef.current);
+    const next = catalogRef.current.filter((_, idx) => idx !== index);
+    commit(next);
+    setEditingIndex(null);
   };
-  
+
+  const handleScenarioChange = (index, name, value) => {
+    const next = [...catalogRef.current];
+    next[index] = {
+      ...next[index],
+      [name]: value,
+    };
+    catalogRef.current = next;
+    setLocalCatalog(next);
+  };
+
   const handleDoneEditing = () => {
-    onChange(rootObject, field.path, localCatalogRef.current);
-    setEditingScenarioIndex(null);
+    commit(catalogRef.current);
+    setEditingIndex(null);
   };
-  
 
   return (
-    <Box className={classes.themeEditorContainer}>
-      <Typography variant="h6" className={classes.themeEditorTitle}>
-        Scenarios
-      </Typography>
-      <List>
-        {(localCatalog && localCatalog.length > 0) ? localCatalog.map((scenario, index) => (
-        <Paper key={`scenario-${index}`} className={classes.scenarioStyle}>
-          <ListItem key={`scenario-${index}-item`}>
-            {editingScenarioIndex === index ? (
-              <Grid container alignItems="flex-start">
-                <Grid item xs={12} margin={1}>
-                  <TextField fullWidth label="Name (to keep track of this scenario)" value={scenario.name} name="name" onChange={(e) => handleScenarioChange(index, e)} disabled={readOnly} />
-                </Grid>
-                <Grid item xs={12} margin={1}>
-                  <TextField fullWidth label="Text" value={scenario.text} name="text" onChange={(e) => handleScenarioChange(index, e)}  multiline rows={4} disabled={readOnly} />
-                </Grid>
-                <Grid item xs={3} margin={1}>
-                  <TextField fullWidth type="number" label="First Eligible Turn" value={scenario.firstEligibleTurn} name="firstEligibleTurn" onChange={(e) => handleScenarioChange(index, e)}  inputProps={{ min: 1, max: 999 }} disabled={readOnly} />
-                </Grid>
-                <Grid item xs={3} margin={1}>
-                  <TextField fullWidth type="number" label="Last Eligible Turn" value={scenario.lastEligibleTurn} name="lastEligibleTurn" onChange={(e) => handleScenarioChange(index, e)}  inputProps={{ min: 1, max: 999 }} disabled={readOnly} />
-                </Grid>
-                <Grid item xs={1}>
-                  <IconButton onClick={() => handleDoneEditing()}  disabled={readOnly} >
-                    <Save />
-                  </IconButton>
-                </Grid>
-              </Grid>
-            ) : (
-              <React.Fragment>
-              <Grid container alignItems="center">
-                <Grid item xs={10}>
-                  <ListItemText primary={scenario.name} secondary={scenario.name}  />
-                </Grid>
-                <Grid item xs={1}>
-                  <IconButton edge="end" onClick={() => handleEditScenario(index)}  disabled={readOnly} >
-                    <Edit />
-                  </IconButton>
-                </Grid>
-                <Grid item xs={1}>
-                  <IconButton edge="end" onClick={() => handleDeleteScenario(index)}  disabled={readOnly} >
-                    <Delete />
-                  </IconButton>
-                </Grid>
-              </Grid>
-              </React.Fragment>
-            )}
-          </ListItem>
-          </Paper>
-        )) : null}
-      </List>
-      <Button
-        variant="contained"
-        color="primary"
-        onClick={handleAddScenario}
-        startIcon={<Add />}
-      >
-        Add scenario
-      </Button>
-    </Box>
+    <div className="rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-soft backdrop-blur-xl">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-emphasis">Scenarios</h3>
+        <button
+          type="button"
+          onClick={handleAddScenario}
+          disabled={readOnly}
+          className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-primary/90 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          Add scenario
+        </button>
+      </div>
+
+      <div className="mt-5 space-y-4">
+        {localCatalog.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-border/60 bg-surface/60 px-4 py-6 text-center text-sm text-muted">
+            No scenarios yet.
+          </p>
+        ) : null}
+
+        {localCatalog.map((scenario, index) => {
+          const isEditing = editingIndex === index;
+          return (
+            <div key={`scenario-${index}`} className={cardClass}>
+              {isEditing ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className={labelClass}>Name</p>
+                    <input
+                      className={inputClass}
+                      value={scenario.name}
+                      name="name"
+                      placeholder="Scenario name"
+                      onChange={(event) => handleScenarioChange(index, "name", event.target.value)}
+                      disabled={readOnly}
+                    />
+                  </div>
+
+                  <div>
+                    <p className={labelClass}>Text</p>
+                    <textarea
+                      className={textAreaClass}
+                      value={scenario.text}
+                      name="text"
+                      rows={4}
+                      placeholder="Define the scenario context"
+                      onChange={(event) => handleScenarioChange(index, "text", event.target.value)}
+                      disabled={readOnly}
+                    />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <p className={labelClass}>First Eligible Turn</p>
+                      <input
+                        type="number"
+                        className={inputClass}
+                        value={scenario.firstEligibleTurn}
+                        name="firstEligibleTurn"
+                        min={1}
+                        max={999}
+                        onChange={(event) => handleScenarioChange(index, "firstEligibleTurn", Number(event.target.value))}
+                        disabled={readOnly}
+                      />
+                    </div>
+                    <div>
+                      <p className={labelClass}>Last Eligible Turn</p>
+                      <input
+                        type="number"
+                        className={inputClass}
+                        value={scenario.lastEligibleTurn}
+                        name="lastEligibleTurn"
+                        min={1}
+                        max={999}
+                        onChange={(event) => handleScenarioChange(index, "lastEligibleTurn", Number(event.target.value))}
+                        disabled={readOnly}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDoneEditing}
+                      className={clsx(iconButtonClass, "text-primary")}
+                      disabled={readOnly}
+                      title="Save"
+                    >
+                      <Save className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-emphasis">{scenario.name}</p>
+                    <p className="text-xs text-muted line-clamp-2">{scenario.text || "No scenario text"}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleEditScenario(index)}
+                      className={clsx(iconButtonClass, "text-primary")}
+                      disabled={readOnly}
+                      title="Edit"
+                    >
+                      <Pencil className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteScenario(index)}
+                      className={clsx(iconButtonClass, "text-rose-400")}
+                      disabled={readOnly}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
+export default ScenarioEditor;

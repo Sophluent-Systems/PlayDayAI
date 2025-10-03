@@ -1,508 +1,419 @@
-import React, { useState, useEffect } from 'react';
-import { defaultAppTheme } from '@src/common/theme';
-import { makeStyles } from 'tss-react/mui';
-import { 
-  Delete, 
-  Edit, 
-  Add, 
-  Save, 
-  Clear, 
-  Close,
- } from '@mui/icons-material';
-import {
-  TextField,
-  Button,
-  Box,
-  Paper, 
-  Typography,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
-  Grid,
-  Divider,
-  CircularProgress,
-} from '@mui/material';
-import { nullUndefinedOrEmpty } from '@src/common/objects';
-import { FileDropZone } from '@src/client/components/standard/filedropzone';
-import { callUploadBlob } from '@src/client/blobclient';
+"use client";
 
+import React, { useEffect, useState } from "react";
+import { Plus, Pencil, Save, Trash2, X, Loader2 } from "lucide-react";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
+import { FileDropZone } from "@src/client/components/standard/filedropzone";
+import { callUploadBlob } from "@src/client/blobclient";
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const { colors } = pageTheme;
-  return ({
-    themeEditorContainer: {
-      padding: theme.spacing(2),
-      marginBottom: theme.spacing(2),
-      borderWidth: 1,
-      borderColor: theme.palette.primary.main,
-      borderStyle: 'solid',
-      borderRadius: theme.shape.borderRadius,
-      backgroundColor: theme.palette.background.main,
-      marginTop: theme.spacing(4),
-      width: '100%',
-    },
-    themeEditorTitle: {
-      marginBottom: theme.spacing(2),
-    },
-    fileItemStyle: {
-      padding: '8px',
-      marginBottom: '8px',
-      border: '1px solid #ccc',
-      borderRadius: '4px',
-      backgroundColor: colors.inputAreaTextEntryBackgroundColor,
-    },
-    filePlaceholder: {
-      border: '1px dashed #ccc',
-      borderRadius: '4px',
-      padding: '16px',
-      textAlign: 'center',
-      backgroundColor: '#f0f0f0',
-    },
-    fileInputArea: {
-      display: 'flex',
-      flexDirection: 'column',
-      marginBottom: theme.spacing(2),
-    },
-    inputRow: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      marginBottom: theme.spacing(1),
-    },
-    urlInput: {
-      flex: 1,
-      marginRight: theme.spacing(1),
-    },
-    dragDropArea: {
-      flex: 1,
-      border: '2px dashed #ccc',
-      borderRadius: '4px',
-      padding: '16px',
-      textAlign: 'center',
-      backgroundColor: '#f0f0f0',
-      cursor: 'pointer',
-      transition: 'border-color 0.3s ease',
-    },
-    divider: {
-      height: '100%',
-      margin: `0 ${theme.spacing(1)}`,
-    },
-    clearButton: {
-      alignSelf: 'flex-start',
-    },
-    inputLabel: {
-      fontWeight: 'bold',
-      marginBottom: theme.spacing(1),
-    },
-    inputField: {
-      marginBottom: theme.spacing(2),
-    },
-  });
-});
+const fieldLabelClass = "text-xs font-semibold uppercase tracking-[0.3em] text-muted";
+const inputClass =
+  "w-full rounded-2xl border border-border/60 bg-surface px-4 py-2 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
+const textAreaClass = `${inputClass} min-h-[90px] resize-y`;
+const iconButtonClass =
+  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-surface text-muted transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-40";
 
-export function FileStoreEditor(props) {
-  const { classes } = useStyles(defaultAppTheme);
-  const { readOnly, rootObject, relativePath } = props;
+export function FileStoreEditor({ files = [], onChange, readOnly, rootObject, relativePath }) {
+  const [filesState, setFilesState] = useState(files);
   const [editingFileIndex, setEditingFileIndex] = useState(null);
-  const [filesState, setFilesState] = useState(props.files || []);
-  const [url, setUrl] = useState('');
   const [fileToUpload, setFileToUpload] = useState(null);
+  const [url, setUrl] = useState("");
   const [uploading, setUploading] = useState(null);
-  const [currentFileName, setCurrentFileName] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
-    props.onChange(rootObject, relativePath, filesState);
-  }, [filesState]);
+    onChange?.(rootObject, relativePath, filesState);
+  }, [filesState, onChange, rootObject, relativePath]);
+
+  const getMimeTypeFromExtension = (extension) => {
+    switch (extension) {
+      case "jpg":
+      case "jpeg":
+        return "image/jpeg";
+      case "png":
+        return "image/png";
+      case "gif":
+        return "image/gif";
+      case "mp3":
+        return "audio/mpeg";
+      case "wav":
+        return "audio/wav";
+      case "mp4":
+        return "video/mp4";
+      case "csv":
+        return "text/csv";
+      case "zip":
+        return "application/zip";
+      case "tar":
+        return "application/x-tar";
+      case "gz":
+        return "application/gzip";
+      default:
+        return "application/octet-stream";
+    }
+  };
 
   const getNextAvailableFileName = () => {
     let i = 1;
     while (true) {
-      const fileName = `file${i}`;
-      if (!filesState.some(file => file.fileName === fileName)) {
-        return fileName;
+      const candidate = `file${i}`;
+      if (!filesState.some((file) => file.fileName === candidate)) {
+        return candidate;
       }
-      i++;
-    }
-  };
-
-  const getMimeTypeFromExtension = (extension) => {
-    switch (extension) {
-      case 'mp3':
-        return 'audio/mpeg';
-      case 'wav':
-        return 'audio/wav';
-      case 'ogg':
-        return 'audio/ogg';
-      case 'webm':
-        return 'audio/webm';
-      case 'mp4':
-        return 'video/mp4';
-      case 'mpeg':
-        return 'video/mpeg';
-      case 'webm':
-        return 'video/webm';
-      case 'ogv':
-        return 'video/ogg';
-      case 'jpg':
-        return 'image/jpeg';
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'png':
-        return 'image/png';
-      case 'gif':
-        return 'image/gif';
-      case 'svg':
-        return 'image/svg+xml';
-      case 'pdf':
-        return 'application/pdf';
-      case 'doc':
-        return 'application/msword';
-      case 'docx':
-        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      case 'xls':
-        return 'application/vnd.ms-excel';
-      case 'xlsx':
-        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-      case 'ppt':
-        return 'application/vnd.ms-powerpoint';
-      case 'pptx':
-        return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-      case 'txt':
-        return 'text/plain';
-      case 'html':
-        return 'text/html';
-      case 'xml':
-        return 'text/xml';
-      case 'json':
-        return 'application/json';
-      case 'csv':
-        return 'text/csv';
-      case 'zip':
-        return 'application/zip';
-      case 'tar':
-        return 'application/x-tar';
-      case 'gz':
-        return 'application/gzip';
-      default:
-        return 'application/octet-stream';
+      i += 1;
     }
   };
 
   const handleAddFile = () => {
     const newFileName = getNextAvailableFileName();
-    const newFile = { 
-      fileName: newFileName, 
+    const newFile = {
+      fileName: newFileName,
       file: {},
     };
-    setFilesState((prevState) => [...prevState, newFile]);
-    const newIndex = filesState.length;
-    setEditingFileIndex(newIndex);
-    setUrl('');
+    setFilesState((prev) => [...prev, newFile]);
+    setEditingFileIndex(filesState.length);
+    setUrl("");
     setFileToUpload(null);
+    setHasUnsavedChanges(false);
   };
 
   const handleEditFile = (index) => {
     const fileToEdit = filesState[index];
     setEditingFileIndex(index);
     if (fileToEdit.file) {
-      if (fileToEdit.file.source === 'storage') {
+      if (fileToEdit.file.source === "storage") {
         setFileToUpload({ name: fileToEdit.fileName, type: fileToEdit.file.mimeType });
-        setUrl('');
-      } else if (fileToEdit.file.source === 'url') {
-        setUrl(fileToEdit.file.data);
+        setUrl("");
+      } else if (fileToEdit.file.source === "url") {
+        setUrl(fileToEdit.file.data ?? "");
         setFileToUpload(null);
       }
     } else {
       setFileToUpload(null);
-      setUrl('');
+      setUrl("");
     }
   };
 
   const handleDeleteFile = (index) => {
-    setFilesState((prevState) => {
-      let newState = [...prevState];
-      newState.splice(index, 1);
-      return newState;
-    });
+    setFilesState((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleFileNameChange = (index, value) => {
-    setFilesState((prevState) => {
-      let newState = [...prevState];
-      // Check if the new file name already exists
-      if (newState.some((file, i) => i !== index && file.fileName === value)) {
-        // If it exists, don't change the name
-        return newState;
+    setFilesState((prev) => {
+      const next = [...prev];
+      if (next.some((file, i) => i !== index && file.fileName === value)) {
+        return next;
       }
-      newState[index].fileName = value;
-      return newState;
+      next[index] = {
+        ...next[index],
+        fileName: value,
+      };
+      return next;
     });
     setHasUnsavedChanges(true);
   };
 
   const handleDescriptionChange = (index, value) => {
-    setFilesState((prevState) => {
-      let newState = [...prevState];
-      newState[index].description = value;
-      return newState;
+    setFilesState((prev) => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        description: value,
+      };
+      return next;
     });
     setHasUnsavedChanges(true);
   };
 
+  const handleFileDrop = (file) => {
+    setFileToUpload(file);
+    setUrl("");
+    if (editingFileIndex !== null) {
+      handleFileNameChange(editingFileIndex, file.name ?? getNextAvailableFileName());
+    }
+    setHasUnsavedChanges(true);
+  };
+
+  const handleUrlChange = (event) => {
+    const newUrl = event.target.value;
+    setUrl(newUrl);
+    setFileToUpload(null);
+    if (editingFileIndex !== null) {
+      const suggestedName = newUrl.split("/").pop()?.split("#")[0]?.split("?")[0] ?? getNextAvailableFileName();
+      handleFileNameChange(editingFileIndex, suggestedName);
+    }
+    setHasUnsavedChanges(true);
+  };
+
+  const handleClearFile = () => {
+    setFileToUpload(null);
+    setUrl("");
+    if (editingFileIndex !== null) {
+      setFilesState((prev) => {
+        const next = [...prev];
+        next[editingFileIndex] = {
+          ...next[editingFileIndex],
+          file: {},
+        };
+        return next;
+      });
+    }
+  };
+
+  const handleCancelEdit = () => {
+    if (hasUnsavedChanges) {
+      const confirmCancel = window.confirm("You have unsaved changes. Cancel editing?");
+      if (!confirmCancel) {
+        return;
+      }
+    }
+
+    if (editingFileIndex !== null) {
+      if (filesState[editingFileIndex]?.file && Object.keys(filesState[editingFileIndex].file).length === 0) {
+        setFilesState((prev) => prev.filter((_, idx) => idx !== editingFileIndex));
+      }
+    }
+
+    setEditingFileIndex(null);
+    setFileToUpload(null);
+    setUrl("");
+    setHasUnsavedChanges(false);
+  };
+
   const handleFinishEditing = async () => {
     const index = editingFileIndex;
-    const currentFile = filesState[index];
-  
-    if (!currentFile.fileName || currentFile.fileName.trim().length === 0) {
-      const newFileName = getNextAvailableFileName();
-      handleFileNameChange(index, newFileName);
+    if (index === null) {
+      return;
     }
-  
+
+    const currentFile = filesState[index];
+    if (!currentFile.fileName || currentFile.fileName.trim().length === 0) {
+      handleFileNameChange(index, getNextAvailableFileName());
+    }
+
     setUploading(index);
-  
+
     try {
-      let uploadResult;
-      if (fileToUpload && fileToUpload instanceof File) {
-        // Only upload if it's a new file
-        
-        uploadResult = await callUploadBlob(fileToUpload, currentFile.fileName);
-  
+      if (fileToUpload instanceof File) {
+        const uploadResult = await callUploadBlob(fileToUpload, currentFile.fileName);
         if (uploadResult) {
-          setFilesState((prevState) => {
-            let newState = [...prevState];
-            newState[index] = {
-              ...newState[index],
+          setFilesState((prev) => {
+            const next = [...prev];
+            next[index] = {
+              ...next[index],
               file: {
                 data: uploadResult.blobID,
                 mimeType: uploadResult.mimeType,
-                source: 'storage'
+                source: "storage",
               },
             };
-            return newState;
+            return next;
           });
         }
       } else if (url && url !== currentFile.file?.data) {
-        // Only update if the URL has changed
-        const fileExtension = url.split('.').pop().toLowerCase();
-        const mimeType = getMimeTypeFromExtension(fileExtension); // Implement this function
-        setFilesState((prevState) => {
-          let newState = [...prevState];
-          newState[index] = {
-            ...newState[index],
+        const extension = url.split(".").pop()?.toLowerCase() ?? "";
+        const mimeType = getMimeTypeFromExtension(extension);
+        setFilesState((prev) => {
+          const next = [...prev];
+          next[index] = {
+            ...next[index],
             file: {
               data: url,
-              mimeType: mimeType,
-              source: 'url'
+              mimeType,
+              source: "url",
             },
           };
-          return newState;
+          return next;
         });
       }
-      // If neither fileToUpload nor url has changed, we don't need to do anything
+
       setHasUnsavedChanges(false);
       setEditingFileIndex(null);
       setFileToUpload(null);
-      setUrl('');
+      setUrl("");
     } catch (error) {
-      console.error("Error uploading file:", error);
+      console.error("Error uploading file", error);
       alert(`Error uploading file: ${error.message}`);
     } finally {
       setUploading(null);
     }
   };
 
-  const handleFileDrop = (file) => {
-    setFileToUpload(file);
-    setUrl('');
-    if (editingFileIndex !== null) {
-      const suggestedName = file.name;
-      handleFileNameChange(editingFileIndex, suggestedName);
-    }
-    setHasUnsavedChanges(true);
-  };
-  
-  const handleUrlChange = (event) => {
-    const newUrl = event.target.value;
-    setUrl(newUrl);
-    setFileToUpload(null);
-    if (editingFileIndex !== null) {
-      const suggestedName = newUrl.split('/').pop().split('#')[0].split('?')[0];
-      handleFileNameChange(editingFileIndex, suggestedName);
-    }
-    setHasUnsavedChanges(true);
-  };
-
-  const handleCancelEdit = () => {
-    if (hasUnsavedChanges) {
-      const confirmCancel = window.confirm("You have unsaved changes. Are you sure you want to cancel?");
-      if (!confirmCancel) {
-        return;
-      }
-    }
-  
-    if (editingFileIndex !== null) {
-      if (filesState[editingFileIndex].file && Object.keys(filesState[editingFileIndex].file).length === 0) {
-        setFilesState((prevState) => prevState.filter((_, index) => index !== editingFileIndex));
-      }
-      setEditingFileIndex(null);
-      setFileToUpload(null);
-      setUrl('');
-      setHasUnsavedChanges(false);
-    }
-  };
-
-  const handleClearFile = () => {
-    setFileToUpload(null);
-    setUrl('');
-    if (editingFileIndex !== null) {
-      setFilesState((prevState) => {
-        let newState = [...prevState];
-        newState[editingFileIndex] = {
-          ...newState[editingFileIndex],
-          file: {},
-        };
-        return newState;
-      });
-    }
-  };
-
   return (
-    <Box className={classes.themeEditorContainer}>
-      <Typography variant="h6" className={classes.themeEditorTitle}>
-        File Store
-      </Typography>
-      <List>
-        {filesState.map((file, index) => (
-          <Paper key={`file-${index}`} className={classes.fileItemStyle}>
-            <ListItem key={`file-${index}-item`}>
-              {editingFileIndex === index ? (
-                <Grid container alignItems="flex-start">
-                  <Grid item xs={12} className={classes.inputField}>
-                    <Typography className={classes.inputLabel}>File Name:</Typography>
-                    <TextField
-                      fullWidth
+    <div className="rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-soft backdrop-blur-xl">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-emphasis">File Store</h3>
+        <button
+          type="button"
+          onClick={handleAddFile}
+          disabled={readOnly}
+          className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-primary/90 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          Add File
+        </button>
+      </div>
+
+      <div className="mt-5 space-y-4">
+        {filesState.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-border/60 bg-surface/60 px-4 py-6 text-center text-sm text-muted">
+            No files have been added yet.
+          </p>
+        ) : null}
+
+        {filesState.map((file, index) => {
+          const isEditing = editingFileIndex === index;
+          return (
+            <div
+              key={`file-${index}`}
+              className={clsx(
+                "rounded-2xl border border-border/60 bg-surface/80 p-4 shadow-soft",
+                isEditing ? "ring-1 ring-primary/40" : undefined,
+              )}
+            >
+              {isEditing ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className={fieldLabelClass}>File Name</p>
+                    <input
+                      className={inputClass}
                       value={file.fileName}
                       placeholder="Enter file name"
-                      onChange={(e) => handleFileNameChange(index, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === "Escape") {
+                      onChange={(event) => handleFileNameChange(index, event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === "Escape") {
                           handleFinishEditing();
                         }
                       }}
                       disabled={readOnly}
                     />
-                  </Grid>
-                  <Grid item xs={12} className={classes.inputField}>
-                    <Typography className={classes.inputLabel}>Description / Keywords:</Typography>
-                    <TextField
-                      fullWidth
-                      multiline
+                  </div>
+
+                  <div>
+                    <p className={fieldLabelClass}>Description / Keywords</p>
+                    <textarea
+                      className={textAreaClass}
                       rows={2}
-                      value={file.description || ''}
+                      value={file.description || ""}
                       placeholder="Enter description or keywords"
-                      onChange={(e) => handleDescriptionChange(index, e.target.value)}
+                      onChange={(event) => handleDescriptionChange(index, event.target.value)}
                       disabled={readOnly}
                     />
-                  </Grid>
-                  <Grid item xs={12} margin={1}><Grid item xs={12} margin={1}>
-                    <Box className={classes.fileInputArea}>
-                      <Typography className={classes.inputLabel}>File Source:</Typography>
-                      <Box className={classes.inputRow}>
-                        {(nullUndefinedOrEmpty(fileToUpload) && !file.file?.source) && (
-                          <TextField
-                            className={classes.urlInput}
-                            label="Paste a URL here"
-                            value={url}
-                            onChange={handleUrlChange}
-                            disabled={readOnly || !!fileToUpload}
-                          />
-                        )}
-                        {(nullUndefinedOrEmpty(url) && !file.file?.source) && (
-                          <Divider orientation="vertical" flexItem className={classes.divider} />
-                        )}
-                        {(nullUndefinedOrEmpty(url) && !file.file?.source) && (
-                          <FileDropZone
-                            onFileDrop={handleFileDrop}
-                            file={fileToUpload}
-                            disabled={readOnly}
-                          />
-                        )}
-                        {file.file?.source === 'storage' && (
-                          <Typography>
-                            File uploaded: {file.fileName} (Blob ID: {file.file.data})
-                          </Typography>
-                        )}
-                        {file.file?.source === 'url' && (
-                          <Typography>
-                            URL: {file.file.data}
-                          </Typography>
-                        )}
-                      </Box>
-                      {(url || fileToUpload || file.file) && (
-                        <IconButton 
-                          onClick={handleClearFile} 
-                          disabled={readOnly}
-                          className={classes.clearButton}
+                  </div>
+
+                  <div className="space-y-3">
+                    <p className={fieldLabelClass}>File Source</p>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start">
+                      {nullUndefinedOrEmpty(fileToUpload) && !file.file?.source ? (
+                        <input
+                          className={inputClass}
+                          placeholder="Paste a URL here"
+                          value={url}
+                          onChange={handleUrlChange}
+                          disabled={readOnly || Boolean(fileToUpload)}
+                        />
+                      ) : null}
+
+                      {nullUndefinedOrEmpty(url) && !file.file?.source ? (
+                        <div className="flex h-full items-center justify-center md:w-64">
+                          <FileDropZone onFileDrop={handleFileDrop} file={fileToUpload} disabled={readOnly} />
+                        </div>
+                      ) : null}
+
+                      {file.file?.source === "storage" ? (
+                        <p className="rounded-2xl border border-border/40 bg-surface/60 px-4 py-2 text-sm text-muted">
+                          Uploaded blob: <span className="font-medium text-emphasis">{file.fileName}</span>
+                        </p>
+                      ) : null}
+
+                      {file.file?.source === "url" ? (
+                        <p className="rounded-2xl border border-border/40 bg-surface/60 px-4 py-2 text-sm text-muted">
+                          URL: <span className="font-medium text-emphasis">{file.file.data}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                    {(url || fileToUpload || file.file?.data) ? (
+                      <button
+                        type="button"
+                        onClick={handleClearFile}
+                        className={clsx(iconButtonClass, "text-rose-400")}
+                        disabled={readOnly}
+                        title="Clear file"
+                      >
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {uploading === index ? (
+                      <span className="inline-flex h-10 w-10 items-center justify-center">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
+                      </span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleFinishEditing}
+                          className={clsx(iconButtonClass, "text-primary")}
+                          disabled={
+                            readOnly ||
+                            uploading !== null ||
+                            !file.fileName ||
+                            file.fileName.trim().length === 0 ||
+                            (nullUndefinedOrEmpty(fileToUpload) && nullUndefinedOrEmpty(url) && nullUndefinedOrEmpty(file.file?.data))
+                          }
+                          title="Save"
                         >
-                          <Clear />
-                        </IconButton>
-                      )}
-                    </Box>
-                  </Grid>
-                  <Grid item xs={1}>
-                  {uploading === index ? (
-                    <CircularProgress size={24} />
-                  ) : (
-                    <>
-                      <IconButton 
-                        onClick={() => handleFinishEditing()} 
-                        disabled={readOnly || uploading !== null || !file.fileName || file.fileName.trim().length === 0 || (nullUndefinedOrEmpty(fileToUpload) && nullUndefinedOrEmpty(url))}
-                      >
-                        <Save />
-                      </IconButton>
-                      <IconButton 
-                        onClick={handleCancelEdit} 
-                        disabled={uploading !== null}
-                      >
-                        <Close />
-                      </IconButton>
-                  </>
-                  )}
-                </Grid>
-                  </Grid>
-                </Grid>
+                          <Save className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCancelEdit}
+                          className={clsx(iconButtonClass, "text-muted")}
+                          disabled={uploading !== null}
+                          title="Cancel"
+                        >
+                          <X className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
               ) : (
-                <React.Fragment>
-                  <ListItemText 
-                    primary={file.fileName} 
-                    secondary={file.description || "No description"}
-                    onClick={() => handleEditFile(index)}
-                  />
-                  <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleEditFile(index)} disabled={readOnly}>
-                      <Edit />
-                    </IconButton>
-                    <IconButton edge="end" onClick={() => handleDeleteFile(index)} disabled={readOnly}>
-                      <Delete />
-                    </IconButton>
-                  </ListItemSecondaryAction>
-                </React.Fragment>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-emphasis">{file.fileName}</p>
+                    <p className="text-xs text-muted">{file.description || "No description"}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleEditFile(index)}
+                      className={clsx(iconButtonClass, "text-primary")}
+                      disabled={readOnly}
+                      title="Edit"
+                    >
+                      <Pencil className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteFile(index)}
+                      className={clsx(iconButtonClass, "text-rose-400")}
+                      disabled={readOnly}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
               )}
-            </ListItem>
-          </Paper>
-        ))}
-      </List>
-      <Button
-        variant="contained"
-        color="primary"
-        onClick={handleAddFile}
-        startIcon={<Add />}
-        disabled={readOnly}
-      >
-        Add File
-      </Button>
-    </Box>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
+
+export default FileStoreEditor;

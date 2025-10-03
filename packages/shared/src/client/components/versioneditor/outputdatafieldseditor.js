@@ -1,230 +1,186 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { defaultAppTheme } from '@src/common/theme';
-import { makeStyles } from 'tss-react/mui';
-import { Delete } from '@mui/icons-material';
-import { Edit } from '@mui/icons-material';
-import { Add } from '@mui/icons-material';
-import { Save } from '@mui/icons-material';
-import {
-  TextField,
-  Button,
-  Box,
-  Paper, 
-  Typography,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Grid,
-  FormControlLabel,
-  Checkbox,
-} from '@mui/material';
+"use client";
 
+import React, { useEffect, useState } from "react";
+import clsx from "clsx";
+import { Plus, Pencil, Save, Trash2 } from "lucide-react";
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const {
-    colors,
-    fonts,
-  } = pageTheme;
-  return ({
-  inputField: {
-    marginTop: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-  },
-  themeEditorContainer: {
-    padding: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-    borderWidth: 1,
-    borderColor: theme.palette.primary.main,
-    borderStyle: 'solid',
-    borderRadius: theme.shape.borderRadius,
-    backgroundColor: theme.palette.background.main , 
-    marginTop: theme.spacing(4), 
-    width: '100%',
-  },
-  themeEditorTitle: {
-    marginBottom: theme.spacing(2),
-  },
-  themeEditorField: {
-    marginBottom: theme.spacing(2),
-    padding: theme.spacing(1),
-  },
-  scenarioStyle: {
-    padding: '8px',
-    marginBottom: '8px',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    backgroundColor: colors.inputAreaTextEntryBackgroundColor, 
-  },
-  outputDataFieldsStyle: {
-    padding: '8px',
-    marginBottom: '8px',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    backgroundColor: colors.inputAreaTextEntryBackgroundColor, 
-  },
-})});
+const cardClass = "rounded-2xl border border-border/60 bg-surface/80 p-4 shadow-soft";
+const labelClass = "text-xs font-semibold uppercase tracking-[0.3em] text-muted";
+const inputClass =
+  "w-full rounded-2xl border border-border/60 bg-surface px-4 py-2 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
+const textAreaClass = `${inputClass} min-h-[90px] resize-y`;
+const iconButtonClass =
+  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-surface text-muted transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-40";
 
-
-export function OutputDataFieldsEditor(props) {
-  const { classes } = useStyles(defaultAppTheme);
-  const { readOnly, rootObject, relativePath } = props;
-  const [editingDataFieldIndex, setEditingDataFieldIndex] = useState(null);
-  const [outputDataFieldsState, setOutputDataFieldsState] = useState(props.outputDataFields);
-
+export function OutputDataFieldsEditor({ readOnly, rootObject, relativePath, outputDataFields = [], onChange }) {
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [fields, setFields] = useState(outputDataFields);
 
   useEffect(() => {
-    props.onChange(rootObject, relativePath, outputDataFieldsState);
-  }, [outputDataFieldsState]);
+    onChange?.(rootObject, relativePath, fields);
+  }, [fields, onChange, rootObject, relativePath]);
 
   const handleAddDataField = () => {
-    const newDataField = { variableName: "", dataType: "string", instructions: "", required: false };
-    const newIndex = outputDataFieldsState.length;
-    setOutputDataFieldsState((prevState) => [...prevState, newDataField]);
-    setEditingDataFieldIndex(newIndex);
+    const nextField = { variableName: "", dataType: "string", instructions: "", required: false };
+    setFields((prev) => [...prev, nextField]);
+    setEditingIndex(fields.length);
   };
-  
-  const handleEditDataField = (index) => {
-    setEditingDataFieldIndex(index);
-  };
+
+  const handleEditDataField = (index) => setEditingIndex(index);
 
   const handleDeleteDataField = (index) => {
-    setOutputDataFieldsState((prevState) => {
-      let newState = [...prevState];
-      newState.splice(index, 1);
-      return newState;
-    });
+    setFields((prev) => prev.filter((_, idx) => idx !== index));
+    if (editingIndex === index) {
+      setEditingIndex(null);
+    }
   };
-  
+
   const handleValueChange = (index, field, value) => {
-    setOutputDataFieldsState((prevState) => {
-      let newState = [...prevState];
-      newState[index][field] = value;
-      return newState;
+    setFields((prev) => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        [field]: value,
+      };
+      return next;
     });
   };
 
-  const handleFinishEditing = () => {
-    setEditingDataFieldIndex(null);
-  };
-  
+  const handleFinishEditing = () => setEditingIndex(null);
 
   return (
-    <Box className={classes.themeEditorContainer}>
-      <Typography variant="h6" className={classes.themeEditorTitle}>
-        Data Fields
-      </Typography>
-      <List>
-      {outputDataFieldsState ? outputDataFieldsState.map((dataField, index) => (
-        <Paper key={`output-field-${index}`} className={classes.outputDataFieldsStyle}>
-          <ListItem key={`output-field-${index}-item`}>
-            {editingDataFieldIndex === index ? (
-              
-              <Grid container alignItems="flex-start">
-                <Grid item xs={12} margin={1}>
-                  <TextField
-                    fullWidth
-                    style={{ width: '100%', verticalAlign: 'top', margin: 1 }}
-                    value={dataField.variableName}
-                    placeholder="Enter variable name"
-                    onChange={(e) => handleValueChange(index, "variableName", e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key == "Escape") {
-                        handleFinishEditing();
-                      } 
-                    }}
-                    disabled={readOnly}
-                  />
-                </Grid>
-                <Grid item xs={12} margin={1}>
-                  <FormControl style={{ width: '100%', verticalAlign: 'top', margin: 1 }} variant="filled" fullWidth>
-                    <InputLabel id="variableType">Datatype</InputLabel>
-                    <Select
-                      labelId="datatypeselect"
-                      value={dataField.dataType ? dataField.dataType : "string"}
-                      onChange={(e) => handleValueChange(index, "dataType", e.target.value)}
+    <div className="rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-soft backdrop-blur-xl">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-emphasis">Data Fields</h3>
+        <button
+          type="button"
+          onClick={handleAddDataField}
+          disabled={readOnly}
+          className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-primary/90 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          Add Output Field
+        </button>
+      </div>
+
+      <div className="mt-5 space-y-4">
+        {fields.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-border/60 bg-surface/60 px-4 py-6 text-center text-sm text-muted">
+            No output fields yet.
+          </p>
+        ) : null}
+
+        {fields.map((field, index) => {
+          const isEditing = editingIndex === index;
+          return (
+            <div key={`output-field-${index}`} className={cardClass}>
+              {isEditing ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className={labelClass}>Variable Name</p>
+                    <input
+                      className={inputClass}
+                      value={field.variableName}
+                      placeholder="Enter variable name"
+                      onChange={(event) => handleValueChange(index, "variableName", event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === "Escape") {
+                          handleFinishEditing();
+                        }
+                      }}
+                      disabled={readOnly}
+                    />
+                  </div>
+
+                  <div>
+                    <p className={labelClass}>Datatype</p>
+                    <select
+                      className={`${inputClass} appearance-none bg-surface`}
+                      value={field.dataType ?? "string"}
+                      onChange={(event) => handleValueChange(index, "dataType", event.target.value)}
                       disabled={readOnly}
                     >
-                        <MenuItem value={"string"} key={"string"}>String</MenuItem>
-                        <MenuItem value={"number"} key={"number"}>Number</MenuItem>
-                        <MenuItem value={"array"} key={"array"}>Array</MenuItem>
-                        <MenuItem value={"boolean"} key={"boolean"}>Boolean</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} margin={1}>
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={4} // adjust based on your needs
-                    style={{ width: '70%' }} // assuming you want the rest to be 70%
-                    value={dataField.instructions}
-                    placeholder="Enter instructions"
-                    onChange={(e) => handleValueChange(index, "instructions", e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key == "Escape") {
-                        handleFinishEditing();
-                      } 
-                    }}
-                    disabled={readOnly}
-                  />
-                </Grid>
-                <Grid item xs={10} margin={1}>
-                <FormControlLabel
-                  key={"requiredCheckbox"}
-                  sx={{ width: '95%' }}
-                  control={
-                    <Checkbox
-                      checked={dataField.required}
-                      onChange={(e) => handleValueChange(index, "required", !!e.target.checked)}
-                      name={"required"}
+                      <option value="string">String</option>
+                      <option value="number">Number</option>
+                      <option value="array">Array</option>
+                      <option value="boolean">Boolean</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <p className={labelClass}>Instructions</p>
+                    <textarea
+                      className={textAreaClass}
+                      rows={4}
+                      value={field.instructions ?? ""}
+                      placeholder="Enter instructions"
+                      onChange={(event) => handleValueChange(index, "instructions", event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === "Escape") {
+                          handleFinishEditing();
+                        }
+                      }}
+                      disabled={readOnly}
                     />
-                  }
-                  label={"Required"}
-                  disabled={readOnly}
-                />
-                </Grid>
-                <Grid item xs={1}>
-                  <IconButton onClick={() => handleFinishEditing()} disabled={readOnly} >
-                    <Save />
-                  </IconButton>
-                </Grid>
-              </Grid>
-            ) : (
-              <React.Fragment>
-                <ListItemText 
-                  primary={dataField.variableName} 
-                  secondary={dataField.instructions} 
-                  onClick={() => handleEditDataField(index)}
-                />
-                <ListItemSecondaryAction>
-                  <IconButton edge="end" onClick={() => handleEditDataField(index)} disabled={readOnly} >
-                    <Edit />
-                  </IconButton>
-                  <IconButton edge="end" onClick={() => handleDeleteDataField(index)} disabled={readOnly} >
-                    <Delete />
-                  </IconButton>
-                </ListItemSecondaryAction>
-              </React.Fragment>
-            )}
-          </ListItem>
-        </Paper>
-      )) : null}
-      </List>
-      <Button
-        variant="contained"
-        color="primary"
-        onClick={handleAddDataField}
-        startIcon={<Add />}
-      >
-        Add Output Field
-      </Button>
-    </Box>
+                  </div>
+
+                  <label className="flex items-center gap-3 text-sm font-semibold text-emphasis">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(field.required)}
+                      onChange={(event) => handleValueChange(index, "required", !!event.target.checked)}
+                      disabled={readOnly}
+                      className="h-4 w-4 accent-primary"
+                    />
+                    <span>Required</span>
+                  </label>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleFinishEditing}
+                      className={clsx(iconButtonClass, "text-primary")}
+                      disabled={readOnly}
+                      title="Save"
+                    >
+                      <Save className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-emphasis">{field.variableName || "Unnamed field"}</p>
+                    <p className="text-xs text-muted">{field.instructions || "No instructions"}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleEditDataField(index)}
+                      className={clsx(iconButtonClass, "text-primary")}
+                      disabled={readOnly}
+                      title="Edit"
+                    >
+                      <Pencil className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDataField(index)}
+                      className={clsx(iconButtonClass, "text-rose-400")}
+                      disabled={readOnly}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
+export default OutputDataFieldsEditor;

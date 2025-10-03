@@ -1,309 +1,315 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Button, Box, Typography, FormControlLabel, Switch, TextField,
-  Select, 
-  MenuItem,
-  FormControl,
-  InputLabel,
- } from '@mui/material';
+import React, { useEffect, useRef, useState } from 'react';
+import { Mic, Square, Waves, Activity, Volume2, VolumeX, Play } from 'lucide-react';
 import { useSpeechDetection } from '@src/client/components/useSpeechDetection';
 import { useConfig } from '@src/client/configprovider';
+import { GlassCard } from '@src/client/components/ui/card';
+import { PrimaryButton, SecondaryButton } from '@src/client/components/ui/button';
+import { StatusPanel } from '@src/client/components/ui/statuspanel';
 
-export default function VoiceTest(props) {
+function ToggleControl({ label, description, checked, onChange }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+        checked ? 'border-primary/60 bg-primary/10 text-primary' : 'border-border/60 bg-surface text-emphasis hover:border-primary/40'
+      }`}
+    >
+      <span className="space-y-1">
+        <span className="block text-sm font-semibold">{label}</span>
+        {description ? <span className="block text-xs text-muted">{description}</span> : null}
+      </span>
+      <span
+        className={`flex h-6 w-11 items-center rounded-full transition ${checked ? 'bg-primary' : 'bg-border/70'}`}
+      >
+        <span
+          className={`ml-1 h-4 w-4 rounded-full bg-white transition ${checked ? 'translate-x-5' : ''}`}
+        />
+      </span>
+    </button>
+  );
+}
+
+function NumberField({ label, value, onChange, suffix, min, max, step }) {
+  return (
+    <label className="flex flex-col gap-2 text-sm font-semibold text-emphasis">
+      <span>{label}</span>
+      <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-surface px-4 py-2">
+        <input
+          type="number"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          min={min}
+          max={max}
+          step={step}
+          className="flex-1 bg-transparent text-sm text-emphasis focus:outline-none"
+        />
+        {suffix ? <span className="text-xs uppercase tracking-[0.3em] text-muted">{suffix}</span> : null}
+      </div>
+    </label>
+  );
+}
+
+function SelectField({ label, value, onChange, options }) {
+  return (
+    <label className="flex flex-col gap-2 text-sm font-semibold text-emphasis">
+      <span>{label}</span>
+      <div className="rounded-2xl border border-border/60 bg-surface">
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full rounded-2xl bg-transparent px-4 py-3 text-sm text-emphasis focus:outline-none"
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </label>
+  );
+}
+
+export default function VoiceTest() {
   const { Constants } = useConfig();
-  const [encodedBlob, setencodedBlob] = useState(null);
-  const [debugInfo, setDebugInfo] = useState(); // New state variable for debug info
+  const [encodedBlob, setEncodedBlob] = useState(null);
+  const [debugInfo, setDebugInfo] = useState(null);
   const encodedAudioRef = useRef(null);
   const [listenState, setListenState] = useState(false);
   const [onlyRecordOnSpeaking, setOnlyRecordOnSpeaking] = useState(true);
 
-
-  //State variables
   const [timeSlice, setTimeSlice] = useState(Constants.audioRecordingDefaults.timeSlice);
   const [speechInterval, setSpeechInterval] = useState(Constants.audioRecordingDefaults.speechInterval);
   const [speechThreshold, setSpeechThreshold] = useState(Constants.audioRecordingDefaults.speechThreshold);
   const [silenceTimeout, setSilenceTimeout] = useState(Constants.audioRecordingDefaults.silenceTimeout);
   const [speechDetectMode, setSpeechDetectMode] = useState(Constants.audioRecordingDefaults.speechDetectMode);
-  const [minimumSpeechDuration, setMinimumSpeechDuration] = useState(Constants.audioRecordingDefaults.minimumSpeechDuration);
-  const [audioDuckingControl, setAudioDuckingControl] = useState(Constants.audioRecordingDefaults.audioDuckingControl || 'on_speaking');
+  const [minimumSpeechDuration, setMinimumSpeechDuration] = useState(
+    Constants.audioRecordingDefaults.minimumSpeechDuration
+  );
+  const [audioDuckingControl, setAudioDuckingControl] = useState(
+    Constants.audioRecordingDefaults.audioDuckingControl || 'on_speaking'
+  );
   const [echoCancellation, setEchoCancellation] = useState(Constants.audioRecordingDefaults.echoCancellation);
-  const [audioSessionType, setAudioSessionType] = useState(Constants.audioRecordingDefaults.audioSessionType || 'play-and-record');
+  const [audioSessionType, setAudioSessionType] = useState(
+    Constants.audioRecordingDefaults.audioSessionType || 'play-and-record'
+  );
 
-  console.log("Constants.audioRecordingDefaults: ", Constants.audioRecordingDefaults);
-  // All the states above
-  console.log("timeSlice: ", timeSlice);
-  console.log("speechInterval: ", speechInterval);
-  console.log("speechThreshold: ", speechThreshold);
-  console.log("silenceTimeout: ", silenceTimeout);
-  console.log("speechDetectMode: ", speechDetectMode);
-  console.log("minimumSpeechDuration: ", minimumSpeechDuration);
-  console.log("audioDuckingControl: ", audioDuckingControl);
-  console.log("echoCancellation: ", echoCancellation);
-  console.log("audioSessionType: ", audioSessionType);
-
-
-  const { recording, speaking, listeningForSpeech, mostRecentSpeakingDuration, longestSilenceDuration, soundDetected, audioInfo, startRecording, stopRecording } = useSpeechDetection({
-    onlyRecordOnSpeaking: onlyRecordOnSpeaking,
+  const {
+    recording,
+    speaking,
+    listeningForSpeech,
+    mostRecentSpeakingDuration,
+    longestSilenceDuration,
+    soundDetected,
+    audioInfo,
+    startRecording,
+    stopRecording,
+  } = useSpeechDetection({
+    onlyRecordOnSpeaking,
     continuousRecording: true,
     debug: true,
-    audioDuckingControl: audioDuckingControl,
-    echoCancellation: echoCancellation,
-    onSpeechDataBlobAvailable: (blob, debugInfo) => {
-      setencodedBlob(blob);
-      setDebugInfo(debugInfo); // Set debug info
+    audioDuckingControl,
+    echoCancellation,
+    onSpeechDataBlobAvailable: (blob, info) => {
+      setEncodedBlob(blob);
+      setDebugInfo(info);
     },
-    // Add new parameters
     timeSlice: Number(timeSlice),
     speechInterval: Number(speechInterval),
     speechThreshold: Number(speechThreshold),
     silenceTimeout: Number(silenceTimeout),
-    speechDetectMode: speechDetectMode,
+    speechDetectMode,
     minimumSpeechDuration: Number(minimumSpeechDuration),
   });
-
-
-  const renderAudioInfo = () => {
-    // print every field of audioInfo, with line breaks between each field
-    // that will show up correctly in Typography
-    if (!audioInfo) return null;
-    
-    return Object.keys(audioInfo).map((field) => (
-      <Typography key={`${field}`}>
-        {`${field}: ${audioInfo[field]}`}
-      </Typography>
-    ));
-  }
 
   const handleRecordToggle = () => {
     if (listenState) {
       stopRecording();
     } else {
-      setencodedBlob(null);
-      setDebugInfo(null); 
+      setEncodedBlob(null);
+      setDebugInfo(null);
       startRecording();
     }
-    setListenState(!listenState);
+    setListenState((state) => !state);
   };
 
-  const playAudio = (audioRef, blob) => {
-    if (blob) {
-      const url = URL.createObjectURL(blob);
-      audioRef.current.src = url;
-      audioRef.current.play();
+  const playAudio = () => {
+    if (!encodedBlob || !encodedAudioRef.current) {
+      return;
     }
+    const url = URL.createObjectURL(encodedBlob);
+    encodedAudioRef.current.src = url;
+    encodedAudioRef.current.play();
   };
 
-  const handleOnlyRecordOnSpeakingToggle = (event) => {
-    setOnlyRecordOnSpeaking(event.target.checked);
-  };
-
-  // New handlers for parameter changes
-  const handleTimeSliceChange = (event) => {
-    setTimeSlice(event.target.value);
-  };
-
-  const handleSpeechIntervalChange = (event) => {
-    setSpeechInterval(event.target.value);
-  };
-
-  const handleSpeechThresholdChange = (event) => {
-    setSpeechThreshold(event.target.value);
-  };
-
-  const handleSilenceTimeoutChange = (event) => {
-    setSilenceTimeout(event.target.value);
-  };
-
-  const handleSpeechDetectModeChange = (event) => {
-    setSpeechDetectMode(event.target.value);
-  };
-
-  const handleMinimumSpeechDurationChange = (event) => {
-    setMinimumSpeechDuration(event.target.value);
-  };
-
-  const handleAudioDuckingControlChange = (event) => {
-    setAudioDuckingControl(event.target.value);
-  };
-
-  const handleEchoCancellationChange = (event) => {
-    setEchoCancellation(event.target.checked);
-  }
-
-  const handleAudioSessionTypeChange = (event) => {
-    setAudioSessionType(event.target.value);
-  }
-
+  useEffect(() => {
+    return () => {
+      if (encodedAudioRef.current?.src) {
+        URL.revokeObjectURL(encodedAudioRef.current.src);
+      }
+    };
+  }, []);
 
   return (
-    <Box sx={{ p: 4, backgroundColor: 'white' }}>
-      <Typography variant="h4" gutterBottom>
-        Voice Recording Test
-      </Typography>
+    <div className="space-y-8">
+      <GlassCard>
+        <div className="flex flex-col gap-6">
+          <div className="flex items-start gap-4">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Mic className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <div className="space-y-3">
+              <p className="text-sm uppercase tracking-[0.35em] text-muted">Diagnostics</p>
+              <h1 className="text-2xl font-semibold text-emphasis">Voice input test bench</h1>
+              <p className="text-sm text-muted">
+                Tune the streaming audio recorder, verify silence detection, and preview captured audio in real time.
+              </p>
+            </div>
+          </div>
 
-      <Button
-        variant="contained"
-        onClick={handleRecordToggle}
-        sx={{ mb: 2 }}
-        color={listenState ? 'secondary' : 'primary'}
-      >
-        {listenState ? 'Stop Recording' : 'Start Recording'}
-      </Button>
-      <FormControlLabel
-        control={
-          <Switch
-            checked={onlyRecordOnSpeaking}
-            onChange={handleOnlyRecordOnSpeakingToggle}
-            name="onlyRecordOnSpeaking"
-          />
-        }
-        label="Only Record On Speaking"
-        sx={{ mb: 2, display: 'block' }}
+          <div className="flex flex-wrap items-center gap-3">
+            <PrimaryButton icon={listenState ? Square : Mic} onClick={handleRecordToggle}>
+              {listenState ? 'Stop listening' : 'Start listening'}
+            </PrimaryButton>
+            <SecondaryButton icon={Play} onClick={playAudio} disabled={!encodedBlob}>
+              Play encoded excerpt
+            </SecondaryButton>
+          </div>
+        </div>
+      </GlassCard>
+
+      <GlassCard>
+        <div className="space-y-6">
+          <h2 className="text-xl font-semibold text-emphasis">Recording behaviour</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            <ToggleControl
+              label="Auto pause when silent"
+              description="Only capture audio while speech is detected."
+              checked={onlyRecordOnSpeaking}
+              onChange={setOnlyRecordOnSpeaking}
+            />
+            <ToggleControl
+              label="Echo cancellation"
+              description="Reduce feedback for devices with open speakers."
+              checked={echoCancellation}
+              onChange={setEchoCancellation}
+            />
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <NumberField label="Chunk duration" suffix="MS" value={timeSlice} onChange={setTimeSlice} step={50} />
+            <NumberField label="Speech interval" suffix="MS" value={speechInterval} onChange={setSpeechInterval} step={50} />
+            <NumberField label="Speech threshold" suffix="DB" value={speechThreshold} onChange={setSpeechThreshold} step={1} />
+            <NumberField label="Silence timeout" suffix="MS" value={silenceTimeout} onChange={setSilenceTimeout} step={100} />
+            <NumberField
+              label="Minimum speech duration"
+              suffix="MS"
+              value={minimumSpeechDuration}
+              onChange={setMinimumSpeechDuration}
+              step={50}
+            />
+            <SelectField
+              label="Detector"
+              value={speechDetectMode}
+              onChange={setSpeechDetectMode}
+              options={[
+                { value: 'hark', label: 'Hark (beamforming)' },
+                { value: 'vad', label: 'VAD (browser)' },
+              ]}
+            />
+            <SelectField
+              label="Audio ducking"
+              value={audioDuckingControl}
+              onChange={setAudioDuckingControl}
+              options={[
+                { value: 'off', label: 'Off' },
+                { value: 'on_speaking', label: 'On speaking' },
+                { value: 'always_on', label: 'Always on' },
+              ]}
+            />
+            <SelectField
+              label="Session type"
+              value={audioSessionType}
+              onChange={setAudioSessionType}
+              options={[
+                { value: 'playback', label: 'Playback' },
+                { value: 'transient', label: 'Transient' },
+                { value: 'transient-solo', label: 'Transient solo' },
+                { value: 'ambient', label: 'Ambient' },
+                { value: 'play-and-record', label: 'Play and record' },
+                { value: 'auto', label: 'Auto' },
+              ]}
+            />
+          </div>
+        </div>
+      </GlassCard>
+
+      <StatusPanel
+        icon={speaking ? Volume2 : soundDetected ? Waves : VolumeX}
+        title={speaking ? 'Speech detected' : soundDetected ? 'Sound detected' : 'Listening'}
+        description={`Listening: ${listeningForSpeech ? 'yes' : 'no'} · Recording: ${recording ? 'active' : 'idle'}`}
       />
-      <FormControlLabel
-        control={
-          <Switch
-            checked={echoCancellation}
-            onChange={handleEchoCancellationChange}
-            name="echoCancellation"
-          />
-        }
-        label="Custom Echo Cancellation"
-        sx={{ mb: 2 }}
-      />
 
-      {/* New input fields for speech detection parameters */}
-      <Box sx={{ mb: 2 }}>
-        <TextField
-          label="Time Slice (ms)"
-          type="number"
-          value={timeSlice}
-          onChange={handleTimeSliceChange}
-          sx={{ mr: 2 }}
-        />
-        <TextField
-          label="Speech Interval (ms)"
-          type="number"
-          value={speechInterval}
-          onChange={handleSpeechIntervalChange}
-          sx={{ mr: 2 }}
-        />
-        <TextField
-          label="Speech Threshold (dB)"
-          type="number"
-          value={speechThreshold}
-          onChange={handleSpeechThresholdChange}
-          sx={{ mr: 2 }}
-        />
-        <TextField
-          label="Silence Timeout (ms)"
-          type="number"
-          value={silenceTimeout}
-          onChange={handleSilenceTimeoutChange}
-          sx={{ mr: 2 }}
-        />
-        <TextField
-          label="Minimum Speech Duration (ms)"
-          type="number"
-          value={minimumSpeechDuration}
-          onChange={handleMinimumSpeechDurationChange}
-          sx={{ mr: 2 }}
-        />
-        <Select
-          value={speechDetectMode}
-          onChange={handleSpeechDetectModeChange}
-          displayEmpty
-          sx={{ minWidth: 120, mr: 2 }}
-          key="speechDetect"
-        >
-          <MenuItem value="hark">Hark</MenuItem>
-          <MenuItem value="vad">VAD</MenuItem>
-        </Select>
-        
-        <FormControl sx={{ minWidth: 120 }}>
-          <InputLabel id="audio-ducking-control-label">Ducking</InputLabel>
-          <Select
-            labelId="audio-ducking-control-label"
-            id="audio-ducking-control"
-            value={audioDuckingControl}
-            onChange={handleAudioDuckingControlChange}
-            label="Ducking"
-          >
-            <MenuItem value="off">Off</MenuItem>
-            <MenuItem value="on_speaking">On Speaking</MenuItem>
-            <MenuItem value="always_on">Always On</MenuItem>
-          </Select>
-        </FormControl>
+      <GlassCard>
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="rounded-2xl border border-border/50 bg-surface/70 p-4">
+            <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.3em] text-muted">
+              <Activity className="h-4 w-4" /> Metrics
+            </h3>
+            <dl className="mt-4 space-y-2 text-sm text-emphasis">
+              <div className="flex justify-between">
+                <dt>Most recent speech</dt>
+                <dd>
+                  {mostRecentSpeakingDuration
+                    ? `${mostRecentSpeakingDuration} ms (${(mostRecentSpeakingDuration / 1000).toFixed(2)} s)`
+                    : '—'}
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Longest silence</dt>
+                <dd>
+                  {longestSilenceDuration
+                    ? `${longestSilenceDuration} ms (${(longestSilenceDuration / 1000).toFixed(2)} s)`
+                    : '—'}
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Recorded chunks</dt>
+                <dd>{debugInfo?.chunkCount ?? '—'}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Captured duration</dt>
+                <dd>
+                  {debugInfo?.duration
+                    ? `${debugInfo.duration} ms (${(debugInfo.duration / 1000).toFixed(2)} s)`
+                    : '—'}
+                </dd>
+              </div>
+            </dl>
+          </div>
 
-        <FormControl sx={{ minWidth: 120 }}>
-          <InputLabel id="audio-session-type-label">Audio Session Type</InputLabel>
-          <Select
-            labelId="audio-session-type-label"
-            id="audio-session-type"
-            value={audioSessionType}
-            onChange={handleAudioSessionTypeChange}
-            label="Audio Session Type"
-          >
-            <MenuItem value="playback">Playback</MenuItem>
-            <MenuItem value="transient">Transient</MenuItem>
-            <MenuItem value="transient-solo">Transient Solo</MenuItem>
-            <MenuItem value="ambient">Ambient</MenuItem>
-            <MenuItem value="play-and-record">Play and Record</MenuItem>
-            <MenuItem value="auto">Auto</MenuItem>
-          </Select>
-        </FormControl>
-      </Box>
+          <div className="rounded-2xl border border-border/50 bg-surface/70 p-4">
+            <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.3em] text-muted">
+              <Waves className="h-4 w-4" /> Audio info
+            </h3>
+            <div className="mt-4 space-y-1 text-sm text-emphasis">
+              {audioInfo
+                ? Object.keys(audioInfo).map((field) => (
+                    <div key={field} className="flex justify-between gap-4">
+                      <span className="text-muted">{field}</span>
+                      <span>{String(audioInfo[field])}</span>
+                    </div>
+                  ))
+                : 'No stream metadata yet.'}
+            </div>
+          </div>
+        </div>
+      </GlassCard>
 
-      <Box sx={{ my: 2 }}>
-        <Typography variant="h6" gutterBottom key="status">
-          Status
-        </Typography>
-        <Typography key="listening">
-          Listening for Speech: {listeningForSpeech ? 'Yes' : 'No'}
-        </Typography>
-        <Typography key="sounddetected">
-          Sound Detected: {soundDetected ? 'Yes' : 'No'}
-        </Typography>
-        <Typography key="speaking">
-          Speaking: {speaking ? 'Yes' : 'No'}
-        </Typography>
-        <Typography key="recording">
-          Recording: {recording ? 'Yes' : 'No'}
-        </Typography>
-        <Typography key="mostRecentSpeakingDuration">
-          Most Recent Speaking Duration: {mostRecentSpeakingDuration ? `${mostRecentSpeakingDuration} ms (${(mostRecentSpeakingDuration / 1000).toFixed(2)} s)` : ''}
-        </Typography>
-        <Typography key="longestSilenceDuration">
-          Longest Silence Duration: {longestSilenceDuration ? `${longestSilenceDuration} ms (${(longestSilenceDuration / 1000).toFixed(2)} s)` : ''}
-        </Typography>
-      </Box>
-
-
-      <Box sx={{ my: 2 }}>
-        <Typography key="chunks">
-          Chunks: {debugInfo ? `${debugInfo.chunkCount}` : ''}
-        </Typography>
-        <Typography key="duration">
-          Duration: {debugInfo ? `${debugInfo.duration} ms (${(debugInfo.duration / 1000).toFixed(2)} s)` : ''}
-        </Typography>
-        <Button
-          variant="outlined"
-          onClick={() => playAudio(encodedAudioRef, encodedBlob)}
-          disabled={!encodedBlob}
-        >
-          Play encoded
-        </Button>
-      </Box>
-
-      <Box sx={{ my: 2 }}>
-        <Typography variant="h6" gutterBottom> 
-          Audio Info
-        </Typography>
-        {renderAudioInfo()}
-      </Box>
-
-      <audio ref={encodedAudioRef} />
-    </Box>
+      <audio ref={encodedAudioRef} className="hidden" />
+    </div>
   );
 }

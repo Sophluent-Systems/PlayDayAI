@@ -1,301 +1,347 @@
 'use client';
 
-import React, { useState, useEffect, useContext, useRef } from 'react';
-import {
-  Button,
-  TextField,
-  Select,
-  MenuItem,
-  InputLabel,
-  FormControl,
-  Typography,
-  Snackbar,
-  Alert,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  CircularProgress,
-  Divider,
-  Box,
-  Stack,
-} from '@mui/material';
-import { StandardContentArea } from '@src/client/components/standard/standardcontentarea';
+import React, { useState, useEffect, useContext } from 'react';
+import { useRouter } from 'next/navigation';
 import { RequireAuthentication } from '@src/client/components/standard/requireauthentication';
 import { DefaultLayout } from '@src/client/components/standard/defaultlayout';
+import { StandardContentArea } from '@src/client/components/standard/standardcontentarea';
 import { stateManager } from '@src/client/statemanager';
+import { useConfig } from '@src/client/configprovider';
 import {
   callSetAccountRoles,
   callgetAccountRolesAndBasicPermissions,
 } from '@src/client/permissions';
-import { useRouter } from 'next/router';
-import { useConfig } from '@src/client/configprovider';
 import { TwoColumnSelector } from '@src/client/components/standard/twocolumnselector';
-import { SingleUserGameRoleEditor } from '@src/client/components/singleusergameroleeditor';
+import { StatusPanel } from '@src/client/components/ui/statuspanel';
+import { PrimaryButton, SecondaryButton } from '@src/client/components/ui/button';
+import { Toast, InlineAlert } from '@src/client/components/ui/feedback';
+import { Modal } from '@src/client/components/ui/modal';
+import { Loader2, Mail, Shield, Undo2 } from 'lucide-react';
+
+const EMAIL_DEBOUNCE_MS = 500;
+
+function validateEmail(candidate) {
+  const regex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
+  return regex.test(candidate ?? '');
+}
+
+function RoleBadge({ label }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+      {label}
+    </span>
+  );
+}
 
 export default function Home() {
-  const { Constants } = useConfig();
   const router = useRouter();
+  const { Constants } = useConfig();
   const { loading, account, accountHasRole } = useContext(stateManager);
-  
-  const [email, setEmail] = useState("");
+
+  const [email, setEmail] = useState('');
   const [validEmail, setValidEmail] = useState(false);
   const [rolesGranted, setRolesGranted] = useState([]);
   const [rolesAvailable, setRolesAvailable] = useState([]);
   const [originalRolesGranted, setOriginalRolesGranted] = useState([]);
-  const [selectedGame, setSelectedGame] = useState(null);
-  const [gameRoles, setGameRoles] = useState([]);
   const [loadingRoles, setLoadingRoles] = useState(false);
-  const [notification, setNotification] = useState({ open: false, message: '', severity: 'info' });
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [toast, setToast] = useState({ open: false, tone: 'info', message: '' });
 
   useEffect(() => {
-    if (!loading && account && !accountHasRole("admin")) {
-      console.log("Not an admin");
+    if (!loading && account && !accountHasRole('admin')) {
       router.replace('/');
     }
-  }, [loading, account, router]);
+  }, [loading, account, accountHasRole, router]);
 
   useEffect(() => {
-    const handler = setTimeout(() => {
+    if (!email) {
+      setValidEmail(false);
+      setRolesGranted([]);
+      setRolesAvailable([]);
+      setOriginalRolesGranted([]);
+      setHasChanges(false);
+      return undefined;
+    }
+
+    const handler = window.setTimeout(() => {
       if (validateEmail(email)) {
-        fetchRolesOnEmailChange();
+        fetchRolesForEmail();
       } else {
         setValidEmail(false);
         setRolesGranted([]);
         setRolesAvailable([]);
         setOriginalRolesGranted([]);
-        setGameRoles([]);
-        setSelectedGame(null);
+        setHasChanges(false);
       }
-    }, 500);
+    }, EMAIL_DEBOUNCE_MS);
 
-    return () => clearTimeout(handler);
+    return () => window.clearTimeout(handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email]);
 
-  const validateEmail = (email) => {
-    const regex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
-    return regex.test(email);
-  }
-
-  const handleEmailChange = (event) => {
-    setEmail(event.target.value);
-  }
-
-  const setNewRoleData = (userRoles, gameRolesData) => {
-    setRolesGranted(userRoles);
-    setOriginalRolesGranted(userRoles);
-    const available = Constants.userRoles.filter(role => !userRoles.includes(role));
-    setRolesAvailable(available);
-    setGameRoles(Array.isArray(gameRolesData) ? gameRolesData : []);
-    setHasChanges(false);
-  }
-
-  const fetchRolesOnEmailChange = async () => {
+  const fetchRolesForEmail = async () => {
     setLoadingRoles(true);
     try {
       const roleData = await callgetAccountRolesAndBasicPermissions(null, email);
-      setNewRoleData(roleData.userRoles, roleData.gameRoles);
+      const userRoles = roleData?.userRoles ?? [];
+      setRolesGranted(userRoles);
+      setOriginalRolesGranted(userRoles);
+      setRolesAvailable(Constants.userRoles.filter((role) => !userRoles.includes(role)));
       setValidEmail(true);
-      setNotification({ open: true, message: 'Roles fetched successfully.', severity: 'success' });
+      setHasChanges(false);
+      setToast({ open: true, tone: 'success', message: 'Roles fetched successfully.' });
     } catch (error) {
-      console.error("Error fetching roles:", error);
+      console.error('Error fetching roles:', error);
       setValidEmail(false);
       setRolesGranted([]);
       setRolesAvailable([]);
       setOriginalRolesGranted([]);
-      setGameRoles([]);
-      setSelectedGame(null);
-      setNotification({ open: true, message: 'Failed to fetch roles. Please check the email address.', severity: 'error' });
+      setHasChanges(false);
+      setToast({ open: true, tone: 'error', message: 'Failed to fetch roles. Check the address and try again.' });
     } finally {
       setLoadingRoles(false);
     }
-  }
+  };
 
   const handleUpdateRoles = async (rolesToAdd, rolesToRemove) => {
-    setRolesGranted(prev => {
-      const newRolesGranted = rolesToAdd 
-        ? [...prev, ...rolesToAdd]
-        : [...prev];
-      return rolesToRemove
-        ? newRolesGranted.filter(role => !rolesToRemove.includes(role))
-        : newRolesGranted;
+    setRolesGranted((current) => {
+      const base = new Set(current);
+      if (Array.isArray(rolesToAdd)) {
+        rolesToAdd.forEach((role) => base.add(role));
+      }
+      if (Array.isArray(rolesToRemove)) {
+        rolesToRemove.forEach((role) => base.delete(role));
+      }
+      return Array.from(base);
     });
 
-    setRolesAvailable(prev => {
-      const newRolesAvailable = rolesToRemove
-        ? [...prev, ...rolesToRemove]
-        : [...prev];
-      return rolesToAdd
-        ? newRolesAvailable.filter(role => !rolesToAdd.includes(role))
-        : newRolesAvailable;
+    setRolesAvailable((current) => {
+      const base = new Set(current);
+      if (Array.isArray(rolesToRemove)) {
+        rolesToRemove.forEach((role) => base.add(role));
+      }
+      if (Array.isArray(rolesToAdd)) {
+        rolesToAdd.forEach((role) => base.delete(role));
+      }
+      return Array.from(base);
     });
 
     setHasChanges(true);
-
-    return true; // Allow the move operation to proceed
+    return true;
   };
 
-  const handleNotifyColumnsChanged = (columnA, columnB) => {
-    // This function is no longer needed if TwoColumnSelector is fully controlled
-    // You can remove this function and its usage if you refactor TwoColumnSelector
-    setRolesGranted(columnA);
-    setRolesAvailable(columnB);
-  }
-
   const handleSave = () => {
-    const rolesToAdd = rolesGranted.filter(role => !originalRolesGranted.includes(role));
-    const rolesToRemove = originalRolesGranted.filter(role => !rolesGranted.includes(role));
-    if (rolesToAdd.length > 0 || rolesToRemove.length > 0) {
-      setConfirmDialogOpen(true);
-    } else {
-      setNotification({ open: true, message: 'No changes to save.', severity: 'info' });
+    const rolesToAdd = rolesGranted.filter((role) => !originalRolesGranted.includes(role));
+    const rolesToRemove = originalRolesGranted.filter((role) => !rolesGranted.includes(role));
+
+    if (rolesToAdd.length === 0 && rolesToRemove.length === 0) {
+      setToast({ open: true, tone: 'info', message: 'No changes to save.' });
+      return;
     }
-  }
+
+    setConfirmDialogOpen(true);
+  };
 
   const handleReset = () => {
     setRolesGranted(originalRolesGranted);
-    setRolesAvailable(Constants.userRoles.filter(role => !originalRolesGranted.includes(role)));
+    setRolesAvailable(Constants.userRoles.filter((role) => !originalRolesGranted.includes(role)));
     setHasChanges(false);
-  }
+  };
 
   const confirmRoleUpdate = async () => {
+    const rolesToAdd = rolesGranted.filter((role) => !originalRolesGranted.includes(role));
+    const rolesToRemove = originalRolesGranted.filter((role) => !rolesGranted.includes(role));
+
     setConfirmDialogOpen(false);
     setLoadingRoles(true);
-    const rolesToAdd = rolesGranted.filter(role => !originalRolesGranted.includes(role));
-    const rolesToRemove = originalRolesGranted.filter(role => !rolesGranted.includes(role));
+
     try {
       const roleData = await callSetAccountRoles(null, email, rolesToAdd, rolesToRemove);
-      setNewRoleData(roleData.userRoles, roleData.gameRoles);
-      setNotification({ open: true, message: 'Roles updated successfully.', severity: 'success' });
+      const updatedRoles = roleData?.userRoles ?? [];
+      setRolesGranted(updatedRoles);
+      setOriginalRolesGranted(updatedRoles);
+      setRolesAvailable(Constants.userRoles.filter((role) => !updatedRoles.includes(role)));
+      setHasChanges(false);
+      setToast({ open: true, tone: 'success', message: "Roles updated successfully." });
     } catch (error) {
-      console.error("Error updating roles:", error);
-      setNotification({ open: true, message: 'Failed to update roles.', severity: 'error' });
+      console.error('Error updating roles:', error);
+      setToast({ open: true, tone: 'error', message: 'Failed to update roles. Please try again.' });
     } finally {
       setLoadingRoles(false);
     }
-  }
+  };
 
   const cancelRoleUpdate = () => {
     setConfirmDialogOpen(false);
-  }
+  };
 
-  const handleCloseNotification = (event, reason) => {
-    if (reason === 'clickaway') return;
-    setNotification({ ...notification, open: false });
-  }
+  const closeToast = () => {
+    setToast((current) => ({ ...current, open: false }));
+  };
+
+  const rolesToAdd = rolesGranted.filter((role) => !originalRolesGranted.includes(role));
+  const rolesToRemove = originalRolesGranted.filter((role) => !rolesGranted.includes(role));
+  const emailIsMalformed = email.length > 0 && !validateEmail(email);
 
   return (
     <RequireAuthentication>
       <DefaultLayout title="User Permissions (ADMIN)">
-        <StandardContentArea>
-          <Stack spacing={4} width="100%">
-            {/* Email input section */}
-            <Box>
-              <Stack spacing={1}>
-                <Typography variant="h6">Enter User Email</Typography>
-                <Typography variant="body2" color="textSecondary">
-                  Enter the email address of the user whose permissions you wish to modify.
-                </Typography>
-              </Stack>
-              <TextField
-                label="User Email"
-                value={email}
-                onChange={handleEmailChange}
-                fullWidth
-                helperText="e.g., user@example.com"
-                error={email.length > 0 && !validEmail}
-                placeholder="e.g., user@example.com"
-                sx={{ mt: 1 }}
-              />
-              {email.length > 0 && !validEmail && (
-                <Typography color="error" variant="body2" mt={1}>
-                  Please enter a valid email address.
-                </Typography>
-              )}
-            </Box>
+        <StandardContentArea className="bg-transparent px-0">
+          <div className="space-y-8">
+            <header className="glass-panel rounded-3xl border border-border/60 bg-surface/95 p-8 shadow-2xl backdrop-blur-xl">
+              <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex gap-4">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <Shield className="h-6 w-6" aria-hidden="true" />
+                  </span>
+                  <div className="space-y-3">
+                    <p className="text-sm uppercase tracking-[0.35em] text-muted">Admin controls</p>
+                    <h1 className="text-2xl font-semibold text-emphasis">Manage workspace roles</h1>
+                    <p className="text-sm text-muted">
+                      Look up any team member, adjust their global permissions, and keep access aligned with your governance
+                      policies.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </header>
 
-            {loadingRoles && (
-              <Box textAlign="center">
-                <CircularProgress />
-                <Typography variant="body2" mt={1}>Loading roles...</Typography>
-              </Box>
-            )}
-
-            {validEmail && !loadingRoles && (
-              <>
-                <Box sx={{ display: 'flex', width: '100%', justifyContent: 'center',  flexDirection: 'column', padding: 5}}>
-                  <Stack spacing={1}>
-                    <Typography variant="h6">Manage User Roles</Typography>
-                    <Typography variant="body2" color="textSecondary">
-                      Modify the roles granted to the user by moving them between the two columns.
-                    </Typography>
-                  </Stack>
-                  <Box mt={2} sx={{ display: 'flex', justifyContent: 'center' }}>
-                    <TwoColumnSelector
-                        columnAlabel="Roles Granted"
-                        columnAdata={rolesGranted || []}
-                        columnBlabel="Roles Available"
-                        columnBdata={rolesAvailable || []}
-                        onAsynchronouslyMoveItems={handleUpdateRoles}
-                        // onNotifyColumnsChanged={handleNotifyColumnsChanged} // Remove if refactored
+            <div className="glass-panel rounded-3xl border border-border/60 bg-surface/95 p-8 shadow-xl backdrop-blur-xl">
+              <div className="space-y-5">
+                <label className="flex flex-col gap-2 text-sm font-semibold text-emphasis">
+                  <span>Account email</span>
+                  <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-surface px-4 py-3 focus-within:border-primary/60">
+                    <Mail className="h-4 w-4 text-muted" aria-hidden="true" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value.trim())}
+                      placeholder="user@company.com"
+                      className="flex-1 bg-transparent text-sm text-emphasis placeholder:text-muted focus:outline-none"
+                      autoComplete="off"
                     />
-                  </Box>
-                  <Box mt={2} display="flex" justifyContent="flex-end">
-                    <Button onClick={handleReset} sx={{ mr: 1 }} disabled={!hasChanges}>
+                  </div>
+                </label>
+
+                <p className="text-xs text-muted">
+                  Enter a valid email address to load the roles currently assigned to that account.
+                </p>
+
+                {emailIsMalformed ? (
+                  <InlineAlert
+                    tone="warning"
+                    title="Email address looks incomplete"
+                    description="Double-check the spelling and ensure it includes a domain before continuing."
+                  />
+                ) : null}
+              </div>
+            </div>
+
+            {loadingRoles ? (
+              <StatusPanel
+                icon={Loader2}
+                iconClassName="animate-spin"
+                title="Syncing account roles"
+                description="We are fetching the latest permissions for this user. Hang tight."
+                tone="neutral"
+              />
+            ) : null}
+
+            {validEmail && !loadingRoles ? (
+              <div className="glass-panel rounded-3xl border border-border/60 bg-surface/95 p-8 shadow-xl backdrop-blur-xl">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <h2 className="text-xl font-semibold text-emphasis">Global roles</h2>
+                    <p className="text-sm text-muted">
+                      Move roles between the columns to grant or revoke access. Changes are staged until you save.
+                    </p>
+                  </div>
+
+                  <TwoColumnSelector
+                    columnAlabel="Roles granted"
+                    columnAdata={rolesGranted}
+                    columnBlabel="Roles available"
+                    columnBdata={rolesAvailable}
+                    onAsynchronouslyMoveItems={handleUpdateRoles}
+                  />
+
+                  <div className="flex flex-col gap-3 rounded-2xl border border-border/50 bg-surface/80 p-4 text-sm text-muted">
+                    <p className="font-medium text-emphasis">Review before saving</p>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-xs uppercase tracking-[0.25em] text-muted">Add</span>
+                      {rolesToAdd.length > 0 ? rolesToAdd.map((role) => <RoleBadge key={`add-${role}`} label={role} />) : (
+                        <span className="rounded-full bg-border/30 px-3 py-1 text-xs text-muted">None</span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-xs uppercase tracking-[0.25em] text-muted">Remove</span>
+                      {rolesToRemove.length > 0 ? (
+                        rolesToRemove.map((role) => <RoleBadge key={`remove-${role}`} label={role} />)
+                      ) : (
+                        <span className="rounded-full bg-border/30 px-3 py-1 text-xs text-muted">None</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap justify-end gap-3">
+                    <SecondaryButton
+                      icon={Undo2}
+                      onClick={handleReset}
+                      disabled={!hasChanges}
+                    >
                       Reset
-                    </Button>
-                    <Button variant="contained" color="primary" onClick={handleSave} disabled={!hasChanges}>
-                      Save Changes
-                    </Button>
-                  </Box>
-                </Box>
+                    </SecondaryButton>
+                    <PrimaryButton onClick={handleSave} disabled={!hasChanges}>
+                      Save changes
+                    </PrimaryButton>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </StandardContentArea>
 
-              </>
-            )}
-            </Stack>
-          </StandardContentArea>
+        <Modal
+          open={confirmDialogOpen}
+          onClose={cancelRoleUpdate}
+          title="Confirm role update"
+          description="Review the staged changes. Saved updates apply instantly."
+          footer={[
+            <SecondaryButton key="cancel" onClick={cancelRoleUpdate}>
+              Cancel
+            </SecondaryButton>,
+            <PrimaryButton key="confirm" onClick={confirmRoleUpdate}>
+              Confirm changes
+            </PrimaryButton>,
+          ]}
+        >
+          <div className="space-y-5 text-sm text-muted">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-muted">Roles to add</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {rolesToAdd.length > 0 ? (
+                  rolesToAdd.map((role) => <RoleBadge key={`modal-add-${role}`} label={role} />)
+                ) : (
+                  <span className="text-xs text-muted">None</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-muted">Roles to remove</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {rolesToRemove.length > 0 ? (
+                  rolesToRemove.map((role) => <RoleBadge key={`modal-remove-${role}`} label={role} />)
+                ) : (
+                  <span className="text-xs text-muted">None</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </Modal>
 
-          <Dialog
-            open={confirmDialogOpen}
-            onClose={cancelRoleUpdate}
-            aria-labelledby="confirm-dialog-title"
-            aria-describedby="confirm-dialog-description"
-          >
-            <DialogTitle id="confirm-dialog-title">Confirm Role Update</DialogTitle>
-            <DialogContent>
-              <DialogContentText id="confirm-dialog-description">
-                Are you sure you want to update the user's roles?
-                <br />
-                <strong>Roles to Add:</strong> {rolesGranted.filter(role => !originalRolesGranted.includes(role)).join(', ') || 'None'}
-                <br />
-                <strong>Roles to Remove:</strong> {originalRolesGranted.filter(role => !rolesGranted.includes(role)).join(', ') || 'None'}
-              </DialogContentText>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={cancelRoleUpdate} color="secondary">
-                Cancel
-              </Button>
-              <Button onClick={confirmRoleUpdate} color="primary" autoFocus>
-                Confirm
-              </Button>
-            </DialogActions>
-          </Dialog>
-
-          <Snackbar
-            open={notification.open}
-            autoHideDuration={6000}
-            onClose={handleCloseNotification}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-          >
-            <Alert onClose={handleCloseNotification} severity={notification.severity} sx={{ width: '100%' }}>
-              {notification.message}
-            </Alert>
-          </Snackbar>
-        </DefaultLayout>
-      </RequireAuthentication>
+        <Toast open={toast.open} tone={toast.tone} message={toast.message} onClose={closeToast} />
+      </DefaultLayout>
+    </RequireAuthentication>
   );
 }
-

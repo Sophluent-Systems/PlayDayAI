@@ -1,168 +1,140 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/router';
-import { MessagesContainer } from '@src/client/components/messagescontainer';
-import { FilteredMessageList } from '@src/client/components/filteredmessagelist';
-import { callGetSessionInfo } from '@src/client/gameplay';
-import { callSubmitMessageRating } from '@src/client/responseratings';
-import { findMessageIndexByRecordID } from '@src/common/messages';
-import { callGetRecordResultField, callGetMessageHistorySnapshot } from '@src/client/editor';
-import { defaultAppTheme } from '@src/common/theme';
-import TextPreviewModal from './standard/textpreviewmodal';
-import {
-  Box,
-  Button,
-} from '@mui/material';
-import { FileCopy } from '@mui/icons-material';
-import { callCloneSession } from '@src/client/editor';
-import { stateManager } from '@src/client/statemanager';
-import { useConfig } from '@src/client/configprovider';
-import { makeStyles } from 'tss-react/mui';
+"use client";
 
+import React, { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/router";
+import { MessagesContainer } from "@src/client/components/messagescontainer";
+import { FilteredMessageList } from "@src/client/components/filteredmessagelist";
+import { callSubmitMessageRating } from "@src/client/responseratings";
+import { findMessageIndexByRecordID } from "@src/common/messages";
+import { callGetRecordResultField, callGetMessageHistorySnapshot, callCloneSession } from "@src/client/editor";
+import { defaultAppTheme } from "@src/common/theme";
+import TextPreviewModal from "./standard/textpreviewmodal";
+import { stateManager } from "@src/client/statemanager";
+import { useConfig } from "@src/client/configprovider";
+import { Copy } from "lucide-react";
 
-const useStyles = makeStyles()((theme) => ({
-  container: {
-       height: '100%',
-        width: '100%',
-       flexDirection: 'column',
-       display: 'flex',
-       justifyContent: 'center',
-       marginTop: theme.spacing(1),
-       backgroundColor: theme.palette.background.main,
-   },
- }));
-
-export function SessionViewer(props) {
-  const { classes } = useStyles();
+export function SessionViewer({ theme, sessionID, game, editMode }) {
   const { Constants } = useConfig();
-  const { 
-    theme, 
-    sessionID, 
-    game,
-    editMode
-  } = props;
   const router = useRouter();
-  const [sessionInfo, setSessionInfo] = useState(null);
+  const { switchSessionID, navigateTo, session } = React.useContext(stateManager);
+
+  const [messages, setMessages] = useState([]);
   const [isDocPreviewOpen, setIsDocPreviewOpen] = useState(false);
   const [docPreviewText, setDocPreviewText] = useState("");
-  const { switchSessionID, navigateTo, session } = React.useContext(stateManager);
   const [messageFilter, setMessageFilter] = useState(Constants.defaultMessageFilter);
-  const scrollRef = useRef(null);
-  const messageUpdateHandlers = {
-      replaceMessageList: (newMessages) => {
-        scrollToBottom();
-      },
-      newMessage: (message) => {
-        scrollToBottom();
-      }, 
-      updateMessage: (message) => {
-        scrollToBottom();
-      },
-      messageComplete: (message) => {
-        scrollToBottom();
-      },
- };
- const [messages, setMessages] = useState([]);
-   
-  function scrollToBottom() {
-    const timer = setTimeout(() => {
-      if (messagesScrollRef.current) {
-       messagesScrollRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, 100);
-};
+
+  const bottomRef = useRef(null);
 
   useEffect(() => {
-    async function requestGameInfo() {
-      if (sessionID) {
-        try {
-            const messageHistoryResponse = await callGetMessageHistorySnapshot(game.gameID, sessionID); 
-            setMessages(messageHistoryResponse.messages);
-        } catch (error) {
-            console.error('Error fetching game info:', error);
-            router.replace('/');
-        };
-      } 
+    if (!sessionID || !game?.gameID) {
+      return;
     }
-    requestGameInfo();
-  }, [sessionID]);
 
+    const requestHistory = async () => {
+      try {
+        const history = await callGetMessageHistorySnapshot(game.gameID, sessionID);
+        setMessages(history?.messages ?? []);
+      } catch (error) {
+        console.error("Error fetching session history", error);
+        router.replace("/");
+      }
+    };
 
-  async function showRecordResultFields(props) {
-    const { recordID, fields, label } = props;
-    let prompt = await callGetRecordResultField(sessionID, recordID, fields);
-    let text = prompt;
-    if (text) {
-     const screenReadyText = text.replace(/\\n/gi, '\n'); 
-     setDocPreviewText(label + "\n\n" + screenReadyText);
-     setIsDocPreviewOpen(true);
-    }
- }
+    requestHistory();
+  }, [game?.gameID, sessionID, router]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [messages]);
 
-  async function handleCardActionSelected(action, params) {
+  const handleCardActionSelected = async (action, params) => {
     if (action === "responseFeedback") {
-        const {
-          message,
-          isPlayerRating,
-          rating
-        } = params;
-
-        let result =  await callSubmitMessageRating(session, message.index, isPlayerRating ? rating : undefined, !isPlayerRating ? rating : undefined);
-        let updatedMessage = {...result.message};
-        const arrayIndex = findMessageIndexByRecordID(messages,  recordID);
-        var newMessages = [...messages];
-        newMessages[arrayIndex] = updatedMessage;
-        setMessages(newMessages);
-    } else if (action === "showRecordResultFields") {
-      await showRecordResultFields(props);
+      const { message, isPlayerRating, rating } = params;
+      try {
+        const result = await callSubmitMessageRating(
+          session,
+          message.index,
+          isPlayerRating ? rating : undefined,
+          !isPlayerRating ? rating : undefined,
+        );
+        const updatedMessage = { ...result.message };
+        const arrayIndex = findMessageIndexByRecordID(messages, message.recordID);
+        if (arrayIndex >= 0) {
+          setMessages((current) => {
+            const next = [...current];
+            next[arrayIndex] = updatedMessage;
+            return next;
+          });
+        }
+      } catch (error) {
+        console.error("Failed to update rating", error);
+      }
+      return;
     }
-  }
 
-  async function handleCopyToDebug() {
-    const response = await callCloneSession(game.gameID, sessionID);
-    const newSessionID = response.sessionID;
-    console.log("New session ID: ", newSessionID)
-    await switchSessionID(newSessionID);
-    navigateTo("/play", game.url);
-  }
+    if (action === "showRecordResultFields") {
+      const { recordID, fields, label } = params;
+      const prompt = await callGetRecordResultField(sessionID, recordID, fields);
+      if (prompt) {
+        const screenReadyText = prompt.replace(/\\n/gi, "\n");
+        setDocPreviewText(`${label}\n\n${screenReadyText}`);
+        setIsDocPreviewOpen(true);
+      }
+    }
+  };
 
-  const themeToUse = sessionInfo?.game?.theme ? sessionInfo.game.theme : defaultAppTheme;
+  const handleCopyToDebug = async () => {
+    try {
+      const response = await callCloneSession(game.gameID, sessionID);
+      const newSessionID = response.sessionID;
+      await switchSessionID(newSessionID);
+      navigateTo("/play", game.url);
+    } catch (error) {
+      console.error("Failed to copy session", error);
+    }
+  };
+
+  const footerLabel = messages?.length ? `${messages.length} messages` : "";
 
   return (
-        <Box className={classes.container}>
-            <MessagesContainer
-                theme={{...defaultAppTheme, ...game.theme}}
-                title={game?.title}
-                footer={sessionInfo?.versionInfo.versionName ? `Version: ${sessionInfo?.versionInfo.versionName}` : ``}
-                editMode={true}
-            >
+    <div className="flex h-full w-full flex-col gap-4">
+      <MessagesContainer
+        theme={{ ...defaultAppTheme, ...game?.theme, ...theme }}
+        title={game?.title}
+        footer={footerLabel}
+        editMode
+      >
+        <FilteredMessageList
+          theme={theme}
+          messages={messages}
+          responseFeedbackMode={{ user: "readonly", admin: "edit" }}
+          editMode={editMode}
+          onCardActionSelected={handleCardActionSelected}
+          messageFilter={messageFilter ?? Constants.defaultMessageFilter}
+        />
+        <div ref={bottomRef} />
+      </MessagesContainer>
 
-                  <FilteredMessageList
-                        theme={theme}
-                        messages={messages}
-                        responseFeedbackMode={{user: "readonly", admin: "edit"}}
-                        editMode={editMode}
-                        onCardActionSelected={handleCardActionSelected}
-                        messageFilter={messageFilter ? messageFilter : Constants.defaultMessageFilter}
-                    />
+      <div className="flex justify-center">
+        <button
+          type="button"
+          onClick={handleCopyToDebug}
+          className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-surface px-5 py-2 text-sm font-medium text-emphasis transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        >
+          <Copy className="h-4 w-4" aria-hidden="true" />
+          Copy to debug
+        </button>
+      </div>
 
-                    <div ref={scrollRef} />
-            </MessagesContainer>
-            
-            <Box style={{ display: 'flex', gap: '8px',  justifyContent: 'center', padding: 1, margin: 5 }}>
-                
-                <Button
-                variant="contained"
-                color="secondary"
-                onClick={() => handleCopyToDebug()}
-                startIcon={<FileCopy />}
-                >
-                Copy to Debug
-                </Button>
-            </Box>
-            
-        <TextPreviewModal isOpen={isDocPreviewOpen} text={docPreviewText} onClose={() => setIsDocPreviewOpen(false)} />
-      </Box>
+      <TextPreviewModal
+        isOpen={isDocPreviewOpen}
+        text={docPreviewText}
+        onClose={() => setIsDocPreviewOpen(false)}
+      />
+    </div>
   );
 }
 

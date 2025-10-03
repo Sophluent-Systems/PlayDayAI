@@ -1,107 +1,115 @@
-import React, { useState, useEffect, memo } from 'react';
-import { makeStyles } from 'tss-react/mui';
-import {
-    Drawer,
-    List,
-    ListItemButton,
-    ListItemIcon,
-    ListItemText,
-    Button,
-    Switch,
-    Dialog,
-    DialogContent,
-    DialogTitle,
-    DialogActions,
-    TextField,
-    FormControlLabel,
-    Typography,
-    Divider,
-} from '@mui/material';
-import { defaultAppTheme } from '@src/common/theme';
-import { callCreateNewGame } from '@src/client/gameplay';
-import { Add } from '@mui/icons-material';
-import { useRouter } from 'next/router';
+"use client";
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-  const {
-    colors,
-    fonts,
-  } = pageTheme;  
-  return ({
-})});
+import React, { memo, useState } from "react";
+import { Plus } from "lucide-react";
+import { Modal } from "@src/client/components/ui/modal";
+import { PrimaryButton, SecondaryButton } from "@src/client/components/ui/button";
+import { callCreateNewGame } from "@src/client/gameplay";
+import { useRouter } from "next/navigation";
 
+function hasValidSlug(value) {
+  return /^(?!.*\/\/)[a-zA-Z0-9-_]+$/.test(value ?? "");
+}
 
-function NewGameListOption(props) {
+function NewGameListOption() {
   const router = useRouter();
-  const { classes } = useStyles(defaultAppTheme);
-  const [addGameDialogOpen, setAddGameDialogOpen] = useState(false);
-  const [newGameTitle, setNewGameTitle] = useState("");
-  const [newGameUrl, setNewGameUrl] = useState("");
-  
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [slug, setSlug] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const handleAddGameDialogOpen = () => {
-    setAddGameDialogOpen(true);
+  const openDialog = () => setDialogOpen(true);
+  const closeDialog = () => {
+    setDialogOpen(false);
+    setTitle("");
+    setSlug("");
+    setSaving(false);
   };
 
-  const handleAddGameDialogClose = () => {
-    setAddGameDialogOpen(false);
-  };
+  const canCreate = title.trim().length > 0 && hasValidSlug(slug);
 
-  const handleAddGame = async () => {
-    await callCreateNewGame(newGameTitle, newGameUrl);
-    handleAddGameDialogClose();
-    console.log(`router.push(/editgameversions/${newGameUrl});`)
-    router.push(`/editgameversions/${newGameUrl}`);
-  };
-
-  const canAddGame = () => {
-    return newGameTitle.length > 0 && hasNoUrlParts(newGameUrl);
-  };
-
-  const hasNoUrlParts = (url) => {
-    const urlPattern = /^(?!.*\/\/)[a-zA-Z0-9-_]+$/;
-    return urlPattern.test(url);
+  const handleCreate = async () => {
+    if (!canCreate) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await callCreateNewGame(title.trim(), slug.trim());
+      closeDialog();
+      router.push(`/editgameversions/${slug.trim()}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <React.Fragment>
-    <ListItemButton onClick={handleAddGameDialogOpen}>
-        <ListItemIcon>
-        <Add />
-        </ListItemIcon>
-        <ListItemText primary="New App" />
-    </ListItemButton>
-    <Dialog open={addGameDialogOpen} onClose={handleAddGameDialogClose}>
-        <DialogTitle>Create New App</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            id="title"
-            label="Title"
-            fullWidth
-            value={newGameTitle}
-            onChange={(e) => setNewGameTitle(e.target.value)}
-          />
-          <TextField
-            margin="dense"
-            id="url"
-            label="URL"
-            fullWidth
-            value={newGameUrl}
-            onChange={(e) => setNewGameUrl(e.target.value)}
-            helperText="No forward slashes or special URL characters"
-            error={!hasNoUrlParts(newGameUrl) && newGameUrl.length > 0}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleAddGameDialogClose}>Cancel</Button>
-          <Button onClick={handleAddGame} disabled={!canAddGame()}>
-            Add
-          </Button>
-        </DialogActions>
-    </Dialog>
-    </React.Fragment>
+    <>
+      <button
+        type="button"
+        onClick={openDialog}
+        className="flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-surface px-4 py-3 text-sm font-medium text-emphasis transition hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      >
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Plus className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <span>Create a new experience</span>
+      </button>
+
+      <Modal
+        open={dialogOpen}
+        onClose={closeDialog}
+        title="Create new experience"
+        description="Choose a title and short URL. You can refine the details later."
+        footer={[
+          <SecondaryButton key="cancel" onClick={closeDialog} disabled={saving}>
+            Cancel
+          </SecondaryButton>,
+          <PrimaryButton key="create" onClick={handleCreate} disabled={!canCreate || saving}>
+            {saving ? "Creating…" : "Create"}
+          </PrimaryButton>,
+        ]}
+      >
+        <div className="space-y-4">
+          <label className="flex flex-col gap-2 text-sm font-semibold text-emphasis">
+            <span>Title</span>
+            <input
+              value={title}
+              onChange={(event) => {
+                const next = event.target.value;
+                setTitle(next);
+                if (!slug && next) {
+                  setSlug(
+                    next
+                      .toLowerCase()
+                      .replace(/[^a-z0-9-_]/g, '-')
+                      .replace(/-+/g, '-')
+                      .replace(/^-|-$/g, '')
+                  );
+                }
+              }}
+              placeholder="Neon City Heist"
+              className="rounded-2xl border border-border/60 bg-surface px-4 py-3 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none"
+            />
+          </label>
+
+          <label className="flex flex-col gap-2 text-sm font-semibold text-emphasis">
+            <span>URL slug</span>
+            <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-surface px-4 py-3">
+              <span className="text-sm text-muted">playday.ai/</span>
+              <input
+                value={slug}
+                onChange={(event) => setSlug(event.target.value)}
+                placeholder="neon-heist"
+                className="flex-1 bg-transparent text-sm text-emphasis focus:outline-none"
+              />
+            </div>
+            {!hasValidSlug(slug) && slug ? (
+              <span className="text-xs text-rose-400">Use letters, numbers, hyphens, or underscores only.</span>
+            ) : null}
+          </label>
+        </div>
+      </Modal>
+    </>
   );
 }
 

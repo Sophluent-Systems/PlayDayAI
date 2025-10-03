@@ -1,576 +1,351 @@
-import { useTheme } from '@mui/material/styles';
-import React, { useState, useEffect, useRef } from 'react';
-import { defaultAppTheme } from '@src/common/theme';
-import {
-  TextField,
-  FormControlLabel,
-  Checkbox,
-  Tooltip,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  RadioGroup, 
-  Radio,
-  FormLabel,
-  Box,
-  Autocomplete, 
-  Paper,
-} from '@mui/material';
-import { makeStyles } from 'tss-react/mui';
-import { CodeEditor } from './codeeditor';
-import { nullUndefinedOrEmpty } from '@src/common/objects';
+"use client";
 
+import React, { useEffect, useRef, useState } from "react";
+import clsx from "clsx";
+import { CodeEditor } from "./codeeditor";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
 
-const useStyles = makeStyles()((theme, pageTheme) => {
-    const {
-      colors,
-      fonts,
-    } = pageTheme;
-    return ({
-    inputField: {
-      marginTop: theme.spacing(2),
-      marginBottom: theme.spacing(2),
-    },
-    themeEditorContainer: {
-      padding: theme.spacing(2),
-      marginBottom: theme.spacing(2),
-      borderWidth: 1,
-      borderColor: theme.palette.primary.main,
-      borderStyle: 'solid',
-      borderRadius: theme.shape.borderRadius,
-      backgroundColor: theme.palette.background.main , 
-      marginTop: theme.spacing(4), 
-      width: '100%',
-    },
-    themeEditorTitle: {
-      marginBottom: theme.spacing(2),
-    },
-    themeEditorField: {
-      marginBottom: theme.spacing(2),
-      padding: theme.spacing(1),
-    },
-    scenarioStyle: {
-      padding: '8px',
-      marginBottom: '8px',
-      border: '1px solid #ccc',
-      borderRadius: '4px',
-      backgroundColor: colors.inputAreaTextEntryBackgroundColor, 
-    },
-    outputDataFieldsStyle: {
-      padding: '8px',
-      marginBottom: '8px',
-      border: '1px solid #ccc',
-      borderRadius: '4px',
-      backgroundColor: colors.inputAreaTextEntryBackgroundColor, 
-    },
-  })});
+const baseInputClass =
+  "w-full rounded-2xl border border-border/60 bg-surface px-4 py-2 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
-  
-  export function MenuTextField(params) {
-    const [currentValue, setCurrentValue] = useState(typeof params.value == 'string' ? params.value : '');
-    const [backgroundColor, setBackgroundColor] = useState('');
-    const field = params.field;
-  
-    useEffect(() => {
-      if (params.value != currentValue) {
-        setCurrentValue(params.value);
-      }
-  }, [params.value]);
-  
-    useEffect(() => {
-      if (currentValue && currentValue.length >= field.maxChar) {
-        setBackgroundColor('lightcoral'); // color when the character limit has been reached
-      } else {
-        setBackgroundColor(''); // color when the character limit has not been reached
-      }
-    }, [currentValue]);
-  
-    function setNewValue(path, newValue) {
-      setCurrentValue(newValue);
-      params.onChange(params.rootObject, path, newValue);
+const baseLabelClass = "flex flex-col gap-2 text-sm font-semibold text-emphasis";
+
+export function MenuTextField({ field, value, onChange, readOnly, rootObject }) {
+  const [currentValue, setCurrentValue] = useState(typeof value === "string" ? value : "");
+
+  useEffect(() => {
+    if (value !== currentValue) {
+      setCurrentValue(typeof value === "string" ? value : "");
     }
-
-    if (nullUndefinedOrEmpty(currentValue, true)) {
-      return null;
-    }
-  
-    return (
-            <Tooltip title={field.tooltip}>
-            <TextField
-              name={field.path}
-              multiline={field.multiline}
-              label={field.label}
-              rows={field.lines}
-              value={currentValue}
-              onChange={(e) => {
-                e.stopPropagation();
-                setNewValue(field.path, e.target.value);
-              }}
-              sx={{
-                backgroundColor: backgroundColor,
-              }}
-              fullWidth
-              inputProps={{ maxLength: field.maxChar }}
-              disabled={params.readOnly}
-            />
-            </Tooltip>
-    );
-  };
-  
-  
-  export function MenuDecimalField(params) {
-    const { classes } = useStyles(defaultAppTheme);
-    const [currentValue, setCurrentValue] = useState(nullUndefinedOrEmpty(params.value) ? '' : params.value);
-    const timeoutId = useRef(null);
-    const field = params.field;
-
-    useEffect(() => {
-      if (params.value !== currentValue) {
-        setCurrentValue(nullUndefinedOrEmpty(params.value) ? '' : params.value);
-      }
-  }, [params.value]);
-  
-    function setNewValue(path, range, inputValue) {
-  
-      // If there's an existing timeout, clear it
-      if (timeoutId.current) {
-        clearTimeout(timeoutId.current);
-        timeoutId.current=null;
-      }
-  
-      const newValue = nullUndefinedOrEmpty(inputValue) ? '' : inputValue;
-      setCurrentValue(newValue);
-  
-      // Set the value immediately as the user types
-      let numericalValue = undefined;
-      try {
-        numericalValue = parseFloat(newValue, 10);
-      } catch (error) {
-        // do nothing
-      }
-      
-      // check whether newValue is a number within the range
-      if (typeof numericalValue === 'number'
-          && numericalValue == Math.floor(numericalValue) // it's an int
-          && numericalValue >= range[0]
-          && numericalValue <= range[1]) {
-  
-        // Update the value again, but this time after enforcing the range check
-        params.onChange(params.rootObject, path, numericalValue);
-  
-      } else {
-        
-        // Start a new timeout
-        timeoutId.current = setTimeout(() => {
-          let valToUse = !nullUndefinedOrEmpty(newValue) ? newValue : currentValue;
-          
-          if (typeof valToUse !== 'number') {
-            try {
-              valToUse = parseFloat(valToUse, 10);
-            } catch (error) {
-              valToUse = 0;
-            }
-          } 
-          if (isNaN(valToUse)) {
-            valToUse = 0;
-          }
-  
-          valToUse = Math.floor(valToUse);
-  
-          if (valToUse < range[0]) {
-            valToUse = range[0];
-          } else if (valToUse > range[1]) {
-            valToUse = range[1];
-          }
-          
-  
-          // Update the value again, but this time after enforcing the range check
-          setCurrentValue(valToUse);
-          params.onChange(params.rootObject, path, valToUse);
-        }, 2000); // delay
-      }
-    }
-  
-      return (
-        <Tooltip title={field.tooltip}>
-          <TextField
-          label={field.label}
-          name={field.path+"name"}
-          type="number"
-          step="1.0"
-          inputProps={{ min: 0, step: 1 }}
-          value={currentValue}
-          onChange={(e) => {
-            e.stopPropagation();
-            setNewValue(field.path, field.range, e.target.value);
-          }}
-          className={classes.inputfield}
-          fullWidth
-          disabled={params.readOnly}
-        />
-      </Tooltip>);
-  };
-  
-  export function MenuFloatField(params) {
-    const { classes } = useStyles(defaultAppTheme);
-    const [currentValue, setCurrentValue] = useState(nullUndefinedOrEmpty(params.value) ? '' : params.value);
-    const timeoutId = useRef(null);
-    const field = params.field;
-  
-    useEffect(() => {
-      if (params.value !== currentValue) {
-        setCurrentValue(nullUndefinedOrEmpty(params.value) ? '' : params.value);
-      }
-    }, [params.value]);
-  
-    function setNewValue(path, range, inputValue) {
-  
-      // If there's an existing timeout, clear it
-      if (timeoutId.current) {
-        clearTimeout(timeoutId.current);
-        timeoutId.current=null;
-      }
-    
-      const newValue = nullUndefinedOrEmpty(inputValue) ? '' : inputValue;
-      setCurrentValue(newValue);
-  
-      // Set the value immediately as the user types
-      let numericalValue = undefined;
-      try {
-        numericalValue = parseFloat(newValue, 10);
-      } catch (error) {
-        // do nothing
-      }
-      
-      // check whether newValue is a number within the range
-      if (typeof numericalValue === 'number'
-          && numericalValue >= range[0]
-          && numericalValue <= range[1]) {
-  
-        // Update the value again, but this time after enforcing the range check
-        params.onChange(params.rootObject, path, numericalValue);
-        
-      } else {
-        // Start a new timeout
-        timeoutId.current = setTimeout(() => {
-          let valToUse = !nullUndefinedOrEmpty(newValue) ? newValue : currentValue;
-          
-          if (typeof valToUse !== 'number') {
-            try {
-              valToUse = parseFloat(valToUse, 10);
-            } catch (error) {
-              valToUse = 0;
-            }
-          } 
-          if (isNaN(valToUse)) {
-            valToUse = 0;
-          }
-  
-          if (valToUse < range[0]) {
-            valToUse = range[0];
-          } else if (valToUse > range[1]) {
-            valToUse = range[1];
-          }
-      
-          // Update the value again, but this time after enforcing the range check
-          setCurrentValue(valToUse);
-          params.onChange(params.rootObject, path, valToUse);
-        }, 2000); // delay
-      }
-    }
-  
-    return (
-    
-      <Tooltip title={field.tooltip}>
-        <TextField
-        label={field.label}
-        name={field.path}
-        type="number"
-        step="0.1"
-        inputProps={{ min: 0, step: 1 }}
-        value={currentValue}
-        onChange={(e) => {
-          e.stopPropagation();
-          setNewValue(field.path, field.range, e.target.value);
-        }}
-        className={classes.inputfield}
-        fullWidth
-        disabled={params.readOnly}
-      />
-      </Tooltip>);
-  };
-  
-
-  export function MenuRadioField(params) {
-    const { classes } = useStyles(defaultAppTheme);
-    const { readOnly } = params;
-    const [currentValue, setCurrentValue] = useState(params?.value);
-    const field = params.field;
-  
-    function setNewValue(path, newValue) {
-      setCurrentValue(newValue);
-      params.onChange(params.rootObject, path, newValue);
-    }
-  
-    useEffect(() => {
-      if (!nullUndefinedOrEmpty(params.value)) {
-        setCurrentValue(params.value);
-      }
-    }, [params.value]);
-  
-
-    if (nullUndefinedOrEmpty(currentValue)) {
-      return <React.Fragment />;
-    }
-
-    return ( 
-    <FormControl component="fieldset" sx={{marginTop:2}} disabled={readOnly}>
-      <FormLabel component="legend">{field.label}</FormLabel>
-        <Box sx={{marginLeft: 4}}>
-          <RadioGroup
-              aria-label="history-options"
-              name={field.path}
-              value={currentValue}
-              onChange={(e) => {
-                e.stopPropagation();
-                setNewValue(field.path, e.target.value)
-              }}
-          >
-              {field.options ? field.options.map((option, index) => (
-
-                <FormControlLabel value={option.value} key={option.value} control={<Radio />} label={option.label} />
-
-              )) : null}
-          </RadioGroup>
-          </Box>
-      </FormControl>
-      );
-  };
-  
-
-
-  export function MenuMultiselectField(params) {
-    const { field, onChange, rootObject, readOnly, value } = params; // Destructured for clarity
-    const [selectedOptions, setSelectedOptions] = useState(null);
-    const [checked, setChecked] = useState(null);
-    const options = field.options;
-
-    useEffect(() => {
-      if (!nullUndefinedOrEmpty(params.value)) {
-        const newSelectedOptions = options.filter((option) => params.value.includes(option.value));
-        setSelectedOptions(newSelectedOptions);
-
-        let newChecked = {};
-        for (let i = 0; i < options.length; i++) {
-          const option = options[i];
-          newChecked[option.value] = params.value.includes(option.value);
-        }
-        setChecked(newChecked);
-      } else {
-        setSelectedOptions([]);
-        setChecked({});
-      }
-    }, [params.value]);
-
-
-    const setNewValue = (event, newValues) => {
-      event.stopPropagation();
-
-      let newChecked = {};
-      for (let i = 0; i < newValues.length; i++) {
-        const option = newValues[i];
-        newChecked[option.value] = newValues.includes(option.value);
-      }
-      setChecked(newChecked);
-
-      setSelectedOptions(newValues);
-
-      const newValueArray = newValues.map((option) => option.value);
-      // trying to debug a rare issue
-      if (typeof field.path != 'string') {
-        throw new Error('field.path is not a string: ' + field.path);
-      }
-
-
-
-      console.log("MenuMultiselectField: rootObject: ", rootObject, " field.path: ", field.path, " newValueArray: ", newValueArray)
-      onChange(rootObject, field.path, newValueArray);
-    };
-
-  
-  
-    if (!selectedOptions || !checked || !options ) {
-      return null;
-    } 
-
-    return ( 
-      <FormControl component="fieldset" sx={{marginTop:2, width: '100%'}} disabled={readOnly}>
-        <FormLabel component="legend">{field.label}</FormLabel>
-          <Box sx={{marginLeft: 4}}>
-            <Autocomplete
-              multiple
-              id="checkboxes-tags-demo"
-              options={options}
-              disableCloseOnSelect
-              getOptionLabel={(option) => option.label}
-              value={selectedOptions}
-              isOptionEqualToValue={(option, value) => option.value === value.value} // Compare based on id property
-              PaperComponent={({ children }) => (
-                <Paper style={{ maxHeight: 200, overflow: 'auto' }}>{children}</Paper>
-              )}
-              renderOption={(props, option) => {
-                return <li key={`${option.value}-${option.label}`} {...props} >
-                        <Checkbox
-                          checked={checked[option.value]}
-                        />
-                        {option.label}
-                      </li>;
-              }}
-              style={{ width: '100%' }}
-              renderInput={(params) => (
-                <TextField {...params} />
-              )}
-              
-              onChange={(event, newValues) => setNewValue(event, newValues)}
-              disabled={readOnly}
-            />
-        </Box>
-    </FormControl>
-      );
-  };
-
-  export function MenuCheckboxField(params) {
-    const theme = useTheme();
-    const { classes } = useStyles(defaultAppTheme);
-    const [currentValue, setCurrentValue] = useState((typeof params.value != 'undefined' && params.value != null) ? !!params.value : false);
-    const field = params.field;
-    const isDarkMode = theme.palette.mode === 'dark';
-    const uncheckedColor = isDarkMode ? 'rgba(226,232,240,0.75)' : '#475569';
-    const checkedColor = isDarkMode ? '#38bdf8' : '#0284c7';
-    const hoverColor = isDarkMode ? 'rgba(56,189,248,0.16)' : 'rgba(2,132,199,0.12)';
-
-    function setNewValue(path, newValue) {
-      setCurrentValue(newValue);
-      params.onChange(params.rootObject, path, newValue);
-    }
-
-    useEffect(() => {
-      if (!nullUndefinedOrEmpty(params.value) && params.value != currentValue) {
-        setCurrentValue(params.value);
-      }
-    }, [params.value]);
-
-    if (nullUndefinedOrEmpty(currentValue)) {
-      return <React.Fragment />;
-    }
-
-    return (
-      <FormControlLabel
-        sx={{
-          width: '95%',
-          color: isDarkMode ? '#e2e8f0' : '#0f172a',
-          '& .MuiTypography-root': { fontWeight: 600 },
-        }}
-        control={
-          <Checkbox
-            checked={currentValue}
-            onChange={(e) => {
-              e.stopPropagation();
-              setNewValue(field.path, e.target.checked);
-            }}
-            name={field.path}
-            sx={{
-              color: uncheckedColor,
-              '&.Mui-checked': { color: checkedColor },
-              '&:hover': { backgroundColor: hoverColor },
-            }}
-          />
-        }
-        label={field.label}
-        disabled={params.readOnly}
-      />
-    );
-  };
-  export function MenuSelectDropdown(params) {
-    const { classes } = useStyles(defaultAppTheme);
-    const [currentValue, setCurrentValue] = useState(params?.value);
-    const [options, setOptions] = useState(params?.options ? params.options : []);
-    const field = params.field;
-  
-    useEffect(() => {
-      if (Array.isArray(params?.options)) {
-        setOptions(params.options);
-        if (nullUndefinedOrEmpty(currentValue) && params.options.length > 0) {
-          setCurrentValue(params.options[0].value);
-        }
-      }
-  }, [params.options]);
-
-    useEffect(() => {
-      if (params.value != currentValue && !nullUndefinedOrEmpty(params.value)) {
-        setCurrentValue(params.value);
-      }
-  }, [params.value]);
-  
-    function setNewValue(path, newValue) {
-      setCurrentValue(newValue);
-      params.onChange(params.rootObject, path, newValue);
-    }
-
-    if (!options || options.length == 0 || (typeof currentValue == 'undefined') || currentValue == null) {
-      return <React.Fragment  />;
-    }
-
-   return (
-    <Tooltip title={field.tooltip}>
-    <FormControl 
-      className={classes.inputfield} 
-      fullWidth 
-    >
-      <InputLabel >{field.label}</InputLabel>
-      <Select
-        value={currentValue}
-        label={field.label}
-        onChange={(e) => {
-          e.stopPropagation();
-          setNewValue(field.path, e.target.value);
-        }}
-        disabled={params.readOnly}
-      >
-        {options && options.map((option, index) => {
-          return <MenuItem value={option.value} key={option.value}>{option.label}</MenuItem>;
-        })}
-      </Select>
-    </FormControl>
-    </Tooltip>);
-  };
-  
-  
-  export function MenuCodeEditor(params) {
-    const { field, value, onChange, rootObject, readOnly } = params; // Destructured for clarity
-    const [currentValue, setCurrentValue] = useState(typeof value != 'undefined' ? value : null);
-
-    useEffect(() => {
-      if (value != currentValue) {
-        setCurrentValue(value);
-      }
   }, [value]);
-  
-    const setNewValue = (newValue) => {
-      setCurrentValue(newValue);
-      onChange?.(rootObject, field.path, newValue);
-    }
-  
-    return (
-      <CodeEditor 
-          code_UNSAFE={currentValue} 
-          onChange={setNewValue}
-          disabled={readOnly} />
-    );
-  };
-  
-  
-    
-  
 
+  if (nullUndefinedOrEmpty(currentValue, true)) {
+    return null;
+  }
+
+  const isAtLimit = field.maxChar && currentValue.length >= field.maxChar;
+
+  const handleChange = (nextValue) => {
+    setCurrentValue(nextValue);
+    onChange?.(rootObject, field.path, nextValue);
+  };
+
+  const inputStyles = {
+    backgroundColor: isAtLimit ? "rgba(248,113,113,0.18)" : undefined,
+  };
+
+  return (
+    <label className={baseLabelClass} title={field.tooltip}>
+      <span>{field.label}</span>
+      {field.multiline ? (
+        <textarea
+          rows={field.lines ?? 3}
+          value={currentValue}
+          onChange={(event) => {
+            event.stopPropagation();
+            handleChange(event.target.value);
+          }}
+          maxLength={field.maxChar}
+          disabled={readOnly}
+          style={inputStyles}
+          className={clsx(baseInputClass, "min-h-[72px] resize-y")}
+        />
+      ) : (
+        <input
+          type="text"
+          value={currentValue}
+          onChange={(event) => {
+            event.stopPropagation();
+            handleChange(event.target.value);
+          }}
+          maxLength={field.maxChar}
+          disabled={readOnly}
+          style={inputStyles}
+          className={baseInputClass}
+        />
+      )}
+      {field.maxChar ? (
+        <span className="text-xs text-muted">{currentValue.length}/{field.maxChar} characters</span>
+      ) : null}
+    </label>
+  );
+}
+
+export function MenuDecimalField(params) {
+  return <NumericField {...params} step={1} integerOnly />;
+}
+
+export function MenuFloatField(params) {
+  return <NumericField {...params} step={0.1} />;
+}
+
+function NumericField({ field, value, onChange, readOnly, rootObject, step = 1, integerOnly = false }) {
+  const [currentValue, setCurrentValue] = useState(nullUndefinedOrEmpty(value) ? "" : value);
+  const timeoutId = useRef(null);
+
+  useEffect(() => {
+    if (value !== currentValue) {
+      setCurrentValue(nullUndefinedOrEmpty(value) ? "" : value);
+    }
+  }, [value]);
+
+  const setNewValue = (path, range, inputValue) => {
+    if (timeoutId.current) {
+      clearTimeout(timeoutId.current);
+      timeoutId.current = null;
+    }
+
+    const newValue = nullUndefinedOrEmpty(inputValue) ? "" : inputValue;
+    setCurrentValue(newValue);
+
+    let numericValue;
+    try {
+      numericValue = integerOnly ? parseInt(newValue, 10) : parseFloat(newValue, 10);
+    } catch (error) {
+      numericValue = undefined;
+    }
+
+    const withinRange =
+      typeof numericValue === "number" &&
+      !Number.isNaN(numericValue) &&
+      numericValue >= range[0] &&
+      numericValue <= range[1];
+
+    if (withinRange) {
+      onChange?.(rootObject, path, numericValue);
+    } else {
+      timeoutId.current = setTimeout(() => {
+        let fallback = newValue;
+        if (typeof fallback !== "number") {
+          fallback = integerOnly ? parseInt(fallback, 10) : parseFloat(fallback, 10);
+        }
+        if (Number.isNaN(fallback) || typeof fallback !== "number") {
+          fallback = range[0];
+        }
+
+        if (integerOnly) {
+          fallback = Math.floor(fallback);
+        }
+
+        const clamped = Math.min(Math.max(fallback, range[0]), range[1]);
+        setCurrentValue(clamped);
+        onChange?.(rootObject, path, clamped);
+      }, 2000);
+    }
+  };
+
+  return (
+    <label className={baseLabelClass} title={field.tooltip}>
+      <span>{field.label}</span>
+      <input
+        type="number"
+        value={currentValue}
+        step={step}
+        min={field.range?.[0]}
+        max={field.range?.[1]}
+        onChange={(event) => {
+          event.stopPropagation();
+          setNewValue(field.path, field.range ?? [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER], event.target.value);
+        }}
+        disabled={readOnly}
+        className={baseInputClass}
+      />
+    </label>
+  );
+}
+
+export function MenuRadioField({ field, value, onChange, readOnly, rootObject }) {
+  const [currentValue, setCurrentValue] = useState(value);
+
+  useEffect(() => {
+    if (!nullUndefinedOrEmpty(value)) {
+      setCurrentValue(value);
+    }
+  }, [value]);
+
+  if (nullUndefinedOrEmpty(currentValue)) {
+    return null;
+  }
+
+  return (
+    <fieldset className="space-y-3" disabled={readOnly}>
+      <legend className="text-xs font-semibold uppercase tracking-[0.3em] text-muted">{field.label}</legend>
+      <div className="space-y-2">
+        {(field.options ?? []).map((option) => (
+          <label key={option.value} className="flex items-center gap-3 text-sm text-emphasis">
+            <input
+              type="radio"
+              name={field.path}
+              value={option.value}
+              checked={currentValue === option.value}
+              onChange={(event) => {
+                event.stopPropagation();
+                setCurrentValue(option.value);
+                onChange?.(rootObject, field.path, option.value);
+              }}
+              disabled={readOnly}
+              className="h-4 w-4 accent-primary"
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+export function MenuMultiselectField({ field, onChange, rootObject, readOnly, value }) {
+  const [checked, setChecked] = useState({});
+
+  useEffect(() => {
+    const newChecked = {};
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        newChecked[item] = true;
+      });
+    }
+    setChecked(newChecked);
+  }, [value]);
+
+  const toggleOption = (optionValue) => {
+    const nextChecked = { ...checked, [optionValue]: !checked[optionValue] };
+    setChecked(nextChecked);
+
+    const selectedValues = Object.entries(nextChecked)
+      .filter(([, isSelected]) => isSelected)
+      .map(([optionKey]) => optionKey);
+
+    onChange?.(rootObject, field.path, selectedValues);
+  };
+
+  return (
+    <div className="space-y-3" title={field.tooltip}>
+      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted">{field.label}</p>
+      <div className="grid gap-2">
+        {(field.options ?? []).map((option) => (
+          <label
+            key={option.value}
+            className="flex items-center gap-3 rounded-2xl border border-border/60 bg-surface px-3 py-2 text-sm text-emphasis"
+          >
+            <input
+              type="checkbox"
+              checked={Boolean(checked[option.value])}
+              onChange={(event) => {
+                event.stopPropagation();
+                toggleOption(option.value);
+              }}
+              disabled={readOnly}
+              className="h-4 w-4 accent-primary"
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function MenuCheckboxField({ field, value, onChange, rootObject, readOnly }) {
+  const [currentValue, setCurrentValue] = useState(Boolean(value));
+
+  useEffect(() => {
+    if (!nullUndefinedOrEmpty(value) && value !== currentValue) {
+      setCurrentValue(Boolean(value));
+    }
+  }, [value]);
+
+  if (nullUndefinedOrEmpty(currentValue)) {
+    return null;
+  }
+
+  return (
+    <label className="flex items-center gap-3 text-sm font-semibold text-emphasis" title={field.tooltip}>
+      <input
+        type="checkbox"
+        checked={currentValue}
+        onChange={(event) => {
+          event.stopPropagation();
+          setCurrentValue(event.target.checked);
+          onChange?.(rootObject, field.path, event.target.checked);
+        }}
+        disabled={readOnly}
+        className="h-4 w-4 accent-primary"
+      />
+      <span>{field.label}</span>
+    </label>
+  );
+}
+
+export function MenuSelectDropdown({ field, value, options: optionsProp, onChange, rootObject, readOnly }) {
+  const [options, setOptions] = useState(optionsProp ?? []);
+  const [currentValue, setCurrentValue] = useState(value);
+
+  useEffect(() => {
+    if (Array.isArray(optionsProp)) {
+      setOptions(optionsProp);
+      if (nullUndefinedOrEmpty(currentValue) && optionsProp.length > 0) {
+        setCurrentValue(optionsProp[0].value);
+      }
+    }
+  }, [optionsProp]);
+
+  useEffect(() => {
+    if (!nullUndefinedOrEmpty(value) && value !== currentValue) {
+      setCurrentValue(value);
+    }
+  }, [value]);
+
+  if (!options || options.length === 0 || currentValue == null) {
+    return null;
+  }
+
+  return (
+    <label className={baseLabelClass} title={field.tooltip}>
+      <span>{field.label}</span>
+      <select
+        value={currentValue}
+        onChange={(event) => {
+          event.stopPropagation();
+          setCurrentValue(event.target.value);
+          onChange?.(rootObject, field.path, event.target.value);
+        }}
+        disabled={readOnly}
+        className={clsx(baseInputClass, "appearance-none bg-surface")}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function MenuCodeEditor({ field, value, onChange, rootObject, readOnly }) {
+  const [currentValue, setCurrentValue] = useState(typeof value !== "undefined" ? value : null);
+
+  useEffect(() => {
+    if (value !== currentValue) {
+      setCurrentValue(value);
+    }
+  }, [value]);
+
+  const setNewValue = (newValue) => {
+    setCurrentValue(newValue);
+    onChange?.(rootObject, field.path, newValue);
+  };
+
+  return <CodeEditor code_UNSAFE={currentValue} onChange={setNewValue} readOnly={readOnly} />;
+}
+
+export default {
+  MenuTextField,
+  MenuDecimalField,
+  MenuFloatField,
+  MenuRadioField,
+  MenuMultiselectField,
+  MenuCheckboxField,
+  MenuSelectDropdown,
+  MenuCodeEditor,
+};

@@ -18,10 +18,10 @@ const normalizeDomain = (rawDomain) => {
     }
   };
   
-  const rawDomain = process.env.AUTH0_DOMAIN ?? process.env.AUTH0_ISSUER_BASE_URL;
+  const rawDomain = process.env.AUTH0_DOMAIN ?? process.env.AUTH0_BASE_URL;
   const domain = normalizeDomain(rawDomain);
   
-  const appBaseUrl = process.env.APP_BASE_URL ?? process.env.AUTH0_BASE_URL;
+  const appBaseUrl = process.env.APP_NEXT_PUBLIC_BASE_URL ?? process.env.AUTH0_BASE_URL;
   
 const auth0Options = !isSandbox
   ? {

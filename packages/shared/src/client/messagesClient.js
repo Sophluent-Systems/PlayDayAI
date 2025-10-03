@@ -222,7 +222,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
   }, [sessionID, accessToken, autoConnect]);
 
   function getWSUrl() {
-    return `${process.env.NEXT_PUBLIC_WS_BASE_URL}:${process.env.NEXT_PUBLIC_WS_PORT}/ws`;
+    return `ws://${process.env.NEXT_PUBLIC_WS_NEXT_PUBLIC_BASE_URL}:${process.env.NEXT_PUBLIC_WS_PORT}/ws`;
   }
 
   const buildMessageHandlers = () => {

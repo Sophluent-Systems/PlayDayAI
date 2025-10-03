@@ -33,14 +33,14 @@ if ! command -v docker-compose &> /dev/null && ! (command -v docker &> /dev/null
     exit 1
 fi
 
-# BASE_URL is required and must not be localhost
-if [ -z "$BASE_URL" ]; then
-    echo 'Error: BASE_URL is not set. Please update your .env file.' >&2
+# NEXT_PUBLIC_BASE_URL is required and must not be localhost
+if [ -z "$NEXT_PUBLIC_BASE_URL" ]; then
+    echo 'Error: NEXT_PUBLIC_BASE_URL is not set. Please update your .env file.' >&2
     exit 1
 fi
 
-if [ "$BASE_URL" = "localhost" ]; then
-    echo 'Error: BASE_URL cannot be localhost. Please update your .env file.' >&2
+if [ "$NEXT_PUBLIC_BASE_URL" = "localhost" ]; then
+    echo 'Error: NEXT_PUBLIC_BASE_URL cannot be localhost. Please update your .env file.' >&2
     exit 1
 fi
 
@@ -52,8 +52,8 @@ fi
 
 echo ""
 echo "Configure your DNS settings:"
-echo "   - Add an A record for your domain (${BASE_URL}) pointing to your server's IP address"
-echo "   - Add a CNAME record for www.${BASE_URL} pointing to ${BASE_URL}"
+echo "   - Add an A record for your domain (${NEXT_PUBLIC_BASE_URL}) pointing to your server's IP address"
+echo "   - Add a CNAME record for www.${NEXT_PUBLIC_BASE_URL} pointing to ${NEXT_PUBLIC_BASE_URL}"
 echo ""
 
 # Wait for the user to confirm that the DNS settings have been configured
@@ -81,7 +81,7 @@ rsa_key_size=4096
 
 
 if [ -d "$data_path" ]; then
-    read -p "Existing data found for $BASE_URL. Continue and replace existing certificate? (y/N) " decision
+    read -p "Existing data found for $NEXT_PUBLIC_BASE_URL. Continue and replace existing certificate? (y/N) " decision
     if [ "$decision" != "Y" ] && [ "$decision" != "y" ]; then
         exit
     fi
@@ -95,15 +95,15 @@ if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/
     echo
 fi
 
-echo "### Creating folder $data_path/conf/live/$BASE_URL ..."
+echo "### Creating folder $data_path/conf/live/$NEXT_PUBLIC_BASE_URL ..."
 
-mkdir -p "$data_path/conf/live/$BASE_URL"
+mkdir -p "$data_path/conf/live/$NEXT_PUBLIC_BASE_URL"
 
-echo "### Creating dummy certificate for $BASE_URL ..."
+echo "### Creating dummy certificate for $NEXT_PUBLIC_BASE_URL ..."
 docker_compose run --rm --entrypoint "\
   openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
-    -keyout '/etc/letsencrypt/live/$BASE_URL/privkey.pem' \
-    -out '/etc/letsencrypt/live/$BASE_URL/fullchain.pem' \
+    -keyout '/etc/letsencrypt/live/$NEXT_PUBLIC_BASE_URL/privkey.pem' \
+    -out '/etc/letsencrypt/live/$NEXT_PUBLIC_BASE_URL/fullchain.pem' \
     -subj '/CN=localhost'" certbot
 echo
 
@@ -111,20 +111,20 @@ echo "### Starting nginx ..."
 docker_compose up -d nginx
 echo
 
-echo "### Deleting dummy certificate for $BASE_URL ..."
+echo "### Deleting dummy certificate for $NEXT_PUBLIC_BASE_URL ..."
 docker_compose run --rm --entrypoint "\
-  rm -Rf /etc/letsencrypt/live/$BASE_URL && \
-  rm -Rf /etc/letsencrypt/archive/$BASE_URL && \
-  rm -Rf /etc/letsencrypt/renewal/$BASE_URL.conf" certbot
+  rm -Rf /etc/letsencrypt/live/$NEXT_PUBLIC_BASE_URL && \
+  rm -Rf /etc/letsencrypt/archive/$NEXT_PUBLIC_BASE_URL && \
+  rm -Rf /etc/letsencrypt/renewal/$NEXT_PUBLIC_BASE_URL.conf" certbot
 echo
 
 # if staging, print that we're requesting a staging cert otherwise print that we're requesting a production cert
 if [ "$staging" = "--staging" ]; then
-    echo "### Requesting staging Let's Encrypt certificate for $BASE_URL ..."
+    echo "### Requesting staging Let's Encrypt certificate for $NEXT_PUBLIC_BASE_URL ..."
 else
-    echo "### Requesting production Let's Encrypt certificate for $BASE_URL ..."
+    echo "### Requesting production Let's Encrypt certificate for $NEXT_PUBLIC_BASE_URL ..."
 fi
-domains=(${BASE_URL} www.${BASE_URL})
+domains=(${NEXT_PUBLIC_BASE_URL} www.${NEXT_PUBLIC_BASE_URL})
 domain_args=""
 for domain in "${domains[@]}"; do
   domain_args="$domain_args -d $domain"
@@ -169,5 +169,5 @@ echo ""
 echo "   This command will add the cron job to your current user's crontab without opening an editor."
 echo ""
 echo ""
-echo "Installation complete. Your site should now be accessible via https://$BASE_URL and https://www.$BASE_URL"
+echo "Installation complete. Your site should now be accessible via https://$NEXT_PUBLIC_BASE_URL and https://www.$NEXT_PUBLIC_BASE_URL"
 echo ""

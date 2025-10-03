@@ -88,7 +88,7 @@ Executes AI tasks via RabbitMQ message queue, supporting parallel execution and 
 Required `.env` variables:
 - `MONGODB_URL`: MongoDB connection string
 - `RABBITMQ_URL`: RabbitMQ connection string
-- `BASE_URL`: Application base URL
+- `NEXT_PUBLIC_BASE_URL`: Application base URL
 - `protocol`: HTTP or HTTPS
 - Auth0 configuration (production only)
 

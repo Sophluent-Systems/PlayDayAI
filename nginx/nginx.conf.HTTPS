@@ -10,7 +10,7 @@ upstream taskserver_upstream {
 }
 
 server {
-    listen ${EXTERNAL_HTTP_PORT};
+    listen ${NEXT_PUBLIC_FRONTEND_PORT};
     server_name ${SERVER_NAME} www.${SERVER_NAME};
     
     # Serve ACME challenge files over HTTP
@@ -25,7 +25,7 @@ server {
 }
 
 server {
-    listen ${EXTERNAL_HTTPS_PORT} ssl;
+    listen ${NEXT_PUBLIC_FRONTEND_PORT} ssl;
     server_name ${SERVER_NAME} www.${SERVER_NAME};
         
         # SSL Configuration

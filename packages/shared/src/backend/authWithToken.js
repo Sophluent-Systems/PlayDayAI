@@ -9,7 +9,7 @@ import { auth0, auth0IsSandbox } from './auth0';
 const isSandbox = auth0IsSandbox;
 const auth0Client = auth0;
 
-const issuerBaseUrl = process.env.AUTH0_ISSUER_BASE_URL?.replace(/\/$/, '') ?? process.env.AUTH0_DOMAIN?.replace(/\/$/, '');
+const issuerBaseUrl = process.env.AUTH0_BASE_URL?.replace(/\/$/, '') ?? process.env.AUTH0_DOMAIN?.replace(/\/$/, '');
 const domainForJwks = issuerBaseUrl?.startsWith('http') ? issuerBaseUrl : (issuerBaseUrl ? `https://${issuerBaseUrl}` : undefined);
 const jwksUri = domainForJwks ? `${domainForJwks}/.well-known/jwks.json` : undefined;
 const auth0Audience = process.env.AUTH0_AUDIENCE;

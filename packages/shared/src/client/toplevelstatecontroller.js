@@ -132,7 +132,7 @@ export function topLevelStateController(props) {
             setEditMode(!!newEditMode);
             
             if (localAccount && !localAccount?.roles?.userRoles) {
-                redirectToAuthRoute(`/auth/logout?returnTo=${encodeURIComponent(process.env.APP_BASE_URL)}`);
+                redirectToAuthRoute(`/auth/logout?returnTo=${encodeURIComponent(process.env.APP_NEXT_PUBLIC_BASE_URL)}`);
             } else if (localAccount && !hasServicePerms("service_basicAccess")) {
                 console.log("GUEST: Redirecting to redeem key page");
                 navigateTo('/account/redeemkey');
@@ -520,7 +520,7 @@ export function topLevelStateController(props) {
             }
             if (!accountQuery.isLoading && accountQuery.status == "error") {
                 // Construct the root URL
-                redirectToAuthRoute(`/auth/logout?returnTo=${encodeURIComponent(process.env.APP_BASE_URL)}`);
+                redirectToAuthRoute(`/auth/logout?returnTo=${encodeURIComponent(process.env.APP_NEXT_PUBLIC_BASE_URL)}`);
             }
         }
     }, [auth0.isLoading, accountQuery.status]);

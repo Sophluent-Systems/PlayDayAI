@@ -1,0 +1,92 @@
+name: Deploy taskserver to droplet (taskserver/.env/packages/shared changes)
+
+on:
+  push:
+    branches: [ main ]         # adjust
+    paths:
+      - 'taskserver/**'
+      - 'taskserver/Dockerfile'
+      - 'packages/shared/**'
+      - 'docker-compose.yml'           # include if changes can affect taskserver
+  workflow_dispatch: {}
+
+concurrency:
+  group: taskserver-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (shallow)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # Defense-in-depth: ensure only allowed paths changed (except manual runs)
+      - name: Verify allowed paths
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: |
+          set -e
+          BASE=$(git rev-parse HEAD~1)
+          HEAD=$(git rev-parse HEAD)
+          echo "Diff: $BASE..$HEAD"
+          CHANGED="$(git diff --name-only "$BASE" "$HEAD")"
+          echo "$CHANGED"
+          echo "$CHANGED" | grep -E '^(taskserver/|packages/shared/|\.env$|docker-compose\.yml$)' >/dev/null || {
+            echo "Refusing deploy: changes outside allowed paths."
+            exit 1
+          }
+
+      - name: Add droplet host key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DO_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Add SSH key
+        run: |
+          echo "${{ secrets.DO_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Deploy (git checkout, selective build, force-recreate on env changes)
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # Determine if only .env changed (for optimization / messaging)
+          git fetch --depth=2 origin "${{ github.ref }}"
+          ONLY_ENV_CHANGE="false"
+          CHANGED="$(git diff --name-only HEAD~1 HEAD || true)"
+          echo "Changed files in commit:"
+          echo "$CHANGED"
+          # If .env changed and neither taskserver nor packages/shared changed
+          if echo "$CHANGED" | grep -q '^\.env$' && \
+             ! echo "$CHANGED" | grep -qE '^(taskserver/|packages/shared/)'; then
+            ONLY_ENV_CHANGE="true"
+          fi
+          echo "ONLY_ENV_CHANGE=$ONLY_ENV_CHANGE"
+
+          ssh -i ~/.ssh/id_ed25519 ${DO_USER}@${DO_HOST} "
+            set -e
+            cd /opt/myapp
+            git reset --hard
+            git clean -fd
+            git fetch --all --prune
+            git checkout ${GIT_SHA}
+
+            if [ \"$ONLY_ENV_CHANGE\" = \"true\" ]; then
+              # no image rebuild required; just re-create container to pick up env
+              docker compose up -d --no-deps --force-recreate taskserver
+            else
+              # rebuild image (root context with .dockerignore keeps this fast)
+              docker compose build taskserver
+              docker compose up -d taskserver
+              # optional: clean dangling images
+              docker image prune -f
+            fi
+          "

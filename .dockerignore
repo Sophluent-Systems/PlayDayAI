@@ -1,9 +1,26 @@
-Dockerfile
-.dockerignore
-node_modules
-npm-debug.log
-README.md
-.next
-.git
-nginx
-docker-compose.yaml
+# start by ignoring everything
+**
+
+# allow only what's needed for taskserver build
+!taskserver/**
+!packages/shared/**
+!.env
+!package.json
+!package-lock.json
+!pnpm-lock.yaml
+!yarn.lock
+!tsconfig.json
+!pnpm-workspace.yaml
+!docker-compose.yml
+!.npmrc
+!.nvmrc
+!.gitignore
+
+# never send VCS and local junk
+.git/
+node_modules/
+dist/
+build/
+.cache/
+.tmp/
+.DS_Store

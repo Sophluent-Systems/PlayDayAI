@@ -178,7 +178,7 @@ export default function Home() {
                   Reset
                 </SecondaryButton>
                 <PrimaryButton onClick={handleSave} disabled={saving}>
-                  {saving ? 'Saving…' : 'Save changes'}
+                  {saving ? 'Saving...' : 'Save changes'}
                 </PrimaryButton>
               </div>
             </GlassCard>

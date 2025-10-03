@@ -250,7 +250,7 @@ export default function VoiceTest() {
       <StatusPanel
         icon={speaking ? Volume2 : soundDetected ? Waves : VolumeX}
         title={speaking ? 'Speech detected' : soundDetected ? 'Sound detected' : 'Listening'}
-        description={`Listening: ${listeningForSpeech ? 'yes' : 'no'} · Recording: ${recording ? 'active' : 'idle'}`}
+        description={`Listening: ${listeningForSpeech ? 'yes' : 'no'} - Recording: ${recording ? 'active' : 'idle'}`}
       />
 
       <GlassCard>
@@ -265,7 +265,7 @@ export default function VoiceTest() {
                 <dd>
                   {mostRecentSpeakingDuration
                     ? `${mostRecentSpeakingDuration} ms (${(mostRecentSpeakingDuration / 1000).toFixed(2)} s)`
-                    : '—'}
+                    : 'â€”'}
                 </dd>
               </div>
               <div className="flex justify-between">
@@ -273,19 +273,19 @@ export default function VoiceTest() {
                 <dd>
                   {longestSilenceDuration
                     ? `${longestSilenceDuration} ms (${(longestSilenceDuration / 1000).toFixed(2)} s)`
-                    : '—'}
+                    : 'â€”'}
                 </dd>
               </div>
               <div className="flex justify-between">
                 <dt>Recorded chunks</dt>
-                <dd>{debugInfo?.chunkCount ?? '—'}</dd>
+                <dd>{debugInfo?.chunkCount ?? 'â€”'}</dd>
               </div>
               <div className="flex justify-between">
                 <dt>Captured duration</dt>
                 <dd>
                   {debugInfo?.duration
                     ? `${debugInfo.duration} ms (${(debugInfo.duration / 1000).toFixed(2)} s)`
-                    : '—'}
+                    : 'â€”'}
                 </dd>
               </div>
             </dl>

@@ -209,7 +209,7 @@ export function MultimediaInput({
               onChange={(event) => updateText(event.target.value)}
               onKeyDown={onKeyDown}
               disabled={!waitingForInput}
-              placeholder="Type your next turn here…"
+              placeholder="Type your next turn here..."
               className="min-h-[56px] w-full resize-y rounded-2xl border border-border/60 px-4 py-3 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none"
               style={{ backgroundColor: textFieldBackground }}
             />

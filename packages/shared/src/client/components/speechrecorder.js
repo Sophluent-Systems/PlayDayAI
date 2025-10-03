@@ -151,7 +151,7 @@ export const SpeechRecorder = memo(function SpeechRecorder(props) {
           {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5 text-primary" />}
         </button>
         <span className="text-sm text-muted">
-          {isMuted ? "Mic muted" : isListening ? "Listening" : "Starting microphone…"}
+          {isMuted ? "Mic muted" : isListening ? "Listening" : "Starting microphone..."}
         </span>
         <div className="relative ml-auto">
           <button
@@ -200,7 +200,7 @@ export const SpeechRecorder = memo(function SpeechRecorder(props) {
               onChange={(event) => setSelectedBlobIndex(Number(event.target.value))}
               className="rounded-2xl border border-border/60 bg-surface px-4 py-2 text-sm text-emphasis focus:outline-none"
             >
-              <option value={-1}>Select a capture…</option>
+              <option value={-1}>Select a capture...</option>
               {audioBlobs.map((item, index) => (
                 <option key={item.timestamp} value={index}>
                   {`Recording ${index + 1} (${PrettyElapsedTime(Date.now() - item.timestamp)} ago)`}

@@ -7,7 +7,6 @@ import { stateManager } from '@src/client/statemanager';
 import { callGetAllSessionsForGame } from '@src/client/editor';
 import { PrettyDate } from '@src/common/date';
 import SessionViewer from '@src/client/components/sessionviewer';
-import { VersionSelector } from '@src/client/components/versionselector';
 import { defaultAppTheme } from '@src/common/theme';
 import { useAtom } from 'jotai';
 import { vhState } from '@src/client/states';
@@ -15,7 +14,7 @@ import { vhState } from '@src/client/states';
 function PageContainer({ children }) {
   return (
     <div className="px-4 pt-28 pb-16 sm:px-6 lg:px-12">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-12">{children}</div>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-12">{children}</div>
     </div>
   );
 }
@@ -49,7 +48,8 @@ function InlinePlaceholder({ icon, title, description, children }) {
 }
 
 export default function SessionListPage() {
-  const { loading, account, game, version, gamePermissions, editMode } = useContext(stateManager);
+  const { loading, account, game, version, gamePermissions, editMode, session, switchSessionID } =
+    useContext(stateManager);
   const [, setViewportHeight] = useAtom(vhState);
   const [sessions, setSessions] = useState([]);
   const [selectedSessionID, setSelectedSessionID] = useState(null);
@@ -129,9 +129,24 @@ export default function SessionListPage() {
     [sessions, selectedSessionID]
   );
 
-  const handleSelectSession = useCallback((sessionID) => {
-    setSelectedSessionID(sessionID);
-  }, []);
+  useEffect(() => {
+    const activeSessionID = session?.sessionID ?? null;
+    if (!activeSessionID) {
+      setSelectedSessionID((prev) => (prev === null ? prev : null));
+      return;
+    }
+    setSelectedSessionID((prev) => (prev === activeSessionID ? prev : activeSessionID));
+  }, [session?.sessionID]);
+
+  const handleSelectSession = useCallback(
+    (sessionID) => {
+      setSelectedSessionID(sessionID);
+      if (sessionID && sessionID !== session?.sessionID) {
+        switchSessionID(sessionID, game?.gameID);
+      }
+    },
+    [switchSessionID, game?.gameID, session?.sessionID]
+  );
 
   const handleRetry = useCallback(() => {
     setReloadToken((value) => value + 1);
@@ -203,20 +218,13 @@ export default function SessionListPage() {
   return (
     <PageContainer>
       <header className="space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div className="space-y-3">
-            <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-primary">
-              Session archive
-            </span>
-            <div className="space-y-2">
-              <h1 className="text-4xl font-semibold text-emphasis">Play session history</h1>
-              <p className="max-w-2xl text-sm text-muted">{headerSubtitle}</p>
-            </div>
-          </div>
-          <div className="flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:items-center">
-            <div className="w-full min-w-[220px] sm:w-[260px]">
-              <VersionSelector dropdown />
-            </div>
+        <div className="space-y-3">
+          <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-primary">
+            Session archive
+          </span>
+          <div className="space-y-2">
+            <h1 className="text-4xl font-semibold text-emphasis">Play session history</h1>
+            <p className="max-w-2xl text-sm text-muted">{headerSubtitle}</p>
           </div>
         </div>
       </header>
@@ -367,5 +375,3 @@ export default function SessionListPage() {
     </PageContainer>
   );
 }
-
-

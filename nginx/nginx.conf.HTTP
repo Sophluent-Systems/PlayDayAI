@@ -2,76 +2,38 @@ events {}
 http {
 proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=STATIC:10m inactive=7d use_temp_path=off;
 
-upstream frontend_upstream {
-  server frontend:${NEXT_PUBLIC_FRONTEND_PORT};
-}
 upstream taskserver_upstream {
-  server taskserver:${NEXT_PUBLIC_WS_PORT};  # Assuming taskserver is on the same host
+  server taskserver:${WS_LOCAL_PORT};
 }
 
 server {
-    listen ${NEXT_PUBLIC_FRONTEND_PORT};
+    listen ${EXTERNAL_HTTP_PORT};
     server_name ${SERVER_NAME};
-        
+
         client_max_body_size 32M;
-        
-        # Buffer settings
-        proxy_buffer_size 256k;
-        proxy_buffers 4 512k;    
-        proxy_busy_buffers_size 1024k; 
-
-        # Global settings
         server_tokens off;
-        gzip on;
-        gzip_proxied any;
-        gzip_comp_level 4;
-        gzip_types text/css application/javascript image/svg+xml;
 
-        # Main application
-        location / {
-            proxy_buffering off;
-            proxy_cache off;
-            proxy_read_timeout 300s;
-            proxy_connect_timeout 75s;
-            proxy_max_temp_file_size 16000m;
-            proxy_pass http://frontend_upstream;
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
         }
 
-        # WebSocket endpoint
         location /ws {
             proxy_pass http://taskserver_upstream;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
             proxy_cache_bypass $http_upgrade;
+            proxy_read_timeout 7d;
+            proxy_send_timeout 120s;
+            proxy_buffering off;
         }
 
-        # Next.js static files
-        location /_next/static {
-            proxy_cache STATIC;
-            proxy_pass http://frontend_upstream;
-            add_header X-Cache-Status $upstream_cache_status; # Remove in production
-        }
-
-        # Static files
-        location /static {
-            proxy_cache STATIC;
-            proxy_ignore_headers Cache-Control;
-            proxy_cache_valid 60m;
-            proxy_read_timeout 300s;
-            proxy_connect_timeout 75s;
-            proxy_max_temp_file_size 4096m;
-            proxy_pass http://frontend_upstream;
-            add_header X-Cache-Status $upstream_cache_status; # Remove in production
-        }
-        
-        # Generated content
-        location /gen {
-            proxy_cache STATIC;
-            proxy_ignore_headers Cache-Control;
-            root /var/public;
-            add_header X-Cache-Status $upstream_cache_status; # Remove in production
+        location / {
+            return 404;
         }
     }
 }

@@ -1,173 +1,184 @@
 #!/bin/bash
+set -euo pipefail
 
-# Require a parameter: "test" or "production"
-if [ -z "$1" ]; then
-    echo "Usage: $0 <test|production>"
+# References:
+#   - Let's Encrypt staging environment guidance: https://letsencrypt.org/docs/staging-environment/
+#   - Certbot user guide: https://eff-certbot.readthedocs.io/en/stable/using.html
+
+usage() {
+    echo "Usage: $0 <test|production>" >&2
+}
+
+MODE=${1:-}
+if [[ -z "${MODE}" ]]; then
+    usage
     exit 1
 fi
 
-# Ensure the parameter is either "test" or "production"
-if [ "$1" != "test" ] && [ "$1" != "production" ]; then
-    echo "Usage: $0 <test|production>"
-    exit 1
-fi
+case "${MODE}" in
+    test|staging)
+        CERTBOT_MODE_LABEL="staging (test)"
+        CERTBOT_SERVER_FLAG="--staging"
+        ;;
+    production|prod)
+        CERTBOT_MODE_LABEL="production"
+        CERTBOT_SERVER_FLAG=""
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac
 
-# set the "staging" variable based on the parameter
-if [ "$1" = "test" ]; then
-    staging="--staging"
-else
-    staging=""
-fi
-
-# Load environment variables from .env file
-if [ -f .env ]; then
-    source .env
-else
+if [[ ! -f .env ]]; then
     echo "Error: .env file not found. Please create one based on .env.TEMPLATE" >&2
     exit 1
 fi
 
-# Check if docker-compose is installed
-if ! command -v docker-compose &> /dev/null && ! (command -v docker &> /dev/null && docker compose version &> /dev/null); then
-    echo 'Error: docker command line tools are not installed or not accessible.' >&2
+# shellcheck disable=SC1091
+source .env
+
+if ! command -v docker-compose >/dev/null 2>&1 && ! (command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1); then
+    echo 'Error: docker compose tooling is not installed or not accessible.' >&2
     exit 1
 fi
 
-# NEXT_PUBLIC_BASE_URL is required and must not be localhost
-if [ -z "$NEXT_PUBLIC_BASE_URL" ]; then
+if [[ -z "${NEXT_PUBLIC_BASE_URL:-}" ]]; then
     echo 'Error: NEXT_PUBLIC_BASE_URL is not set. Please update your .env file.' >&2
     exit 1
 fi
 
-if [ "$NEXT_PUBLIC_BASE_URL" = "localhost" ]; then
+if [[ "${NEXT_PUBLIC_BASE_URL}" == "localhost" ]]; then
     echo 'Error: NEXT_PUBLIC_BASE_URL cannot be localhost. Please update your .env file.' >&2
     exit 1
 fi
 
-# SSL_CERT_EMAIL is required
-if [ -z "$SSL_CERT_EMAIL" ]; then
+if [[ -z "${SSL_CERT_EMAIL:-}" ]]; then
     echo 'Error: SSL_CERT_EMAIL is not set. Please update your .env file.' >&2
     exit 1
 fi
 
-echo ""
-echo "Configure your DNS settings:"
-echo "   - Add an A record for your domain (${NEXT_PUBLIC_BASE_URL}) pointing to your server's IP address"
-echo "   - Add a CNAME record for www.${NEXT_PUBLIC_BASE_URL} pointing to ${NEXT_PUBLIC_BASE_URL}"
-echo ""
+PRIMARY_DOMAIN="${NEXT_PUBLIC_BASE_URL}"
+DOMAINS=("${PRIMARY_DOMAIN}")
 
-# Wait for the user to confirm that the DNS settings have been configured
-read -p "Press Enter to continue after configuring your DNS settings..."
+if [[ "${PRIMARY_DOMAIN}" != "www."* ]] && [[ "${PRIMARY_DOMAIN}" =~ ^[^.]+\.[^.]+$ ]]; then
+    DOMAINS+=("www.${PRIMARY_DOMAIN}")
+fi
 
+if [[ -n "${NEXT_PUBLIC_WS_HOST:-}" && "${NEXT_PUBLIC_WS_HOST}" != "${PRIMARY_DOMAIN}" ]]; then
+    DOMAINS+=("${NEXT_PUBLIC_WS_HOST}")
+fi
 
-# Define a function to handle docker-compose
+deduped=()
+for domain in "${DOMAINS[@]}"; do
+    [[ -z "${domain}" ]] && continue
+    found=0
+    for existing in "${deduped[@]}"; do
+        if [[ "${existing}" == "${domain}" ]]; then
+            found=1
+            break
+        fi
+    done
+    if (( found == 0 )); then
+        deduped+=("${domain}")
+    fi
+done
+DOMAINS=("${deduped[@]}")
+
+cat <<INFO
+Using Let's Encrypt ${CERTBOT_MODE_LABEL} environment
+Domains to include: ${DOMAINS[*]}
+INFO
+
+cat <<'DNS'
+Confirm DNS records are in place:
+  - Each domain resolves to this server's public IP (A/AAAA record or CNAME).
+  - Port 80 is reachable from the internet (required for the HTTP-01 challenge).
+DNS
+
+read -rp "Press Enter to continue once DNS is ready..."
+
 docker_compose() {
-    if command -v docker-compose &> /dev/null; then
-        # If docker-compose exists, use it
+    if command -v docker-compose >/dev/null 2>&1; then
         docker-compose "$@"
-    elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
-        # If docker exists and has the compose subcommand, use it
-        docker compose "$@"
     else
-        echo "Error: docker-compose is not installed."
-        exit 1
+        docker compose "$@"
     fi
 }
 
-data_path="$HOME/.playday/ssldata/certbot"
-email="${SSL_CERT_EMAIL}" 
-key_type="ecdsa"
-rsa_key_size=4096
+data_path="${HOME}/.playday/ssldata/certbot"
+email="${SSL_CERT_EMAIL}"
 
-
-if [ -d "$data_path" ]; then
-    read -p "Existing data found for $NEXT_PUBLIC_BASE_URL. Continue and replace existing certificate? (y/N) " decision
-    if [ "$decision" != "Y" ] && [ "$decision" != "y" ]; then
-        exit
+if [[ -d "${data_path}" ]]; then
+    read -rp "Existing certificate data detected at ${data_path}. Overwrite? (y/N) " decision
+    if [[ ! "${decision}" =~ ^[Yy]$ ]]; then
+        echo "Aborting."
+        exit 0
     fi
 fi
 
-if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/ssl-dhparams.pem" ]; then
+if [[ ! -e "${data_path}/conf/options-ssl-nginx.conf" || ! -e "${data_path}/conf/ssl-dhparams.pem" ]]; then
     echo "### Downloading recommended TLS parameters ..."
-    mkdir -p "$data_path/conf"
-    curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "$data_path/conf/options-ssl-nginx.conf"
-    curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "$data_path/conf/ssl-dhparams.pem"
+    mkdir -p "${data_path}/conf"
+    curl -fsSL https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "${data_path}/conf/options-ssl-nginx.conf"
+    curl -fsSL https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "${data_path}/conf/ssl-dhparams.pem"
     echo
 fi
 
-echo "### Creating folder $data_path/conf/live/$NEXT_PUBLIC_BASE_URL ..."
+mkdir -p "${data_path}/conf/live/${PRIMARY_DOMAIN}"
 
-mkdir -p "$data_path/conf/live/$NEXT_PUBLIC_BASE_URL"
+echo "### Creating temporary self-signed certificate for nginx startup ..."
+docker_compose run --rm --entrypoint "  openssl req -x509 -nodes -newkey rsa:2048 -days 1    -keyout '/etc/letsencrypt/live/${PRIMARY_DOMAIN}/privkey.pem'     -out '/etc/letsencrypt/live/${PRIMARY_DOMAIN}/fullchain.pem'     -subj '/CN=localhost'" certbot >/dev/null
 
-echo "### Creating dummy certificate for $NEXT_PUBLIC_BASE_URL ..."
-docker_compose run --rm --entrypoint "\
-  openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
-    -keyout '/etc/letsencrypt/live/$NEXT_PUBLIC_BASE_URL/privkey.pem' \
-    -out '/etc/letsencrypt/live/$NEXT_PUBLIC_BASE_URL/fullchain.pem' \
-    -subj '/CN=localhost'" certbot
-echo
-
-echo "### Starting nginx ..."
+echo "### Starting nginx container ..."
 docker_compose up -d nginx
-echo
 
-echo "### Deleting dummy certificate for $NEXT_PUBLIC_BASE_URL ..."
-docker_compose run --rm --entrypoint "\
-  rm -Rf /etc/letsencrypt/live/$NEXT_PUBLIC_BASE_URL && \
-  rm -Rf /etc/letsencrypt/archive/$NEXT_PUBLIC_BASE_URL && \
-  rm -Rf /etc/letsencrypt/renewal/$NEXT_PUBLIC_BASE_URL.conf" certbot
-echo
+echo "### Removing temporary certificate files ..."
+docker_compose run --rm --entrypoint "  rm -Rf /etc/letsencrypt/live/${PRIMARY_DOMAIN} &&   rm -Rf /etc/letsencrypt/archive/${PRIMARY_DOMAIN} &&   rm -Rf /etc/letsencrypt/renewal/${PRIMARY_DOMAIN}.conf" certbot >/dev/null
 
-# if staging, print that we're requesting a staging cert otherwise print that we're requesting a production cert
-if [ "$staging" = "--staging" ]; then
-    echo "### Requesting staging Let's Encrypt certificate for $NEXT_PUBLIC_BASE_URL ..."
-else
-    echo "### Requesting production Let's Encrypt certificate for $NEXT_PUBLIC_BASE_URL ..."
+certbot_args=(
+    certbot certonly
+    --webroot -w /var/www/certbot
+    --non-interactive
+    --agree-tos
+    --keep-until-expiring
+    --no-eff-email
+    --key-type ecdsa
+)
+
+if [[ -n "${CERTBOT_SERVER_FLAG}" ]]; then
+    certbot_args+=("${CERTBOT_SERVER_FLAG}")
 fi
-domains=(${NEXT_PUBLIC_BASE_URL} www.${NEXT_PUBLIC_BASE_URL})
-domain_args=""
-for domain in "${domains[@]}"; do
-  domain_args="$domain_args -d $domain"
+
+if [[ -n "${email}" ]]; then
+    certbot_args+=(--email "${email}")
+else
+    certbot_args+=(--register-unsafely-without-email)
+fi
+
+for domain in "${DOMAINS[@]}"; do
+    certbot_args+=(-d "${domain}")
 done
 
-# Select appropriate email arg
-case "$email" in
-    "") email_arg="--register-unsafely-without-email" ;;
-    *) email_arg="--email $email" ;;
-esac
+echo "### Requesting ${CERTBOT_MODE_LABEL} certificate ..."
+docker_compose run --rm certbot "${certbot_args[@]}"
 
-docker_compose run --rm --entrypoint "\
-  certbot certonly --webroot -w /var/www/certbot \
-    --rsa-key-size $rsa_key_size \
-    $email_arg \
-    $domain_args \
-    $staging \
-    --agree-tos" certbot
-echo
-
-echo "### Reloading nginx ..."
+echo "### Reloading nginx to serve the new certificate ..."
 docker_compose exec nginx nginx -s reload
+
+echo "### Performing renewal dry run (recommended by Certbot documentation) ..."
+docker_compose run --rm certbot certbot renew --dry-run
+
+echo
+echo "Recommended next steps:"
+echo "  - Schedule 'docker compose run --rm certbot certbot renew' via cron/systemd (runs idempotently)."
+echo "  - After each successful renewal, reload nginx: 'docker compose exec nginx nginx -s reload'."
+echo "  - Monitor ${data_path}/logs/ for renewal activity."
 echo
 
-echo ""
-echo "Recommended: Set up automatic renewal"
-echo ""
-echo "   To set up a cron job for automatic renewal, follow these steps:"
-echo ""
-echo "   a. Open the crontab editor for the current user:"
-echo "      crontab -e"
-echo ""
-echo "   b. Add the following line to the crontab (adjust the path as needed):"
-echo "      0 0,12 * * * cd $(pwd) && docker compose run --rm certbot renew && docker compose exec nginx nginx -s reload"
-echo ""
-echo "   c. Save and exit the editor"
-echo ""
-echo "   Alternatively, you can use these commands to add the cron job without opening the editor:"
-echo ""
-echo "   (crontab -l 2>/dev/null; echo \"0 0,12 * * * cd $(pwd) && docker compose run --rm certbot renew && docker compose exec nginx nginx -s reload\") | crontab -"
-echo ""
-echo "   This command will add the cron job to your current user's crontab without opening an editor."
-echo ""
-echo ""
-echo "Installation complete. Your site should now be accessible via https://$NEXT_PUBLIC_BASE_URL and https://www.$NEXT_PUBLIC_BASE_URL"
-echo ""
+echo "Certificate provisioning complete."
+if [[ "${MODE}" =~ ^prod ]]; then
+    echo "Production certificates are now installed for: ${DOMAINS[*]}"
+else
+    echo "Staging certificates were issued. Run the script again with 'production' before going live."
+fi

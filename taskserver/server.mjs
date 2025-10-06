@@ -138,7 +138,7 @@ export async function startServer() {
 
     Constants.debug.logInit && console.error("INIT: startServer");
   
-    const wsPort = parseInt(process.env.NEXT_PUBLIC_WS_PORT, 10) || 3005;
+    const wsPort = parseInt(process.env.WS_LOCAL_PORT ?? process.env.NEXT_PUBLIC_WS_PORT, 10) || 3005;
   
     const wsHandlers = {
       "halt": handleHalt,

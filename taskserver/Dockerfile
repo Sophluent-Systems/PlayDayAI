@@ -1,15 +1,15 @@
 FROM node:23-alpine
 
-ARG NODE_ENV
-ARG NEXT_PUBLIC_WS_PORT
+ARG NODE_ENV=development
+ARG WS_LOCAL_PORT=3005
 
-RUN echo "TASKSERVER: Building for  environment on port "
+RUN echo "TASKSERVER build args: NODE_ENV=${NODE_ENV}, WS_LOCAL_PORT=${WS_LOCAL_PORT}"
 
 WORKDIR /app
 
 ENV NODE_ENV=${NODE_ENV}
 
-# Now copy the rest of the application
+# Copy application sources
 COPY ./.env ./
 COPY ./taskserver/*.cjs ./
 COPY ./taskserver/*.mjs ./
@@ -20,10 +20,11 @@ COPY ./packages/shared ./packages/shared
 # Install dependencies
 RUN yarn install
 
-EXPOSE ${NEXT_PUBLIC_WS_PORT}
+EXPOSE ${WS_LOCAL_PORT}
 
-ENV NEXT_PUBLIC_WS_PORT ${NEXT_PUBLIC_WS_PORT}
-ENV PORT ${NEXT_PUBLIC_WS_PORT}
-ENV HOSTNAME "0.0.0.0"
+ENV WS_LOCAL_PORT=${WS_LOCAL_PORT}
+ENV NEXT_PUBLIC_WS_PORT=${WS_LOCAL_PORT}
+ENV PORT=${WS_LOCAL_PORT}
+ENV HOSTNAME=0.0.0.0
 
-CMD NODE_ENV=${NODE_ENV} node --loader ./custom-loader.mjs ./server.mjs
+CMD NODE_ENV=${NODE_ENV} WS_LOCAL_PORT=${WS_LOCAL_PORT} node --loader ./custom-loader.mjs ./server.mjs

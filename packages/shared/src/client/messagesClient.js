@@ -222,7 +222,11 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
   }, [sessionID, accessToken, autoConnect]);
 
   function getWSUrl() {
-    return `ws://${process.env.NEXT_PUBLIC_WS_NEXT_PUBLIC_BASE_URL}:${process.env.NEXT_PUBLIC_WS_PORT}/ws`;
+    const wsHost = process.env.NEXT_PUBLIC_WS_HOST ?? process.env.NEXT_PUBLIC_BASE_URL ?? 'localhost';
+    const wsPort = process.env.NEXT_PUBLIC_WS_PORT;
+    const scheme = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const portSegment = wsPort ? `${wsPort}` : '';
+    return `${scheme}://${wsHost}${portSegment}/ws`;
   }
 
   const buildMessageHandlers = () => {

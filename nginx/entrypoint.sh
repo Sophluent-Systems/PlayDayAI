@@ -1,20 +1,21 @@
 #!/bin/sh
+set -e
 
-# Print the environment variables to confirm they are set
+# Log configuration for easier troubleshooting
 echo "PROTOCOL: ${PROTOCOL}"
-echo "NEXT_PUBLIC_FRONTEND_PORT: ${NEXT_PUBLIC_FRONTEND_PORT}"
-echo "NEXT_PUBLIC_FRONTEND_PORT: ${NEXT_PUBLIC_FRONTEND_PORT}"
-echo "NEXT_PUBLIC_FRONTEND_PORT: ${NEXT_PUBLIC_FRONTEND_PORT}"
-echo "NEXT_PUBLIC_WS_PORT: ${NEXT_PUBLIC_WS_PORT}"
 echo "SERVER_NAME: ${SERVER_NAME}"
+echo "WS_LOCAL_PORT: ${WS_LOCAL_PORT}"
+echo "EXTERNAL_HTTP_PORT: ${EXTERNAL_HTTP_PORT}"
+echo "EXTERNAL_HTTPS_PORT: ${EXTERNAL_HTTPS_PORT}"
 
-PROTOCOL=$(echo "$PROTOCOL" | tr '[:lower:]' '[:upper:]')
+PROTOCOL=$(echo "${PROTOCOL}" | tr '[:lower:]' '[:upper:]')
 
-if [ "$PROTOCOL" = "HTTPS" ]; then
+if [ "${PROTOCOL}" = "HTTPS" ]; then
     cp /etc/nginx/nginx.conf.HTTPS /etc/nginx/nginx.conf.template
 else
     cp /etc/nginx/nginx.conf.HTTP /etc/nginx/nginx.conf.template
 fi
 
-envsubst '${SERVER_NAME} ${NEXT_PUBLIC_FRONTEND_PORT} ${NEXT_PUBLIC_FRONTEND_PORT} ${NEXT_PUBLIC_FRONTEND_PORT} ${NEXT_PUBLIC_WS_PORT}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+envsubst '${SERVER_NAME} ${WS_LOCAL_PORT} ${EXTERNAL_HTTP_PORT} ${EXTERNAL_HTTPS_PORT}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+
 exec nginx -g 'daemon off;'

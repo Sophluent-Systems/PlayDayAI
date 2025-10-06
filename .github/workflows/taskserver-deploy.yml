@@ -1,75 +1,34 @@
-name: Deploy taskserver (main)
+permissions:
+  contents: read
+  packages: write
 
-on:
-  push:
-    branches: [ "main" ]
-    paths:
-      - "taskserver/**"
-      - "src/server/**"
-      - "packages/shared/**"
-      - "Dockerfile"
-      - "taskserver/Dockerfile"
-      - ".github/workflows/deploy-taskserver.yml"
+env:
+  NODE_ENV: production
+  NEXT_PUBLIC_WS_PORT: 3005
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+steps:
+  - uses: actions/checkout@v4
 
-    permissions:
-      contents: read
-      packages: write
+  - name: Compute IMAGE (lowercase)
+    run: |
+      echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/taskserver" >> $GITHUB_ENV
 
-    env:
-      IMAGE: ghcr.io/${{ github.repository }}/taskserver
-      TAG: latest
-      # Optional build-time args (non-secret)
-      NODE_ENV: production
-      NEXT_PUBLIC_WS_PORT: 3005
+  - uses: docker/setup-buildx-action@v3
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  - uses: docker/login-action@v3
+    with:
+      registry: ghcr.io
+      username: ${{ github.actor }}
+      password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build & push taskserver image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: taskserver/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ env.TAG }}
-            ${{ env.IMAGE }}:${{ github.sha }}
-          build-args: |
-            NODE_ENV=${{ env.NODE_ENV }}
-            NEXT_PUBLIC_WS_PORT=${{ env.NEXT_PUBLIC_WS_PORT }}
-
-      - name: Deploy over SSH (pull only taskserver & restart)
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.TASKSERVER_HOST }}
-          username: ${{ secrets.TASKSERVER_USER }}
-          key: ${{ secrets.TASKSERVER_SSH_KEY }}
-          port: ${{ secrets.TASKSERVER_SSH_PORT || 22 }}
-          script: |
-            set -euo pipefail
-            cd $HOME/your-app-repo   # adjust to your path on the droplet
-            git fetch --all --prune
-            git checkout main
-            git pull --ff-only
-            docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
-            docker compose -f docker-compose.yaml -f docker-compose.prod.yaml pull taskserver
-            docker compose -f docker-compose.yaml -f docker-compose.prod.yaml up -d taskserver --no-deps
-            docker image prune -f
+  - uses: docker/build-push-action@v6
+    with:
+      context: .
+      file: taskserver/Dockerfile
+      push: true
+      tags: |
+        ${{ env.IMAGE }}:latest
+        ${{ env.IMAGE }}:${{ github.sha }}
+      build-args: |
+        NODE_ENV=${{ env.NODE_ENV }}
+        NEXT_PUBLIC_WS_PORT=${{ env.NEXT_PUBLIC_WS_PORT }}

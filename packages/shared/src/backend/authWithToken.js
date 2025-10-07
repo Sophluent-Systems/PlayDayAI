@@ -13,8 +13,6 @@ const domainForJwks = issuerBaseUrl?.startsWith('http') ? issuerBaseUrl : (issue
 const jwksUri = domainForJwks ? `${domainForJwks}/.well-known/jwks.json` : undefined;
 const auth0Audience = process.env.AUTH0_AUDIENCE;
 
-console.log("jwksUri", jwksUri);
-
 // Mock Data
 const mockSession = {
   user: {

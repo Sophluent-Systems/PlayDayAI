@@ -1,4 +1,4 @@
-import { isBackend } from './nexthelpers';
+import { isFrontend } from './nexthelpers';
 
 export const defaultConstants = {
     "engineVersion": 1,
@@ -423,7 +423,7 @@ export const defaultConstants = {
 let loadedConstants = null;
 
 async function fetchConstants() {
-    if (isBackend()) {
+    if (!isFrontend()) {
         return defaultConstants;
     }
 

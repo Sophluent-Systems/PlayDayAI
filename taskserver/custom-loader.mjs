@@ -82,9 +82,12 @@ export async function resolve(specifier, context, defaultResolve) {
     try {
       return await defaultResolve(newSpecifier, context, defaultResolve);
     } catch (secondError) {
-      const appRootMatch = await resolveFromAppRoot(specifier, context, defaultResolve);
-      if (appRootMatch) {
-        return appRootMatch;
+      const shouldTryAppRoot = !specifier.startsWith('.') && !specifier.startsWith('/') && !specifier.startsWith('file:');
+      if (shouldTryAppRoot) {
+        const appRootMatch = await resolveFromAppRoot(specifier, context, defaultResolve);
+        if (appRootMatch) {
+          return appRootMatch;
+        }
       }
 
       const nodeModulesMatch = resolveFromTaskserverNodeModules(specifier);

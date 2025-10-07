@@ -192,6 +192,40 @@ docker_compose() {
         docker compose "$@"
     fi
 }
+ensure_taskserver_running() {
+    local service="taskserver"
+    echo "### Checking docker service '${service}' ..."
+
+    local running_services
+    if running_services="$(docker_compose ps --services --filter "status=running" 2>/dev/null)"; then
+        if [[ $'
+'"${running_services}"$'
+' != *$'
+'"${service}"$'
+'* ]]; then
+            echo "Error: Docker service '${service}' must be running before requesting certificates." >&2
+            echo "Start it with 'docker compose up -d ${service}' and re-run this script." >&2
+            exit 1
+        fi
+    else
+        local ps_output
+        if ! ps_output="$(docker_compose ps ${service} 2>/dev/null)"; then
+            echo "Error: Unable to determine status of docker service '${service}'." >&2
+            exit 1
+        fi
+        local ps_lower
+        ps_lower="$(printf '%s' "${ps_output}" | tr '[:upper:]' '[:lower:]')"
+        if [[ "${ps_lower}" != *"up"* && "${ps_lower}" != *"running"* ]]; then
+            echo "Error: Docker service '${service}' must be running before requesting certificates." >&2
+            echo "Current status:" >&2
+            echo "${ps_output}" >&2
+            echo "Start it with 'docker compose up -d ${service}' and re-run this script." >&2
+            exit 1
+        fi
+    fi
+}
+
+ensure_taskserver_running
 
 data_path="${HOME}/.playday/ssldata/certbot"
 email="${SSL_CERT_EMAIL}"

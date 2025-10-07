@@ -18,6 +18,8 @@ COPY ./taskserver/src/server ./src/server
 COPY ./packages/shared/src/backend ./packages/shared/src/backend
 COPY ./packages/shared/src/common ./packages/shared/src/common
 
+RUN npm install -g pnpm
+
 # Install dependencies
 RUN pnpm install
 

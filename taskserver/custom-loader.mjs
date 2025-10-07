@@ -1,12 +1,12 @@
 // custom-loader.mjs
-import fs from 'fs';
 import path from 'path';
 import { pathToFileURL, fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
 const loaderDir = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(loaderDir, '..');
 const sharedSrcDir = path.join(workspaceRoot, 'packages', 'shared', 'src');
-const taskserverNodeModules = path.join(loaderDir, 'node_modules');
+const requireFromLoader = createRequire(import.meta.url);
 
 const aliasMap = [
   ['@src/', sharedSrcDir],
@@ -39,17 +39,15 @@ function resolveFromTaskserverNodeModules(specifier) {
     return null;
   }
 
-  const candidateDir = path.join(taskserverNodeModules, specifier);
-  if (fs.existsSync(candidateDir)) {
-    return pathToFileURL(candidateDir).href;
+  try {
+    const resolvedPath = requireFromLoader.resolve(specifier);
+    return pathToFileURL(resolvedPath).href;
+  } catch (error) {
+    if (error && error.code !== 'MODULE_NOT_FOUND') {
+      console.warn(`Custom loader failed to resolve ${specifier}:`, error);
+    }
+    return null;
   }
-
-  const candidateFile = candidateDir + '.js';
-  if (fs.existsSync(candidateFile)) {
-    return pathToFileURL(candidateFile).href;
-  }
-
-  return null;
 }
 
 export async function resolve(specifier, context, defaultResolve) {

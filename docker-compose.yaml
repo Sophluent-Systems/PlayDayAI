@@ -53,9 +53,6 @@ services:
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
   taskserver:
     image: taskserver:latest
-    build: 
-      context: ./
-      dockerfile: taskserver/Dockerfile
     env_file: ${PLAYDAY_ENV_FILE:-./.env}
     build: 
       context: ./

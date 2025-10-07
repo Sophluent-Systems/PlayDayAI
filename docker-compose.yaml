@@ -1,7 +1,7 @@
 services:
   rabbitmq:
     image: rabbitmq:4.1.4-management-alpine
-    env_file: ~/.env
+    env_file: ${PLAYDAY_ENV_FILE:-~/.env}
     restart: always
     ports:
         - 5672:5672
@@ -17,11 +17,11 @@ services:
       - 27017:27017
     volumes:
       - ~/.playday/mongodb/data/db:/data/db
-    env_file: ~/.env
+    env_file: ${PLAYDAY_ENV_FILE:-~/.env}
     command: ["-f", "/etc/mongod.conf"]
   nginx:
     image: nginx:1.29.1-alpine
-    env_file: ~/.env
+    env_file: ${PLAYDAY_ENV_FILE:-~/.env}
     build: 
       context: ./nginx
       args:
@@ -53,7 +53,7 @@ services:
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
   taskserver:
     image: ghcr.io/sophluent-systems/playdayai/taskserver:latest
-    env_file: ~/.env
+    env_file: ${PLAYDAY_ENV_FILE:-~/.env}
     build: 
       context: ./
       dockerfile: taskserver/Dockerfile

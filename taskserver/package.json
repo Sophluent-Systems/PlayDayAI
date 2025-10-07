@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.19.2",
-    "@auth0/nextjs-auth0": "^3.5.0",
+    "@auth0/nextjs-auth0": "^4.10.0",
     "@google/generative-ai": "^0.11.4",
     "@breezystack/lamejs": "^1.2.7",
     "acl2": "^4.0.0",

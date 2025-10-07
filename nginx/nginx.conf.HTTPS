@@ -8,7 +8,7 @@ upstream taskserver_upstream {
 
 server {
     listen ${EXTERNAL_HTTP_PORT};
-    server_name ${SERVER_NAME} www.${SERVER_NAME};
+    server_name ${SERVER_NAME};
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -21,7 +21,7 @@ server {
 
 server {
     listen ${EXTERNAL_HTTPS_PORT} ssl;
-    server_name ${SERVER_NAME} www.${SERVER_NAME};
+    server_name ${SERVER_NAME};
 
         ssl_certificate /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;

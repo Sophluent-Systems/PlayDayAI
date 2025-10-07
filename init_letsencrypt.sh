@@ -134,27 +134,56 @@ if [[ -z "${SSL_CERT_EMAIL:-}" ]]; then
     exit 1
 fi
 
-resolve_ws_host() {
-    for candidate in \
-        "${NEXT_PUBLIC_WS_HOST:-}" \
-        "${NEXT_PUBLIC_WS_BASE_URL:-}" \
-        "${NEXT_PUBLIC_WS_NEXT_PUBLIC_BASE_URL:-}" \
-        "${NEXT_PUBLIC_BASE_URL:-}"; do
-        if [[ -n "${candidate// }" ]]; then
-            printf '%s' "$candidate"
+normalize_hostname() {
+    local raw="${1:-}"
+    raw="${raw//$'\r'/}"
+    raw="${raw//$'\n'/}"
+    raw="${raw//$'\t'/}"
+    raw="${raw#"${raw%%[![:space:]]*}"}"
+    raw="${raw%"${raw##*[![:space:]]}"}"
+    if [[ "${raw}" == *"://"* ]]; then
+        raw="${raw#*://}"
+    fi
+    raw="${raw%%/*}"
+    raw="${raw%%:*}"
+    raw="${raw%.}"
+    printf '%s' "${raw}"
+}
+
+add_domain() {
+    local normalized existing
+    normalized="$(normalize_hostname "${1:-}")"
+    if [[ -z "${normalized}" ]]; then
+        return
+    fi
+    if [[ "${normalized}" == "localhost" || "${normalized}" == "127.0.0.1" || "${normalized}" == "0.0.0.0" ]]; then
+        return
+    fi
+    for existing in "${DOMAINS[@]-}"; do
+        if [[ "${existing}" == "${normalized}" ]]; then
             return
         fi
     done
+    DOMAINS+=("${normalized}")
 }
 
-PRIMARY_DOMAIN="$(resolve_ws_host)"
+DOMAINS=()
+add_domain "${NEXT_PUBLIC_BASE_URL:-}"
+add_domain "${NEXT_PUBLIC_WS_HOST:-}"
+add_domain "${NEXT_PUBLIC_WS_BASE_URL:-}"
+add_domain "${NEXT_PUBLIC_WS_NEXT_PUBLIC_BASE_URL:-}"
 
-if [[ -z "${PRIMARY_DOMAIN}" ]]; then
-    echo 'Error: Unable to determine websocket hostname. Set NEXT_PUBLIC_WS_HOST or NEXT_PUBLIC_BASE_URL in your environment.' >&2
+if [[ ${#DOMAINS[@]} -eq 0 ]]; then
+    echo 'Error: Unable to determine certificate domain(s). Check NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_WS_HOST settings.' >&2
     exit 1
 fi
 
-DOMAINS=("${PRIMARY_DOMAIN}")
+PRIMARY_DOMAIN="${DOMAINS[0]}"
+
+if [[ -z "${PRIMARY_DOMAIN}" ]]; then
+    echo 'Error: Primary certificate domain resolved to an empty value after normalization.' >&2
+    exit 1
+fi
 
 deduped=()
 for domain in "${DOMAINS[@]}"; do

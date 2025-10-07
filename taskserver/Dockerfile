@@ -19,7 +19,7 @@ COPY ./packages/shared/src/backend ./packages/shared/src/backend
 COPY ./packages/shared/src/common ./packages/shared/src/common
 
 # Install dependencies
-RUN yarn install
+RUN pnpm install
 
 EXPOSE ${WS_LOCAL_PORT}
 

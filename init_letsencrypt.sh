@@ -129,6 +129,16 @@ if [[ "${NEXT_PUBLIC_BASE_URL}" == "localhost" ]]; then
     exit 1
 fi
 
+if [[ -z "${NEXT_PUBLIC_WS_BASE_URL:-}" ]]; then
+    echo 'Error: NEXT_PUBLIC_WS_BASE_URL is not set. Please update your .env file.' >&2
+    exit 1
+fi
+
+if [[ "${NEXT_PUBLIC_WS_BASE_URL}" == "localhost" ]]; then
+    echo 'Error: NEXT_PUBLIC_WS_BASE_URL cannot be localhost. Please update your .env file.' >&2
+    exit 1
+fi
+
 if [[ -z "${SSL_CERT_EMAIL:-}" ]]; then
     echo 'Error: SSL_CERT_EMAIL is not set. Please update your .env file.' >&2
     exit 1
@@ -168,13 +178,10 @@ add_domain() {
 }
 
 DOMAINS=()
-add_domain "${NEXT_PUBLIC_BASE_URL:-}"
-add_domain "${NEXT_PUBLIC_WS_HOST:-}"
 add_domain "${NEXT_PUBLIC_WS_BASE_URL:-}"
-add_domain "${NEXT_PUBLIC_WS_NEXT_PUBLIC_BASE_URL:-}"
 
 if [[ ${#DOMAINS[@]} -eq 0 ]]; then
-    echo 'Error: Unable to determine certificate domain(s). Check NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_WS_HOST settings.' >&2
+    echo 'Error: Unable to determine certificate domain(s). Check NEXT_PUBLIC_WS_BASE_URL.' >&2
     exit 1
 fi
 

@@ -207,10 +207,15 @@ cleanup_previous_state() {
         echo "Cleared certbot volumes via container."
     else
         echo "Warning: Failed to clean volumes via certbot container; falling back to host cleanup." >&2
+    fi
+    if command -v sudo >/dev/null 2>&1; then
+        sudo rm -rf "${data_path:?}" 2>/dev/null || true
+        sudo rm -rf "${renew_log_dir}" 2>/dev/null || true
+    else
         rm -rf "${data_path:?}" 2>/dev/null || true
+        rm -rf "${renew_log_dir}" 2>/dev/null || true
     fi
     rm -f "${renew_script}"
-    rm -rf "${renew_log_dir}" 2>/dev/null || true
     mkdir -p "${data_path}"
 }
 

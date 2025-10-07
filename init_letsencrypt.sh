@@ -30,13 +30,69 @@ case "${MODE}" in
         ;;
 esac
 
-if [[ ! -f .env ]]; then
-    echo "Error: .env file not found. Please create one based on .env.TEMPLATE" >&2
-    exit 1
+# Locate environment files using the same logic as taskserver/env.mjs
+node_env=${NODE_ENV:-development}
+is_test_env=false
+if [[ ${node_env} == "test" ]]; then
+    is_test_env=true
 fi
 
-# shellcheck disable=SC1091
-source .env
+env_specific_file=".env.${node_env}"
+env_specific_local_file="${env_specific_file}.local"
+
+candidate_files=(
+  ".env"
+  "${env_specific_file}"
+)
+if [[ ${is_test_env} == false ]]; then
+  candidate_files+=(".env.local")
+fi
+candidate_files+=("${env_specific_local_file}")
+
+possible_names=("${env_specific_local_file}" "${env_specific_file}")
+if [[ ${is_test_env} == false ]]; then
+  possible_names+=(".env.local")
+fi
+possible_names+=(".env")
+
+find_env_root() {
+  local dir="$PWD"
+  while true; do
+    for name in "${possible_names[@]}"; do
+      if [[ -n "$name" && -f "$dir/$name" ]]; then
+        echo "$dir"
+        return
+      fi
+    done
+    local parent="$(dirname "$dir")"
+    if [[ "$parent" == "$dir" ]]; then
+      break
+    fi
+    dir="$parent"
+  done
+  echo "$PWD"
+}
+
+env_root="$(find_env_root)"
+loaded_env_files=()
+
+set -a
+for file in "${candidate_files[@]}"; do
+  [[ -n "$file" ]] || continue
+  env_path="$env_root/$file"
+  if [[ -f "$env_path" ]]; then
+    echo "Loading environment variables from: $env_path"
+    # shellcheck disable=SC1090
+    source "$env_path"
+    loaded_env_files+=("$env_path")
+  fi
+done
+set +a
+
+if [[ ${#loaded_env_files[@]} -eq 0 ]]; then
+    echo "Error: No .env files found. Looked for ${candidate_files[*]} starting at $PWD." >&2
+    exit 1
+fi
 
 if ! command -v docker-compose >/dev/null 2>&1 && ! (command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1); then
     echo 'Error: docker compose tooling is not installed or not accessible.' >&2

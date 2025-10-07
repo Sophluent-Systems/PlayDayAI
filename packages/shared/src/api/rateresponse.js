@@ -6,7 +6,7 @@ import {
   getGameSession,
   updateSingleMessageInGameSession_Atomic
 } from '@src/backend/gamesessions';
-import { rateLLMResponse } from '@src/backend/aiLogging.js';
+import { rateLLMResponse } from '@src/backend/ailogging.js';
 import { hasRight } from '@src/backend/accesscontrol.js';
 import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub';
 

@@ -1,7 +1,7 @@
 import { withApiAuthRequired, getSession } from '@src/backend/authWithToken';
 import { doAuthAndValidation, validateRequiredPermissions } from '@src/backend/validation';
 
-import { getLLMTrainingData } from '@src/backend/aiLogging.js';
+import { getLLMTrainingData } from '@src/backend/ailogging.js';
 
 async function handle(req, res) {
   const { validationError, db, user, acl, account, isAdmin } = await doAuthAndValidation('POST', req, res, ["service_basicAccess"]);

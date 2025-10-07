@@ -114,16 +114,27 @@ if [[ -z "${SSL_CERT_EMAIL:-}" ]]; then
     exit 1
 fi
 
-PRIMARY_DOMAIN="${NEXT_PUBLIC_BASE_URL}"
+resolve_ws_host() {
+    for candidate in \
+        "${NEXT_PUBLIC_WS_HOST:-}" \
+        "${NEXT_PUBLIC_WS_BASE_URL:-}" \
+        "${NEXT_PUBLIC_WS_NEXT_PUBLIC_BASE_URL:-}" \
+        "${NEXT_PUBLIC_BASE_URL:-}"; do
+        if [[ -n "${candidate// }" ]]; then
+            printf '%s' "$candidate"
+            return
+        fi
+    done
+}
+
+PRIMARY_DOMAIN="$(resolve_ws_host)"
+
+if [[ -z "${PRIMARY_DOMAIN}" ]]; then
+    echo 'Error: Unable to determine websocket hostname. Set NEXT_PUBLIC_WS_HOST or NEXT_PUBLIC_BASE_URL in your environment.' >&2
+    exit 1
+fi
+
 DOMAINS=("${PRIMARY_DOMAIN}")
-
-if [[ "${PRIMARY_DOMAIN}" != "www."* ]] && [[ "${PRIMARY_DOMAIN}" =~ ^[^.]+\.[^.]+$ ]]; then
-    DOMAINS+=("www.${PRIMARY_DOMAIN}")
-fi
-
-if [[ -n "${NEXT_PUBLIC_WS_HOST:-}" && "${NEXT_PUBLIC_WS_HOST}" != "${PRIMARY_DOMAIN}" ]]; then
-    DOMAINS+=("${NEXT_PUBLIC_WS_HOST}")
-fi
 
 deduped=()
 for domain in "${DOMAINS[@]}"; do

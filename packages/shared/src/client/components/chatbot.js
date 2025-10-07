@@ -4,6 +4,7 @@ import { useRouter } from 'next/router';
 import { callGetMostRecentSave } from '@src/client/gameplay';
 import { callRetryRecord } from '@src/client/editor';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
+import { buildWebsocketUrl } from '@src/client/utils/wsUrl';
 import { useConfig } from '@src/client/configprovider';
 import { callSubmitMessageRating } from '@src/client/responseratings';
 import { callGetRecordResultField } from '@src/client/editor';
@@ -301,14 +302,6 @@ function ChatBot(props) {
     }
   }
 
-  function getWSUrl() {
-    const wsHost = process.env.NEXT_PUBLIC_WS_HOST ?? process.env.NEXT_PUBLIC_BASE_URL ?? 'localhost';
-    const wsPort = process.env.NEXT_PUBLIC_WS_PORT;
-    const scheme = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const portSegment = wsPort ? `${wsPort}` : '';
-    return `${scheme}://${wsHost}${portSegment}/ws`;
-  }
-
   async function attemptWebsocketReconnect() {
 
     if (reconnectUnderwayRef.current) {
@@ -487,7 +480,7 @@ function ChatBot(props) {
       stateMachineWebsocket.current.setConnectionCallbacks(connectionCallbacks);
 
       if (newConnection) {
-        const url = getWSUrl();
+        const url = buildWebsocketUrl();
         await stateMachineWebsocket.current.connect({url});
         console.log("Connected to: ", url)
       }

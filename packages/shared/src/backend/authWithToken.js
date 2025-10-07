@@ -6,13 +6,14 @@ import jwksClient from 'jwks-rsa';
 
 import { auth0, auth0IsSandbox } from './auth0';
 
-const isSandbox = auth0IsSandbox;
 const auth0Client = auth0;
 
-const issuerBaseUrl = process.env.AUTH0_BASE_URL?.replace(/\/$/, '') ?? process.env.AUTH0_DOMAIN?.replace(/\/$/, '');
+const issuerBaseUrl = process.env.AUTH0_DOMAIN?.replace(/\/$/, '') ?? process.env.AUTH0_DOMAIN?.replace(/\/$/, '');
 const domainForJwks = issuerBaseUrl?.startsWith('http') ? issuerBaseUrl : (issuerBaseUrl ? `https://${issuerBaseUrl}` : undefined);
 const jwksUri = domainForJwks ? `${domainForJwks}/.well-known/jwks.json` : undefined;
 const auth0Audience = process.env.AUTH0_AUDIENCE;
+
+console.log("jwksUri", jwksUri);
 
 // Mock Data
 const mockSession = {
@@ -35,7 +36,7 @@ const client = jwksUri
   : null;
 
 function getKey(header, callback) {
-  if (isSandbox) {
+  if (auth0IsSandbox) {
     callback(null, 'XYZ');
     return;
   }
@@ -55,7 +56,7 @@ function getKey(header, callback) {
   });
 }
 
-export const validateToken = isSandbox
+export const validateToken = auth0IsSandbox
   ? async () => mockSession.user
   : async (token) => {
       return new Promise((resolve, reject) => {
@@ -118,7 +119,7 @@ const toLegacySessionShape = (session) => {
 };
 
 export const getSession = async (req, res) => {
-  if (isSandbox) {
+  if (auth0IsSandbox) {
     return mockSession;
   }
 
@@ -132,7 +133,7 @@ export const requireAuthorization = (handler) => {
       let accessToken;
       let user;
 
-      if (req.headers?.authorization && !isSandbox) {
+      if (req.headers?.authorization && !auth0IsSandbox) {
         accessToken = req.headers.authorization.split(' ')[1];
         user = await validateToken(accessToken);
       } else {

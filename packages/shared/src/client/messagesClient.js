@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
+import { buildWebsocketUrl } from '@src/client/utils/wsUrl';
 import { stateManager } from '@src/client/statemanager';
 
 const RECONNECT_THRESHOLDS = [
@@ -221,14 +222,6 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     }
   }, [sessionID, accessToken, autoConnect]);
 
-  function getWSUrl() {
-    const wsHost = process.env.NEXT_PUBLIC_WS_HOST ?? process.env.NEXT_PUBLIC_BASE_URL ?? 'localhost';
-    const wsPort = process.env.NEXT_PUBLIC_WS_PORT;
-    const scheme = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const portSegment = wsPort ? `${wsPort}` : '';
-    return `${scheme}://${wsHost}${portSegment}/ws`;
-  }
-
   const buildMessageHandlers = () => {
     const callbacks = callbacksRef.current || {};
     const externalHandlers = handlersRef.current || {};
@@ -389,7 +382,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
 
       subscribeToChannel(ws);
 
-      const wsUrl = getWSUrl();
+      const wsUrl = buildWebsocketUrl();
       await ws.connect({ url: wsUrl });
 
       await ws.sendCommand("command", { type: "initializeConnection", accessToken: accessToken, payload: { sessionID } });

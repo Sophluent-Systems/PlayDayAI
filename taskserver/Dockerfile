@@ -14,7 +14,7 @@ COPY ./.env ./
 COPY ./taskserver/*.cjs ./
 COPY ./taskserver/*.mjs ./
 COPY ./taskserver/*.json ./
-COPY ./src/server ./src/server
+COPY ./taskserver/src/server ./src/server
 COPY ./packages/shared/src/backend ./packages/shared/src/backend
 COPY ./packages/shared/src/common ./packages/shared/src/common
 

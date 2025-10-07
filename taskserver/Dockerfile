@@ -14,9 +14,9 @@ COPY ./.env* /app
 COPY ./taskserver/*.cjs /app
 COPY ./taskserver/*.mjs /app
 COPY ./taskserver/*.json /app
-COPY ./taskserver/src/server /app/src/server
-COPY ./packages/shared/src/backend /app/packages/shared/src/backend
-COPY ./packages/shared/src/common /app/packages/shared/src/common
+COPY ./taskserver/src/server /app/src
+COPY ./packages/shared/src/backend /app/packages/shared/src
+COPY ./packages/shared/src/common /app/packages/shared/src
 
 RUN npm install -g pnpm
 

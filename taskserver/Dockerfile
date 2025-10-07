@@ -10,13 +10,13 @@ WORKDIR /app
 ENV NODE_ENV=${NODE_ENV}
 
 # Copy application sources
-COPY ./.env* /
-COPY ./taskserver/*.cjs /
-COPY ./taskserver/*.mjs /
-COPY ./taskserver/*.json /
-COPY ./taskserver/src/server /src/server
-COPY ./packages/shared/src/backend /packages/shared/src/backend
-COPY ./packages/shared/src/common /packages/shared/src/common
+COPY ./.env* /app
+COPY ./taskserver/*.cjs /app
+COPY ./taskserver/*.mjs /app
+COPY ./taskserver/*.json /app
+COPY ./taskserver/src/server /app/src/server
+COPY ./packages/shared/src/backend /app/packages/shared/src/backend
+COPY ./packages/shared/src/common /app/packages/shared/src/common
 
 RUN npm install -g pnpm
 

@@ -203,9 +203,14 @@ cleanup_previous_state() {
     echo "### Resetting previous certbot/nginx state ..."
     docker_compose stop nginx certbot >/dev/null 2>&1 || true
     docker_compose rm -fsv nginx certbot >/dev/null 2>&1 || true
-    rm -rf "${data_path:?}"
+    if docker_compose run --rm --entrypoint sh certbot -c "rm -rf /etc/letsencrypt/* /var/log/letsencrypt/* /var/www/certbot/*" >/dev/null 2>&1; then
+        echo "Cleared certbot volumes via container."
+    else
+        echo "Warning: Failed to clean volumes via certbot container; falling back to host cleanup." >&2
+        rm -rf "${data_path:?}" 2>/dev/null || true
+    fi
     rm -f "${renew_script}"
-    rm -rf "${renew_log_dir}"
+    rm -rf "${renew_log_dir}" 2>/dev/null || true
     mkdir -p "${data_path}"
 }
 

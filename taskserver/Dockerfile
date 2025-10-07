@@ -10,7 +10,7 @@ WORKDIR /app
 ENV NODE_ENV=${NODE_ENV}
 
 # Copy application sources
-COPY ./.env ./
+COPY ./.env* ./
 COPY ./taskserver/*.cjs ./
 COPY ./taskserver/*.mjs ./
 COPY ./taskserver/*.json ./

@@ -15,7 +15,8 @@ COPY ./taskserver/*.cjs ./
 COPY ./taskserver/*.mjs ./
 COPY ./taskserver/*.json ./
 COPY ./src/server ./src/server
-COPY ./packages/shared ./packages/shared
+COPY ./packages/shared/src/backend ./packages/shared/src/backend
+COPY ./packages/shared/src/common ./packages/shared/src/common
 
 # Install dependencies
 RUN yarn install

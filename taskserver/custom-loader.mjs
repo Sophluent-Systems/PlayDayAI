@@ -34,6 +34,24 @@ function resolveWithAliases(specifier) {
   return null;
 }
 
+
+async function resolveFromAppRoot(specifier, context, defaultResolve) {
+  const fallbackParentURL = pathToFileURL(path.join(loaderDir, 'server.mjs')).href;
+  const patchedContext = {
+    ...context,
+    parentURL: fallbackParentURL,
+  };
+
+  try {
+    return await defaultResolve(specifier, patchedContext, defaultResolve);
+  } catch (error) {
+    if (error && error.code !== 'ERR_MODULE_NOT_FOUND') {
+      console.debug(`[custom-loader] resolveFromAppRoot fallback failed for ${specifier}:`, error);
+    }
+    return null;
+  }
+}
+
 function resolveFromTaskserverNodeModules(specifier) {
   if (!specifier || specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('file:')) {
     return null;
@@ -64,6 +82,11 @@ export async function resolve(specifier, context, defaultResolve) {
     try {
       return await defaultResolve(newSpecifier, context, defaultResolve);
     } catch (secondError) {
+      const appRootMatch = await resolveFromAppRoot(specifier, context, defaultResolve);
+      if (appRootMatch) {
+        return appRootMatch;
+      }
+
       const nodeModulesMatch = resolveFromTaskserverNodeModules(specifier);
       if (nodeModulesMatch) {
         try {

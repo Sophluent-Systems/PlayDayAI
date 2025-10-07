@@ -1,5 +1,7 @@
 #!/bin/bash
 set -euo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 
 # References:
 #   - Let's Encrypt staging environment guidance: https://letsencrypt.org/docs/staging-environment/
@@ -193,13 +195,37 @@ docker_compose() {
 
 data_path="${HOME}/.playday/ssldata/certbot"
 email="${SSL_CERT_EMAIL}"
+renew_script="${data_path}/renew.sh"
+renew_log_dir="${data_path}/logs"
+renew_log_file="${renew_log_dir}/renew.log"
 
+cleanup_previous_state() {
+    echo "### Resetting previous certbot/nginx state ..."
+    docker_compose stop nginx certbot >/dev/null 2>&1 || true
+    docker_compose rm -fsv nginx certbot >/dev/null 2>&1 || true
+    rm -rf "${data_path:?}"
+    rm -f "${renew_script}"
+    rm -rf "${renew_log_dir}"
+    mkdir -p "${data_path}"
+}
+
+existing_state=false
 if [[ -d "${data_path}" ]]; then
-    read -rp "Existing certificate data detected at ${data_path}. Overwrite? (y/N) " decision
+    existing_state=true
+fi
+existing_services="$(docker_compose ps --services 2>/dev/null || true)"
+if [[ "${existing_services}" == *certbot* || "${existing_services}" == *nginx* ]]; then
+    existing_state=true
+fi
+
+if [[ "${existing_state}" == true ]]; then
+    read -rp "Existing certificate data or containers detected. Reset before continuing? (Y/n) " decision
+    decision=${decision:-Y}
     if [[ ! "${decision}" =~ ^[Yy]$ ]]; then
-        echo "Aborting."
+        echo "Aborting without modifying state."
         exit 0
     fi
+    cleanup_previous_state
 fi
 
 if [[ ! -e "${data_path}/conf/options-ssl-nginx.conf" || ! -e "${data_path}/conf/ssl-dhparams.pem" ]]; then
@@ -222,7 +248,7 @@ echo "### Removing temporary certificate files ..."
 docker_compose run --rm --entrypoint "  rm -Rf /etc/letsencrypt/live/${PRIMARY_DOMAIN} &&   rm -Rf /etc/letsencrypt/archive/${PRIMARY_DOMAIN} &&   rm -Rf /etc/letsencrypt/renewal/${PRIMARY_DOMAIN}.conf" certbot >/dev/null
 
 certbot_args=(
-    certbot certonly
+    certonly
     --webroot -w /var/www/certbot
     --non-interactive
     --agree-tos
@@ -246,18 +272,65 @@ for domain in "${DOMAINS[@]}"; do
 done
 
 echo "### Requesting ${CERTBOT_MODE_LABEL} certificate ..."
-docker_compose run --rm certbot "${certbot_args[@]}"
+docker_compose run --rm --entrypoint certbot certbot "${certbot_args[@]}"
 
 echo "### Reloading nginx to serve the new certificate ..."
 docker_compose exec nginx nginx -s reload
 
 echo "### Performing renewal dry run (recommended by Certbot documentation) ..."
-docker_compose run --rm certbot certbot renew --dry-run
+docker_compose run --rm --entrypoint certbot certbot renew --dry-run
+
+mkdir -p "${renew_log_dir}"
+
+cat > "${renew_script}" <<RENEW
+#!/bin/bash
+set -euo pipefail
+
+export PLAYDAY_ENV_FILE="${compose_env_file}"
+cd "${script_dir}"
+
+docker_compose_cmd() {
+  if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "\$@"
+  else
+    docker compose "\$@"
+  fi
+}
+
+if docker_compose_cmd run --rm --entrypoint certbot certbot renew --quiet; then
+  docker_compose_cmd exec nginx nginx -s reload >/dev/null 2>&1 || true
+fi
+RENEW
+chmod +x "${renew_script}"
+
+if command -v crontab >/dev/null 2>&1; then
+    bash_path="$(command -v bash)"
+    if [[ -n "${bash_path}" ]]; then
+        cron_entry="0 */12 * * * ${bash_path} ${renew_script} >> ${renew_log_file} 2>&1"
+        existing_crontab="$(crontab -l 2>/dev/null || true)"
+        if [[ "${existing_crontab}" != *"${renew_script}"* ]]; then
+            {
+                if [[ -n "${existing_crontab}" ]]; then
+                    printf '%s\n' "${existing_crontab}"
+                fi
+                printf '%s\n' "${cron_entry}"
+            } | crontab -
+            echo "Configured certbot renewal cron job (0 */12 * * *). Logs: ${renew_log_file}"
+        else
+            echo "Certbot renewal cron job already configured."
+        fi
+    else
+        echo "Warning: Unable to locate 'bash'; skipping automatic renewal scheduling."
+    fi
+else
+    echo "Warning: 'crontab' command not available; skipping automatic renewal scheduling."
+fi
+
 
 echo
 echo "Recommended next steps:"
-echo "  - Schedule 'docker compose run --rm certbot certbot renew' via cron/systemd (runs idempotently)."
-echo "  - After each successful renewal, reload nginx: 'docker compose exec nginx nginx -s reload'."
+echo "  - Cron job installed (0 */12 * * *) to run ${renew_script}; review ${renew_log_file} for results."
+echo "  - After manual renewals, run 'docker compose exec nginx nginx -s reload' if nginx has not reloaded automatically."
 echo "  - Monitor ${data_path}/logs/ for renewal activity."
 echo
 

@@ -409,7 +409,7 @@ fi
 
 echo
 echo "Recommended next steps:"
-echo "  - Cron job installed (0 */12 * * *) to run ${renew_script}; review ${renew_log_file} for results."
+echo "  - Cron job installed (0 */12 * * *) to run /home/sophluent/.playday/ssldata/certbot/renew.sh; review /home/sophluent/.playday/ssldata/certbot/logs/renew.log for results."
 echo "  - After manual renewals, run 'docker compose exec nginx nginx -s reload' if nginx has not reloaded automatically."
 echo "  - Monitor ${data_path}/logs/ for renewal activity."
 echo

@@ -1,7 +1,7 @@
 import piscina from './piscinaSetup.js';
 import { RabbitMQPubSubChannel } from '@src/common/pubsub/rabbitmqpubsub.js';
 import { Constants } from "@src/common/defaultconfig";
-import { getMongoDb } from '@src/backend/mongodb.js';
+import { getMongoDb, closeMongoConnection } from '@src/backend/mongodb.js';
 import { threadGetActiveSessionList } from '../threads.js';
 import { PrettyDate } from '@src/common/date.js';
 import { enqueueNewTask } from '@src/backend/tasks';

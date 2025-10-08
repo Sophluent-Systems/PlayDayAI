@@ -48,7 +48,7 @@ const PRESET_DEFINITIONS = [
       danger: '#F87171',
       info: '#5EEAD4',
       border: '#1F2A44',
-      muted: '#0F1B2F',
+      muted: '#7D8FB3',
     },
   },
   {
@@ -72,7 +72,7 @@ const PRESET_DEFINITIONS = [
       danger: '#FB7185',
       info: '#60A5FA',
       border: '#2C2251',
-      muted: '#1A1632',
+      muted: '#9282C7',
     },
   },
   {
@@ -96,7 +96,7 @@ const PRESET_DEFINITIONS = [
       danger: '#F43F5E',
       info: '#38BDF8',
       border: '#2F3039',
-      muted: '#1E202A',
+      muted: '#8C92A1',
     },
   },
   {
@@ -120,7 +120,7 @@ const PRESET_DEFINITIONS = [
       danger: '#FB7185',
       info: '#C084FC',
       border: '#1C2438',
-      muted: '#101525',
+      muted: '#7788A7',
     },
   },
   {
@@ -144,7 +144,7 @@ const PRESET_DEFINITIONS = [
       danger: '#FCA5A5',
       info: '#A855F7',
       border: '#242530',
-      muted: '#181822',
+      muted: '#858C9F',
     },
   },
 ];

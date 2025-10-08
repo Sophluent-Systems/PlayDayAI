@@ -169,11 +169,19 @@ export function MultimediaInput({
   const accentBorderColor = theme?.colors?.borderColor || "rgba(148, 163, 184, 0.35)";
   const accentBackground = theme?.colors?.inputAreaBackgroundColor || "rgba(15, 23, 42, 0.35)";
   const textFieldBackground = theme?.colors?.inputAreaTextEntryBackgroundColor || "rgba(15, 23, 42, 0.18)";
+  const textFieldColor = theme?.colors?.inputTextEnabledColor || theme?.palette?.textPrimary || "#F8FAFF";
+  const placeholderColor = theme?.colors?.inputTextDisabledColor || theme?.palette?.textSecondary || "#94A3B8";
+  const caretColor = theme?.palette?.accent || theme?.colors?.sendMessageButtonActiveColor || "#38BDF8";
 
   return (
     <div
-      className="w-full rounded-3xl border border-border/60 bg-surface/90 p-4 shadow-soft backdrop-blur-xl"
-      style={{ backgroundColor: accentBackground, borderColor: accentBorderColor }}
+      className="w-full rounded-3xl border border-border/60 bg-surface/90 p-4 shadow-soft"
+      style={{ 
+        backgroundColor: accentBackground, 
+        borderColor: accentBorderColor,
+        isolation: 'isolate',
+        pointerEvents: 'auto'
+      }}
     >
       {dropEnabled ? (
         <div
@@ -184,6 +192,7 @@ export function MultimediaInput({
                 ? "border-primary/60 bg-primary/10 text-primary"
                 : "border-border/50 bg-surface/60 text-muted hover:border-primary/40 hover:bg-primary/5",
             ),
+            style: { pointerEvents: 'auto' }
           })}
         >
           <input {...getInputProps()} />
@@ -202,7 +211,7 @@ export function MultimediaInput({
 
       <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
         {supportsText ? (
-          <div className="flex-1">
+          <label className="relative block w-full cursor-text md:flex-1" style={{ minHeight: '56px' }}>
             <textarea
               maxLength={inputLength}
               value={media.text?.data ?? ""}
@@ -210,13 +219,24 @@ export function MultimediaInput({
               onKeyDown={onKeyDown}
               disabled={!waitingForInput}
               placeholder="Type your next turn here..."
-              className="min-h-[56px] w-full resize-y rounded-2xl border border-border/60 px-4 py-3 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none"
-              style={{ backgroundColor: textFieldBackground }}
+              rows={2}
+              className="block w-full resize-y rounded-2xl border border-border/60 px-4 py-3 text-sm text-emphasis placeholder:text-[var(--placeholder-color)] transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ 
+                backgroundColor: textFieldBackground,
+                color: textFieldColor,
+                caretColor,
+                '--placeholder-color': placeholderColor,
+                minHeight: '56px',
+                height: 'auto',
+                boxSizing: 'border-box',
+                display: 'block',
+                WebkitAppearance: 'none'
+              }}
             />
-          </div>
+          </label>
         ) : null}
 
-        <div className="flex w-full items-center justify-end gap-3 md:w-auto">
+        <div className="flex w-full shrink-0 items-center justify-end gap-3 md:w-auto" style={{ pointerEvents: 'auto' }}>
           {supportsAudio && !media.audio ? (
             <SpeechRecorder
               onRecordingComplete={handleAudioSave}
@@ -261,6 +281,7 @@ export function MultimediaInput({
                 ? "bg-primary hover:bg-primary/90"
                 : "bg-border/70 text-muted",
             )}
+            style={{ pointerEvents: 'auto' }}
           >
             <SendHorizonal className="h-4 w-4" aria-hidden="true" />
             <span className="hidden md:inline">Send</span>

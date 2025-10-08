@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useDropzone } from "react-dropzone";
 import { UploadCloud, SendHorizonal, Trash2 } from "lucide-react";
@@ -61,7 +61,30 @@ export function MultimediaInput({
   const supportsVideo = supportedMediaTypes?.includes("video");
   const dropEnabled = supportsImage || supportsVideo;
 
+  const MIN_TEXTAREA_HEIGHT = 44;
+  const MAX_TEXTAREA_HEIGHT = 200;
+
+  const textAreaRef = useRef(null);
+
   const previews = useObjectURLs(media);
+
+  useEffect(() => {
+    if (!supportsText) {
+      return;
+    }
+
+    const element = textAreaRef.current;
+    if (!element) {
+      return;
+    }
+
+    element.style.height = "auto";
+    const nextHeight = Math.min(
+      Math.max(element.scrollHeight, MIN_TEXTAREA_HEIGHT),
+      MAX_TEXTAREA_HEIGHT,
+    );
+    element.style.height = `${nextHeight}px`;
+  }, [media.text?.data, supportsText]);
 
   const handleAudioSave = (blob) => {
     if (sendAudioOnSpeechEnd) {
@@ -211,25 +234,27 @@ export function MultimediaInput({
 
       <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
         {supportsText ? (
-          <label className="relative block w-full cursor-text md:flex-1" style={{ minHeight: '56px' }}>
+          <label className="relative block w-full cursor-text md:flex-1" style={{ minHeight: `${MIN_TEXTAREA_HEIGHT}px` }}>
             <textarea
+              ref={textAreaRef}
               maxLength={inputLength}
               value={media.text?.data ?? ""}
               onChange={(event) => updateText(event.target.value)}
               onKeyDown={onKeyDown}
               disabled={!waitingForInput}
               placeholder="Type your next turn here..."
-              rows={2}
-              className="block w-full resize-y rounded-2xl border border-border/60 px-4 py-3 text-sm text-emphasis placeholder:text-[var(--placeholder-color)] transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+              rows={1}
+              className="block w-full resize-none rounded-2xl border border-border/60 px-4 py-3 text-base text-emphasis placeholder:text-[var(--placeholder-color)] transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ 
                 backgroundColor: textFieldBackground,
                 color: textFieldColor,
                 caretColor,
                 '--placeholder-color': placeholderColor,
-                minHeight: '56px',
+                minHeight: `${MIN_TEXTAREA_HEIGHT}px`,
                 height: 'auto',
                 boxSizing: 'border-box',
                 display: 'block',
+                overflow: 'hidden',
                 WebkitAppearance: 'none'
               }}
             />

@@ -691,13 +691,13 @@ export const nodeTypeMenus = {
           type: "fieldlist",
           fields: [
             {
-              label: "Model (currently only whisper-1 is suppored)",
+              label: "Model",
               type: "text",
               path: "params.model",
               tooltip: "Model to use",
               maxChar: 50,
               multiline: false,
-              defaultValue: "whisper-1",
+              defaultValue: "gpt-4o-transcribe",
             },
             {
               label: "Server URL",

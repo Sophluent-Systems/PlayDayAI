@@ -51,7 +51,7 @@ export class sttNode extends nodeType {
         // Upload blob as a file to the API
         //
         const formData = new FormData();
-        formData.append("model", "whisper-1");
+        formData.append("model", params.model || "whisper-1");
         formData.append("response_format", "text");
         formData.append("file", blob, fileName);
         const headers = {

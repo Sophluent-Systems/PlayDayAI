@@ -8,7 +8,7 @@ async function doTxt2AudioRequest(params) {
   const { Constants } = Config;
 
   const apiParams = {
-    model: params.model || "tts-1",
+    model: params.model || "gpt-4o-mini-tts",
     input: params.text,
     voice: params.voice || "alloy",
   }

@@ -3,7 +3,7 @@ import { nullUndefinedOrEmpty } from "@src/common/objects";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { getAccountServiceKey } from "@src/backend/accounts";
 
-const DEFAULT_MODEL = "eleven_multilingual_v2";
+const DEFAULT_MODEL = "eleven_v3";
 const DEFAULT_OUTPUT_FORMAT = "mp3_44100_128";
 const LEGACY_VOICE_NAME_HINTS = new Map([
   ["rachel", "21m00Tcm4TlvDq8ikWAM"],

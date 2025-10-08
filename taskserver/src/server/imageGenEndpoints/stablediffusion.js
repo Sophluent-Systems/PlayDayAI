@@ -34,7 +34,16 @@ async function doTxt2ImgRequest(params) {
     responseType: "arraybuffer"
   };
 
-  const url = params.serverUrl + `/${params.model}`;
+  let requestModel = params.model;
+  let endpointSuffix = requestModel;
+
+  // SD 3.5 variants use the sd3 endpoint with the model specified in the payload
+  if (typeof requestModel === 'string' && requestModel.startsWith('sd3.5-')) {
+    endpointSuffix = 'sd3';
+    formData.append('model', requestModel);
+  }
+
+  const url = `${params.serverUrl}/${endpointSuffix}`;
 
   Constants.debug.logImageGen &&  console.log("txt2img url: ", url)
   Constants.debug.logImageGen &&  console.log("txt2img params: ", formData)

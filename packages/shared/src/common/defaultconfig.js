@@ -23,55 +23,127 @@ export const defaultConstants = {
                 "label": "GPT-4o",
                 "defaultInputFormat": "chatinstruct",
                 "defaultOutputFormat": "text",
-                "defaultUrl": "https://api.openai.com/v1/completions"
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
+            },
+            "gpt-5": {
+                "label": "GPT-5",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
+            },
+            "gpt-4.1": {
+                "label": "GPT-4.1",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
             },
             "gpt-4o-mini": {
                 "label": "GPT-4o-mini",
                 "defaultInputFormat": "chatinstruct",
                 "defaultOutputFormat": "text",
-                "defaultUrl": "https://api.openai.com/v1/completions"
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
+            },
+            "gpt-5-mini": {
+                "label": "GPT-5 Mini",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
+            },
+            "gpt-4.1-mini": {
+                "label": "GPT-4.1 Mini",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
+            },
+            "gpt-5-nano": {
+                "label": "GPT-5 Nano",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
             },
             "o1-preview": {
                 "label": "o1 Preview",
                 "defaultInputFormat": "chatinstruct",
                 "defaultOutputFormat": "text",
-                "defaultUrl": "https://api.openai.com/v1/completions"
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
             },
             "o1-mini": {
                 "label": "o1 Mini",
                 "defaultInputFormat": "chatinstruct",
                 "defaultOutputFormat": "text",
-                "defaultUrl": "https://api.openai.com/v1/completions"
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
             },
-            "gpt-4": {
-                "label": "GPT-4",
+            "gpt-5-pro": {
+                "label": "GPT-5 Pro",
                 "defaultInputFormat": "chatinstruct",
                 "defaultOutputFormat": "text",
-                "defaultUrl": "https://api.openai.com/v1/completions"
+                "defaultUrl": "https://api.openai.com/v1/chat/completions"
             },
-            "gpt-4-turbo": {
-                "label": "GPT-4-turbo",
-                "defaultInputFormat": "chatinstruct",
-                "defaultOutputFormat": "text",
-                "defaultUrl": "https://api.openai.com/v1/completions"
-            },
-            "claude-3-5-sonnet-20240620": {
-                "label": "Claude 3.5 Sonnet",
+            "claude-sonnet-4-5-20250929": {
+                "label": "Claude Sonnet 4.5",
                 "defaultInputFormat": "chatinstruct",
                 "defaultOutputFormat": "text",
                 "defaultUrl": "https://api.anthropic.com/v1/messages"
             },
-            "claude-3-opus-20240229": {
-                "label": "Claude 3 Opus",
+            "claude-sonnet-4-20250514": {
+                "label": "Claude Sonnet 4",
                 "defaultInputFormat": "chatinstruct",
                 "defaultOutputFormat": "text",
                 "defaultUrl": "https://api.anthropic.com/v1/messages"
             },
-            "gemini-1.5-flash": {
-                "label": "Gemini 1.5-flash",
+            "claude-3-7-sonnet-20250219": {
+                "label": "Claude 3.7 Sonnet",
                 "defaultInputFormat": "chatinstruct",
                 "defaultOutputFormat": "text",
-                "defaultUrl": "<google>"
+                "defaultUrl": "https://api.anthropic.com/v1/messages"
+            },
+            "claude-opus-4-1-20250805": {
+                "label": "Claude Opus 4.1",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://api.anthropic.com/v1/messages"
+            },
+            "claude-opus-4-20250514": {
+                "label": "Claude Opus 4",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://api.anthropic.com/v1/messages"
+            },
+            "claude-3-5-haiku-20241022": {
+                "label": "Claude 3.5 Haiku",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://api.anthropic.com/v1/messages"
+            },
+            "gemini-2.5-pro": {
+                "label": "Gemini 2.5 Pro",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://generativelanguage.googleapis.com/v1beta/models"
+            },
+            "gemini-2.5-flash": {
+                "label": "Gemini 2.5 Flash",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://generativelanguage.googleapis.com/v1beta/models"
+            },
+            "gemini-2.5-flash-lite": {
+                "label": "Gemini 2.5 Flash Lite",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://generativelanguage.googleapis.com/v1beta/models"
+            },
+            "gemini-2.0-flash": {
+                "label": "Gemini 2.0 Flash",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://generativelanguage.googleapis.com/v1beta/models"
+            },
+            "gemini-2.0-flash-lite": {
+                "label": "Gemini 2.0 Flash Lite",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text",
+                "defaultUrl": "https://generativelanguage.googleapis.com/v1beta/models"
             },
             "llama-2-13b-chat": {
                 "label": "Llama 2 13B Chat",
@@ -92,20 +164,35 @@ export const defaultConstants = {
                 "label": "Airoboros L2 13B 3.1.1",
                 "defaultInputFormat": "llama2",
                 "defaultOutputFormat": "text"
+            },
+            "gemma-2-27b-it": {
+                "label": "Gemma 2 27B Instruct",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text"
+            },
+            "gemma-2-9b-it": {
+                "label": "Gemma 2 9B Instruct",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text"
+            },
+            "gemma-2-2b-it": {
+                "label": "Gemma 2 2B Instruct",
+                "defaultInputFormat": "chatinstruct",
+                "defaultOutputFormat": "text"
             }
         },
         "imageGeneration": {
             "stablediffusion": {
                 "label": "Stable Diffusion",
                 "defaultUrl": "http://img.playday.ai:7880/sdapi/v1/txt2img",
-                "defaultModel": "sdxl-1",
+                "defaultModel": "sd3.5-large",
                 "defaultWidth": 1024,
                 "defaultHeight": 1024
             },
             "openai": {
                 "label": "OpenAI",
                 "defaultUrl": "https://api.openai.com/v1/images",
-                "defaultModel": "dall-e-3",
+                "defaultModel": "gpt-image-1",
                 "defaultWidth": 1024,
                 "defaultHeight": 1024
             }
@@ -114,12 +201,12 @@ export const defaultConstants = {
             "elevenlabs": {
                 "label": "Eleven Labs",
                 "defaultUrl": "https://api.elevenlabs.io/v1/text-to-speech",
-                "defaultModel": "eleven_multilingual_v2"
+                "defaultModel": "eleven_v3"
             },
             "openai": {
                 "label": "OpenAI",
-                "defaultUrl": "https://api.openai.com/v1/tts",
-                "defaultModel": "tts-1"
+                "defaultUrl": "https://api.openai.com/v1/audio/speech",
+                "defaultModel": "gpt-4o-mini-tts"
             }
         }
     },
@@ -128,39 +215,54 @@ export const defaultConstants = {
             "openai": {
                 "models": [
                     "gpt-4o",
+                    "gpt-5",
+                    "gpt-4.1",
                     "gpt-4o-mini",
+                    "gpt-5-mini",
+                    "gpt-4.1-mini",
+                    "gpt-5-nano",
+                    "gpt-5-pro",
                     "o1-preview",
-                    "o1-mini",
-                    "gpt-4",
-                    "gpt-4-turbo"
+                    "o1-mini"
                 ],
                 "label": "OpenAI API",
                 "type": "openai",
-                "defaultModel": "gpt-4o",
-                "defaultUrl": "https://api.openai.com/v1/completions",
+                "defaultModel": "gpt-5",
+                "defaultUrl": "https://api.openai.com/v1/chat/completions",
                 "defaultInputFormat": "chatinstruct",
                 "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
             },
             "anthropic": {
                 "models": [
-                    "claude-3-5-sonnet-20240620",
-                    "claude-3-opus-20240229"
+                    "claude-sonnet-4-5-20250929",
+                    "claude-sonnet-4-20250514",
+                    "claude-3-7-sonnet-20250219",
+                    "claude-opus-4-1-20250805",
+                    "claude-opus-4-20250514",
+                    "claude-3-5-haiku-20241022"
                 ],
-                "label": "Claude 3",
+                "label": "Claude",
                 "type": "anthropic",
-                "defaultModel": "claude-3-sonnet-20240620",
+                "defaultModel": "claude-sonnet-4-5-20250929",
                 "defaultUrl": "https://api.anthropic.com/v1/messages",
                 "defaultInputFormat": "chatinstruct",
                 "defaultAPIKey": "setting:anthropicKey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
             },
             "google": {
                 "models": [
-                    "gemini-1.5-flash"
+                    "gemini-2.5-pro",
+                    "gemini-2.5-flash",
+                    "gemini-2.5-flash-lite",
+                    "gemini-2.0-flash",
+                    "gemini-2.0-flash-lite",
+                    "gemma-2-27b-it",
+                    "gemma-2-9b-it",
+                    "gemma-2-2b-it"
                 ],
-                "label": "Gemini 1.5-flash",
+                "label": "Gemini 2.5",
                 "type": "google",
-                "defaultModel": "gemini-1.5-flash",
-                "defaultUrl": "<google>",
+                "defaultModel": "gemini-2.5-pro",
+                "defaultUrl": "https://generativelanguage.googleapis.com/v1beta/models",
                 "defaultInputFormat": "chatinstruct",
                 "defaultAPIKey": "setting:googleLLMKey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
             },
@@ -174,33 +276,38 @@ export const defaultConstants = {
                 "label": "PlayDay.ai WebUI Endpoint",
                 "type": "local",
                 "defaultModel": "dolphin-2.2.1-mistral-7B",
-                "defaultUrl": "http://llm.playday.ai:5000/v1/completions",
+                "defaultUrl": "http://llm.playday.ai:5000/v1/chat/completions",
                 "defaultInputFormat": "chatml"
             }
         },
         "imageGeneration": {
             "stablediffusion": {
                 "models": [
-                    "core",
-                    "sd3"
+                    "sd3.5-large",
+                    "sd3.5-large-turbo",
+                    "sd3.5-medium",
+                    "sd3.5-flash",
+                    "core"
                 ],
                 "label": "Stable Diffusion",
                 "type": "stablediffusion",
                 "defaultUrl": "https://api.stability.ai/v2beta/stable-image/generate",
                 "defaultAPIKey": "setting:stabilityAIKey;sk-xxxxxxxxxxxxxxxxxxxxxxxx",
-                "defaultModel": "core",
+                "defaultModel": "sd3.5-large",
                 "defaultWidth": 1024,
                 "defaultHeight": 1024
             },
             "openai": {
                 "models": [
+                    "gpt-image-1",
+                    "gpt-image-1-mini",
                     "dall-e-3"
                 ],
                 "label": "OpenAI",
                 "type": "openai",
                 "defaultUrl": "https://api.openai.com/v1/images",
                 "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx",
-                "defaultModel": "dall-e-3",
+                "defaultModel": "gpt-image-1",
                 "defaultWidth": 1024,
                 "defaultHeight": 1024
             }
@@ -208,27 +315,31 @@ export const defaultConstants = {
         "audioGeneration": {
             "elevenlabs": {
                 "models": [
-                    "eleven_monolingual_v1",
-                    "eleven_multilingual_v1",
-                    "eleven_multilingual_v2",
-                    "eleven_turbo_v2"
+                    "eleven_v3",
+                    "eleven_turbo_v2_5",
+                    "eleven_turbo_v2",
+                    "eleven_flash_v2_5",
+                    "eleven_flash_v2",
+                    "eleven_multilingual_v2"
                 ],
                 "label": "Eleven Labs",
                 "type": "elevenlabs",
-                "defaultModel": "eleven_multilingual_v2",
+                "defaultModel": "eleven_v3",
                 "defaultVoice": "Rachel",
                 "defaultUrl": "https://api.elevenlabs.io/v1/text-to-speech",
                 "defaultAPIKey": "setting:elevenLabsKey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
             },
             "openai": {
                 "models": [
-                    "tts-1"
+                    "gpt-4o-mini-tts",
+                    "gpt-audio",
+                    "gpt-audio-mini"
                 ],
                 "label": "OpenAI",
                 "type": "openai",
-                "defaultModel": "tts-1",
+                "defaultModel": "gpt-4o-mini-tts",
                 "defaultVoice": "alloy",
-                "defaultUrl": "https://api.openai.com/v1/tts",
+                "defaultUrl": "https://api.openai.com/v1/audio/speech",
                 "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
             }
         }
@@ -414,8 +525,8 @@ export const defaultConstants = {
         "sessionPubSub": {
             "inactivityTimeout": 10 * 60 * 1000
         },
-        "sandboxLLMBlockingUrl": "http://127.0.0.1:4000/v1/completions",
-        "sandboxLLMStreamingUrl": "http://127.0.0.1:4000/v1/completions"
+        "sandboxLLMBlockingUrl": "http://127.0.0.1:4000/v1/chat/completions",
+        "sandboxLLMStreamingUrl": "http://127.0.0.1:4000/v1/chat/completions"
     }
 };
 

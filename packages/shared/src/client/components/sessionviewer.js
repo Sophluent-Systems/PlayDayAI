@@ -55,18 +55,28 @@ export function SessionViewer({ theme, sessionID, game, editMode }) {
       const { message, isPlayerRating, rating } = params;
       try {
         const result = await callSubmitMessageRating(
-          session,
-          message.index,
+          sessionID,
+          message.recordID,
           isPlayerRating ? rating : undefined,
           !isPlayerRating ? rating : undefined,
         );
-        const updatedMessage = { ...result.message };
-        const arrayIndex = findMessageIndexByRecordID(messages, message.recordID);
-        if (arrayIndex >= 0) {
-          setMessages((current) => {
-            const next = [...current];
-            next[arrayIndex] = updatedMessage;
-            return next;
+        
+        // Update the message in local state since SessionViewer doesn't use websockets
+        const messageIndex = findMessageIndexByRecordID(messages, message.recordID);
+        if (messageIndex >= 0) {
+          setMessages((currentMessages) => {
+            const updatedMessages = [...currentMessages];
+            const updatedMessage = { ...updatedMessages[messageIndex] };
+            
+            // Update the ratings field
+            updatedMessage.ratings = {
+              ...updatedMessage.ratings,
+              ...(isPlayerRating ? { playerRating: rating } : { adminRating: rating })
+            };
+            
+            updatedMessages[messageIndex] = updatedMessage;
+            console.log('[SessionViewer DEBUG] Updated message ratings:', JSON.stringify(updatedMessage.ratings));
+            return updatedMessages;
           });
         }
       } catch (error) {

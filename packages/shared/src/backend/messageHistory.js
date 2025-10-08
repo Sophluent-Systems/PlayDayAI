@@ -28,6 +28,68 @@ function getRecordHistoryForAncestor(records, ancestorRecord) {
   return history;
 }
 
+function parseRecordTimeValue(value) {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isNaN(time) ? null : time;
+  }
+  if (typeof value === 'number') {
+    return Number.isNaN(value) ? null : value;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function getRecordSortTime(record) {
+  if (!record) {
+    return 0;
+  }
+  const completion = parseRecordTimeValue(record.completionTime);
+  if (completion !== null) {
+    return completion;
+  }
+  const start = parseRecordTimeValue(record.startTime);
+  if (start !== null) {
+    return start;
+  }
+  const timestamp = parseRecordTimeValue(record.timestamp);
+  if (timestamp !== null) {
+    return timestamp;
+  }
+  return 0;
+}
+
+function sortRecordsByCompletionTime(records, sortNewestFirst = false) {
+  const sorted = [...records].sort((a, b) => {
+    const timeA = getRecordSortTime(a);
+    const timeB = getRecordSortTime(b);
+    if (timeA !== timeB) {
+      return timeA - timeB;
+    }
+    const startA = parseRecordTimeValue(a?.startTime) ?? 0;
+    const startB = parseRecordTimeValue(b?.startTime) ?? 0;
+    if (startA !== startB) {
+      return startA - startB;
+    }
+    const idA = a?.recordID ? String(a.recordID) : '';
+    const idB = b?.recordID ? String(b.recordID) : '';
+    if (idA && idB) {
+      return idA.localeCompare(idB);
+    }
+    if (idA) {
+      return -1;
+    }
+    if (idB) {
+      return 1;
+    }
+    return 0;
+  });
+  return sortNewestFirst ? sorted.reverse() : sorted;
+}
+
 export function filterRecords(records = [], params = {}) {
   const {
     includeDeleted = false,
@@ -130,6 +192,11 @@ export function messageFromRecord(versionInfo, record, params = {}) {
     nodeAttributes: getMetadataForNodeType(node.nodeType).nodeAttributes,
   };
 
+  // Include ratings if they exist
+  if (record.ratings) {
+    message.ratings = record.ratings;
+  }
+
   const defaultOutputField = message.nodeAttributes.defaultOutputField;
   const defaultOutput = record.output?.[defaultOutputField];
   message.content = defaultOutput || {};
@@ -199,16 +266,23 @@ export function exportRecordsAsMessageList(versionInfo, records = [], params = {
     return [];
   }
 
-  const { preFiltered, mediaTypes, ...rest } = params;
+  const {
+    preFiltered,
+    mediaTypes,
+    sortNewestFirst = false,
+    ...messageParams
+  } = params;
 
-  const workingRecords = preFiltered ? [...records] : filterRecords(records, rest);
+  const workingRecords = preFiltered ? [...records] : filterRecords(records, messageParams);
   if (workingRecords.length === 0) {
     return [];
   }
 
+  const orderedRecords = sortRecordsByCompletionTime(workingRecords, sortNewestFirst);
+
   const messages = [];
-  for (const record of workingRecords) {
-    const message = messageFromRecord(versionInfo, record, rest);
+  for (const record of orderedRecords) {
+    const message = messageFromRecord(versionInfo, record, messageParams);
     if (message) {
       messages.push(message);
     }
@@ -229,3 +303,4 @@ export async function exportSessionMessageList(db, session, params = {}) {
   const records = await getAllRecordsForSession(db, session.sessionID, sortNewestFirst, true);
   return exportRecordsAsMessageList(versionInfo, records, params);
 }
+

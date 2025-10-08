@@ -8,7 +8,89 @@ const RECONNECT_THRESHOLDS = [
   { threshold: 3, delay: 1000 },  // First 3 attempts: retry after 1s
   { threshold: 6, delay: 5000 },  // Next 3 attempts: retry after 5s
   { threshold: 10, delay: 30000 } // Final 4 attempts: retry after 30s
-];
+]
+
+const parseMessageTimeValue = (value) => {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isNaN(time) ? null : time;
+  }
+  if (typeof value === 'number') {
+    return Number.isNaN(value) ? null : value;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const getMessageSortTime = (message) => {
+  if (!message) {
+    return 0;
+  }
+  const completion = parseMessageTimeValue(message?.completionTime);
+  if (completion !== null) {
+    return completion;
+  }
+  const start = parseMessageTimeValue(message?.startTime);
+  if (start !== null) {
+    return start;
+  }
+  const timestamp = parseMessageTimeValue(message?.timestamp);
+  if (timestamp !== null) {
+    return timestamp;
+  }
+  return 0;
+};
+
+const getMessageSecondarySortTime = (message) => {
+  const start = parseMessageTimeValue(message?.startTime);
+  if (start !== null) {
+    return start;
+  }
+  const timestamp = parseMessageTimeValue(message?.timestamp);
+  if (timestamp !== null) {
+    return timestamp;
+  }
+  const completion = parseMessageTimeValue(message?.completionTime);
+  if (completion !== null) {
+    return completion;
+  }
+  return 0;
+};
+
+const getMessageStableKey = (message) => {
+  const key = message?.messageID ?? message?.recordID ?? null;
+  return key == null ? '' : String(key);
+};
+
+const sortMessagesForDisplay = (messages) => {
+  return [...messages].sort((a, b) => {
+    const primary = getMessageSortTime(a) - getMessageSortTime(b);
+    if (primary !== 0) {
+      return primary;
+    }
+    const secondary = getMessageSecondarySortTime(a) - getMessageSecondarySortTime(b);
+    if (secondary !== 0) {
+      return secondary;
+    }
+    const keyA = getMessageStableKey(a);
+    const keyB = getMessageStableKey(b);
+    if (keyA && keyB) {
+      return keyA.localeCompare(keyB);
+    }
+    if (keyA) {
+      return -1;
+    }
+    if (keyB) {
+      return 1;
+    }
+    return 0;
+  });
+};
+
+
 export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMessageComplete, debug, handlers, autoConnect = true }) {
   const { accessToken, refreshAccessToken } = React.useContext(stateManager);
   const [messages, setMessages] = useState([]);
@@ -34,48 +116,58 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
   const ownedChannelRef = useRef(null);
   const isReconnectingRef = useRef(false);
 
-  // Message management methods
-  const replaceMessages = (newMessages) => {
-
-    if (!Array.isArray(newMessages) || newMessages.length === 0) {
+  const commitMessages = useCallback((messageList) => {
+    if (!Array.isArray(messageList) || messageList.length === 0) {
       messageIndexMapRef.current = {};
       messagesRef.current = [];
       setMessages([]);
-      return [];
+      return { ordered: [], indexMap: {} };
     }
-
-    const indexedMessages = [...newMessages];
+    const ordered = sortMessagesForDisplay(messageList);
     const indexMap = {};
-    indexedMessages.forEach((msg, index) => {
+    ordered.forEach((msg, index) => {
       const key = resolveMessageKey(msg);
       if (key) {
         indexMap[key] = index;
       }
     });
     messageIndexMapRef.current = indexMap;
-    messagesRef.current = indexedMessages;
-    setMessages(indexedMessages);
-    return indexedMessages;
+    messagesRef.current = ordered;
+    setMessages(ordered);
+    return { ordered, indexMap };
+  }, [resolveMessageKey]);
+
+  // Message management methods
+  const replaceMessages = (newMessages) => {
+    if (!Array.isArray(newMessages) || newMessages.length === 0) {
+      commitMessages([]);
+      return [];
+    }
+
+    const { ordered } = commitMessages(newMessages);
+    return ordered;
   };
 
   const addMessage = (message) => {
     const key = resolveMessageKey(message);
     if (!key) return { message: null, isNew: false };
 
-    const index = messageIndexMapRef.current[key];
-    if (typeof index === 'number') {
-      const newMessages = [...messagesRef.current];
-      newMessages[index] = message;
-      messagesRef.current = newMessages;
-      setMessages(newMessages);
-      return { message: newMessages[index], isNew: false };
+    const existingIndex = messageIndexMapRef.current[key];
+    const baseMessages = [...messagesRef.current];
+    const isNew = typeof existingIndex !== 'number';
+
+    if (isNew) {
+      baseMessages.push(message);
+    } else {
+      baseMessages[existingIndex] = message;
     }
 
-    const newMessages = [...messagesRef.current, message];
-    messageIndexMapRef.current[key] = newMessages.length - 1;
-    messagesRef.current = newMessages;
-    setMessages(newMessages);
-    return { message, isNew: true };
+    const { ordered, indexMap } = commitMessages(baseMessages);
+    const index = indexMap[key];
+    return {
+      message: typeof index === 'number' ? ordered[index] : null,
+      isNew,
+    };
   };
 
   const updateMessageField = (messageID, field, value) => {
@@ -85,15 +177,16 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     const index = messageIndexMapRef.current[key];
     if (typeof index !== 'number') return null;
 
-    const newMessages = [...messagesRef.current];
+    const baseMessages = [...messagesRef.current];
     const updatedMessage = {
-      ...newMessages[index],
+      ...baseMessages[index],
       [field]: value
     };
-    newMessages[index] = updatedMessage;
-    messagesRef.current = newMessages;
-    setMessages(newMessages);
-    return updatedMessage;
+    baseMessages[index] = updatedMessage;
+
+    const { ordered, indexMap } = commitMessages(baseMessages);
+    const updatedIndex = indexMap[key];
+    return typeof updatedIndex === 'number' ? ordered[updatedIndex] : null;
   };
 
   const appendMessageContent = (messageID, content) => {
@@ -103,15 +196,45 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     const index = messageIndexMapRef.current[key];
     if (typeof index !== 'number') return null;
 
-    const newMessages = [...messagesRef.current];
+    const baseMessages = [...messagesRef.current];
+    const currentMessage = baseMessages[index];
+    const currentContent = currentMessage.content;
+
+    // DEBUG: Log what we're appending and the current structure
+    console.log('[appendMessageContent DEBUG] Appending to messageID:', messageID);
+    console.log('[appendMessageContent DEBUG] Content to append:', JSON.stringify(content));
+    console.log('[appendMessageContent DEBUG] Current message.content:', JSON.stringify(currentContent));
+    console.log('[appendMessageContent DEBUG] Current message.content type:', typeof currentContent);
+
+    // Handle content properly - it should be an object with media type keys (e.g., { text: "..." })
+    let updatedContent;
+    if (typeof currentContent === 'object' && currentContent !== null) {
+      // Content is an object (e.g., { text: "previous text" })
+      // We need to append to the text field specifically
+      updatedContent = { ...currentContent };
+      if (updatedContent.text !== undefined) {
+        updatedContent.text = (updatedContent.text || '') + content;
+      } else {
+        // If no text field exists yet, create it
+        updatedContent.text = content;
+      }
+    } else {
+      // Fallback: if content is a string or null/undefined, treat as string concatenation
+      updatedContent = (currentContent || '') + content;
+    }
+
+    console.log('[appendMessageContent DEBUG] Updated message.content:', JSON.stringify(updatedContent));
+
     const updatedMessage = {
-      ...newMessages[index],
-      content: (newMessages[index].content || '') + content
+      ...currentMessage,
+      content: updatedContent
     };
-    newMessages[index] = updatedMessage;
-    messagesRef.current = newMessages;
-    setMessages(newMessages);
-    return updatedMessage;
+
+    baseMessages[index] = updatedMessage;
+
+    const { ordered, indexMap } = commitMessages(baseMessages);
+    const updatedIndex = indexMap[key];
+    return typeof updatedIndex === 'number' ? ordered[updatedIndex] : null;
   };
 
   const finalizeMessage = (messageID) => {
@@ -121,15 +244,16 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     const index = messageIndexMapRef.current[key];
     if (typeof index !== 'number') return null;
 
-    const newMessages = [...messagesRef.current];
+    const baseMessages = [...messagesRef.current];
     const updatedMessage = {
-      ...newMessages[index],
+      ...baseMessages[index],
       isComplete: true
     };
-    newMessages[index] = updatedMessage;
-    messagesRef.current = newMessages;
-    setMessages(newMessages);
-    return updatedMessage;
+    baseMessages[index] = updatedMessage;
+
+    const { ordered, indexMap } = commitMessages(baseMessages);
+    const updatedIndex = indexMap[key];
+    return typeof updatedIndex === 'number' ? ordered[updatedIndex] : null;
   };
 
   const removeMessagesByRecordIDs = (recordIDs) => {
@@ -166,19 +290,8 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
       return { changed: false, messages: messagesRef.current };
     }
 
-    const newIndexMap = {};
-    filteredMessages.forEach((message, index) => {
-      const key = resolveMessageKey(message);
-      if (key) {
-        newIndexMap[key] = index;
-      }
-    });
-
-    messageIndexMapRef.current = newIndexMap;
-    messagesRef.current = filteredMessages;
-    setMessages(filteredMessages);
-
-    return { changed: true, messages: filteredMessages };
+    const { ordered } = commitMessages(filteredMessages);
+    return { changed: true, messages: ordered };
   };
 
   useEffect(() => {
@@ -248,7 +361,19 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
         if (verification?.sessionID !== sessionID) return;
         const key = resolveMessageKey(payload);
         if (!key) return;
+        
+        // DEBUG: Log field updates, especially ratings
+        if (payload.field === 'ratings') {
+          console.log('[message:field DEBUG] Ratings update received for key:', key);
+          console.log('[message:field DEBUG] New ratings value:', JSON.stringify(payload.value));
+        }
+        
         const updatedMessage = updateMessageField(key, payload.field, payload.value);
+        
+        if (payload.field === 'ratings') {
+          console.log('[message:field DEBUG] Updated message after ratings update:', JSON.stringify(updatedMessage));
+        }
+        
         callbacks.onMessageUpdate?.(key, payload.field, payload.value);
         if (updatedMessage) {
           externalHandlers.updateMessage?.(updatedMessage);

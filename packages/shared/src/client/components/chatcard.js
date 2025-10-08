@@ -118,6 +118,23 @@ export const ChatCard = memo((props) => {
     hideOutput,
   } = message;
 
+  // DEBUG: Log text content when it changes
+  useEffect(() => {
+    if (content && content.text) {
+      console.log('[ChatCard DEBUG] Text content changed for recordID:', recordID);
+      console.log('[ChatCard DEBUG] Text length:', content.text?.length);
+      console.log('[ChatCard DEBUG] Text value:', JSON.stringify(content.text));
+      console.log('[ChatCard DEBUG] Text preview (first 200 chars):', content.text.substring(0, 200));
+      console.log('[ChatCard DEBUG] Processing status:', processing);
+    }
+  }, [content, recordID, processing]);
+
+  // DEBUG: Log ratings when they change
+  useEffect(() => {
+    console.log('[ChatCard DEBUG] Ratings changed for recordID:', recordID);
+    console.log('[ChatCard DEBUG] Ratings value:', JSON.stringify(ratings));
+  }, [ratings, recordID]);
+
   const mediaTypes = nodeAttributes?.mediaTypes || [];
   const hidden = hideOutput || persona?.hideFromEndUsers;
   const isAIResponse = nodeAttributes?.isAIResponse;
@@ -232,6 +249,7 @@ export const ChatCard = memo((props) => {
           disabled={isReadOnly}
           onClick={() =>
             onCardActionSelected?.('responseFeedback', {
+              message,
               recordID,
               isPlayerRating,
               rating: -1,
@@ -252,6 +270,7 @@ export const ChatCard = memo((props) => {
           disabled={isReadOnly}
           onClick={() =>
             onCardActionSelected?.('responseFeedback', {
+              message,
               recordID,
               isPlayerRating,
               rating: 1,

@@ -16,17 +16,25 @@ import {
   Share2,
   Wrench,
   GraduationCap,
+  Loader2,
+  RefreshCcw,
+  User,
 } from 'lucide-react';
 import { stateManager } from '@src/client/statemanager';
 import { callGetAccountPermissionsForGame } from '@src/client/permissions';
-import { callListGameVersions } from '@src/client/editor';
+import { callGetAllSessionsForGame, callListGameVersions } from '@src/client/editor';
 import { ShareButton } from '@src/client/components/sharebutton';
+import { PrettyDate } from '@src/common/date';
 const MENU_WIDTH = 320;
 
 const permissionsCache = new Map();
 const permissionRequests = new Map();
 const versionsCache = new Map();
 const versionRequests = new Map();
+const sessionsCache = new Map();
+const sessionRequests = new Map();
+
+const SESSION_NAME_FALLBACK = 'Untitled session';
 
 function getCacheKey(accountID, gameUrl) {
   if (!accountID || !gameUrl) {
@@ -102,6 +110,61 @@ function getCachedVersions(accountID, gameUrl) {
   return request;
 }
 
+function filterSessionsForAccount(list, accountID) {
+  if (!Array.isArray(list) || !accountID) {
+    return [];
+  }
+  return list.filter((item) => {
+    const ownerID = item?.accountID ?? item?.account?.accountID;
+    return ownerID === accountID;
+  });
+}
+
+function formatSessionName(session) {
+  return session?.assignedName?.trim() ? session.assignedName : SESSION_NAME_FALLBACK;
+}
+
+function formatSessionUpdatedLabel(session) {
+  const timestamp = session?.latestUpdate || session?.lastUpdatedDate || session?.updatedAt;
+  if (!timestamp) {
+    return '--';
+  }
+  return PrettyDate(timestamp);
+}
+
+function getSessionCacheKey(gameID, versionID, accountID) {
+  if (!gameID || !versionID || !accountID) {
+    return null;
+  }
+  return `${gameID}::${versionID}::${accountID}`;
+}
+
+function getCachedSessions(gameID, versionID, accountID) {
+  const key = getSessionCacheKey(gameID, versionID, accountID);
+  if (!key) {
+    return Promise.resolve([]);
+  }
+  if (sessionsCache.has(key)) {
+    return Promise.resolve(sessionsCache.get(key));
+  }
+  if (sessionRequests.has(key)) {
+    return sessionRequests.get(key);
+  }
+  const request = callGetAllSessionsForGame(gameID, versionID, accountID)
+    .then((list) => {
+      const normalized = filterSessionsForAccount(Array.isArray(list) ? list : [], accountID);
+      sessionsCache.set(key, normalized);
+      sessionRequests.delete(key);
+      return normalized;
+    })
+    .catch((error) => {
+      sessionRequests.delete(key);
+      throw error;
+    });
+  sessionRequests.set(key, request);
+  return request;
+}
+
 function MenuPanel({ anchorRect, anchorElement, isOpen, children, onClose }) {
   const panelRef = useRef(null);
 
@@ -140,7 +203,13 @@ function MenuPanel({ anchorRect, anchorElement, isOpen, children, onClose }) {
   }
 
   const top = anchorRect.bottom + 12;
-  const left = Math.max(16, anchorRect.left + anchorRect.width - MENU_WIDTH);
+  const preferredLeft = anchorRect.right + 12;
+
+  let left = Math.max(16, preferredLeft);
+  if (typeof window !== 'undefined') {
+    const maxLeft = Math.max(16, window.innerWidth - MENU_WIDTH - 16);
+    left = Math.min(Math.max(16, preferredLeft), maxLeft);
+  }
 
   const panel = (
     <div
@@ -217,8 +286,10 @@ export function GameMenuDropdown({
     game,
     versionList,
     version: activeVersion,
+    session: activeSession,
     gamePermissions,
     switchVersionByName,
+    switchSessionID,
     navigateTo,
     editMode,
     hasServicePerms,
@@ -254,12 +325,22 @@ export function GameMenuDropdown({
   });
   const [anchorRect, setAnchorRect] = useState(null);
   const [showVersions, setShowVersions] = useState(false);
+  const [showSessions, setShowSessions] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
   const isAdmin = hasServicePerms ? hasServicePerms('service_modifyGlobalPermissions') : false;
   const menuOpen = Boolean(anchor);
+
+  const activeSessionID = activeSession?.sessionID ?? null;
+  const activeVersionID = activeVersion?.versionID ?? null;
+  const effectiveGameID = gameID || activeVersion?.gameID || activeSession?.gameID || game?.gameID || null;
+  const sessionCacheKey = getSessionCacheKey(effectiveGameID, activeVersionID, accountID);
+  const canListSessions = Boolean(editMode && gamePermissionsToUse?.includes('game_play') && activeVersionID && effectiveGameID && accountID);
 
   useEffect(() => {
     if (!menuOpen) {
       setShowVersions(false);
+      setShowSessions(false);
     }
   }, [menuOpen]);
 
@@ -283,6 +364,50 @@ export function GameMenuDropdown({
     }
     return undefined;
   }, [updateAnchorRect]);
+
+  useEffect(() => {
+    if (!sessionCacheKey) {
+      setSessions([]);
+      return;
+    }
+    if (sessionsCache.has(sessionCacheKey)) {
+      setSessions(sessionsCache.get(sessionCacheKey));
+    }
+  }, [sessionCacheKey]);
+
+  useEffect(() => {
+    if (!menuOpen || !canListSessions || !sessionCacheKey) {
+      return undefined;
+    }
+    let cancelled = false;
+
+    if (sessionsCache.has(sessionCacheKey)) {
+      setSessions(sessionsCache.get(sessionCacheKey));
+      return undefined;
+    }
+
+    setLoadingSessions(true);
+    getCachedSessions(effectiveGameID, activeVersionID, accountID)
+      .then((list) => {
+        if (!cancelled) {
+          setSessions(list);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error('Failed to load sessions for project menu', error);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingSessions(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [menuOpen, canListSessions, sessionCacheKey, effectiveGameID, activeVersionID, accountID]);
 
   useEffect(() => {
     if (!cacheKey && !(gameUrl === game?.url && Array.isArray(gamePermissions))) {
@@ -484,6 +609,43 @@ export function GameMenuDropdown({
     onMenuClose?.();
   };
 
+  const handleRefreshSessions = useCallback(async () => {
+    if (!canListSessions || !sessionCacheKey || !effectiveGameID || !activeVersionID || !accountID) {
+      return;
+    }
+    setLoadingSessions(true);
+    try {
+      const list = await callGetAllSessionsForGame(effectiveGameID, activeVersionID, accountID);
+      const normalized = filterSessionsForAccount(Array.isArray(list) ? list : [], accountID);
+      sessionsCache.set(sessionCacheKey, normalized);
+      setSessions(normalized);
+    } catch (error) {
+      console.error('Failed to refresh sessions for project menu', error);
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, [canListSessions, sessionCacheKey, effectiveGameID, activeVersionID, accountID]);
+
+  const handleSessionSelect = useCallback(
+    async (sessionID) => {
+      if (!sessionID) {
+        return;
+      }
+      if (sessionID === activeSessionID) {
+        onMenuClose?.();
+        return;
+      }
+      try {
+        await switchSessionID(sessionID, effectiveGameID);
+      } catch (error) {
+        console.error('Failed to switch session from project menu', error);
+      } finally {
+        onMenuClose?.();
+      }
+    },
+    [activeSessionID, switchSessionID, effectiveGameID, onMenuClose]
+  );
+
   const actions = useMemo(() => {
     if (!menuOpen) {
       return [];
@@ -550,6 +712,16 @@ export function GameMenuDropdown({
       }
     }
 
+    if (canListSessions) {
+      items.push({
+        key: 'session-switcher',
+        label: 'Switch session',
+        description: 'Resume a saved playtest session.',
+        icon: User,
+        type: 'sessions',
+      });
+    }
+
     if (allowEditOptions && editMode) {
       const canView = gamePermissionsToUse.includes('game_viewSource') || gamePermissionsToUse.includes('game_edit');
       if (canView && (versions.length > 0 || versionList?.length > 0)) {
@@ -593,6 +765,7 @@ export function GameMenuDropdown({
     editMode,
     versions.length,
     versionList,
+    canListSessions,
     isAdmin,
     isFeatured,
     onToggleFeatured,
@@ -638,6 +811,82 @@ export function GameMenuDropdown({
               if (action.render) {
                 return <div key={action.key}>{action.render}</div>;
               }
+              if (action.type === 'sessions') {
+                const isExpanded = showSessions;
+                const sessionCountLabel = loadingSessions ? '--' : `${sessions.length} saved`;
+                return (
+                  <div key={action.key}>
+                    <MenuItem
+                      icon={User}
+                      label={action.label}
+                      description={action.description}
+                      onClick={() => setShowSessions((prev) => !prev)}
+                      trailing={
+                        <span className="rounded-full bg-border/60 p-1 text-muted">
+                          {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        </span>
+                      }
+                      variant={isExpanded ? 'primary' : 'default'}
+                      disabled={!canListSessions}
+                    />
+                    {isExpanded ? (
+                      <div className="mt-2 space-y-3">
+                        <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted">
+                          <span>{sessionCountLabel}</span>
+                          <button
+                            type="button"
+                            onClick={handleRefreshSessions}
+                            disabled={loadingSessions}
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-1 transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <RefreshCcw className={clsx('h-3.5 w-3.5', loadingSessions && 'animate-spin text-primary')} aria-hidden="true" />
+                            Refresh
+                          </button>
+                        </div>
+                        {loadingSessions ? (
+                          <div className="flex items-center justify-center gap-2 rounded-2xl border border-border/60 bg-surface/80 px-4 py-5 text-sm text-muted">
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            Loading sessions
+                          </div>
+                        ) : sessions.length === 0 ? (
+                          <div className="rounded-2xl border border-border/60 bg-surface/80 px-4 py-5 text-sm text-muted">
+                            No saved sessions yet.
+                          </div>
+                        ) : (
+                          sessions.map((sessionItem) => {
+                            const isCurrent = sessionItem.sessionID === activeSessionID;
+                            const updatedLabel = formatSessionUpdatedLabel(sessionItem);
+                            return (
+                              <button
+                                key={sessionItem.sessionID}
+                                type="button"
+                                onClick={() => handleSessionSelect(sessionItem.sessionID)}
+                                className={clsx(
+                                  'flex w-full items-center justify-between rounded-2xl border px-3.5 py-2.5 text-left transition-all duration-200',
+                                  isCurrent
+                                    ? 'border-primary/60 bg-primary/10 text-primary'
+                                    : 'border-border/60 bg-surface/80 text-emphasis hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/10'
+                                )}
+                              >
+                                <span>
+                                  <span className="block text-sm font-semibold leading-tight">{formatSessionName(sessionItem)}</span>
+                                  <span className="mt-1 block text-[11px] text-muted">Updated {updatedLabel}</span>
+                                </span>
+                                {isCurrent ? (
+                                  <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+                                    Current
+                                  </span>
+                                ) : null}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              }
+
               if (action.type === 'versions') {
                 const isExpanded = showVersions;
                 return (

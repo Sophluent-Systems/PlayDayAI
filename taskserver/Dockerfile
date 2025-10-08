@@ -14,8 +14,8 @@ RUN npm install -g pnpm && pnpm fetch
 # (do NOT copy any .env files)
 COPY ./taskserver/*.cjs ./taskserver/*.mjs ./taskserver/*.json ./
 COPY ./taskserver/src/server ./src/server
-COPY ./packages/shared/src/backend ./packages/shared/src/backend
-COPY ./packages/shared/src/common ./packages/shared/src/common
+COPY ./packages/shared/src/backend /packages/shared/src/backend
+COPY ./packages/shared/src/common /packages/shared/src/common
 
 # Install deps
 RUN pnpm install --prod

@@ -219,6 +219,8 @@ export const ChatCard = memo((props) => {
       canRateResponse && isPlayerRating ? responseFeedbackMode?.user : responseFeedbackMode?.admin;
     let textHint = isPlayerRating ? null : 'Admin rating';
 
+    console.log('[renderResponseRatings DEBUG] Initial mode:', mode, 'editMode:', editMode, 'canRateResponse:', canRateResponse);
+
     if (editMode && canRateResponse) {
       if (isPlayerRating) {
         mode = null;
@@ -227,6 +229,8 @@ export const ChatCard = memo((props) => {
         textHint = 'Admin rating';
       }
     }
+
+    console.log('[renderResponseRatings DEBUG] Final mode:', mode);
 
     if (!mode) {
       return null;
@@ -238,6 +242,12 @@ export const ChatCard = memo((props) => {
 
     const thumbsDownTint = ratingExists && ratingValue <= 0;
     const thumbsUpTint = ratingExists && ratingValue > 0;
+
+    // DEBUG: Log rating button state
+    console.log('[renderResponseRatings DEBUG] isPlayerRating:', isPlayerRating, 'recordID:', recordID);
+    console.log('[renderResponseRatings DEBUG] ratings object:', JSON.stringify(ratings));
+    console.log('[renderResponseRatings DEBUG] ratingValue:', ratingValue, 'ratingExists:', ratingExists);
+    console.log('[renderResponseRatings DEBUG] thumbsDownTint:', thumbsDownTint, 'thumbsUpTint:', thumbsUpTint);
 
     return (
       <div className="flex items-center gap-2">
@@ -257,9 +267,9 @@ export const ChatCard = memo((props) => {
           }
           className={clsx(
             'flex h-8 w-8 items-center justify-center rounded-full border transition',
-            'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
-            thumbsDownTint && 'border-rose-400/60 bg-rose-500/70 text-rose-950',
-            isReadOnly && 'cursor-not-allowed opacity-60 hover:bg-white/5 hover:text-white/80',
+            !thumbsDownTint && 'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
+            thumbsDownTint && 'border-rose-400/60 bg-rose-500/70 text-rose-950 hover:bg-rose-600/80',
+            isReadOnly && 'cursor-not-allowed opacity-60',
           )}
           aria-label="Rate response thumbs down"
         >
@@ -278,9 +288,9 @@ export const ChatCard = memo((props) => {
           }
           className={clsx(
             'flex h-8 w-8 items-center justify-center rounded-full border transition',
-            'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
-            thumbsUpTint && 'border-emerald-400/70 bg-emerald-500/70 text-emerald-950',
-            isReadOnly && 'cursor-not-allowed opacity-60 hover:bg-white/5 hover:text-white/80',
+            !thumbsUpTint && 'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
+            thumbsUpTint && 'border-emerald-400/70 bg-emerald-500/70 text-emerald-950 hover:bg-emerald-600/80',
+            isReadOnly && 'cursor-not-allowed opacity-60',
           )}
           aria-label="Rate response thumbs up"
         >

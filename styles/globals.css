@@ -94,4 +94,30 @@ a:hover {
   }
 }
 
+/* Custom scrollbar styling for dropdown menus */
+.overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--color-border)) transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--color-border));
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--color-muted) / 0.5);
+}
+
 

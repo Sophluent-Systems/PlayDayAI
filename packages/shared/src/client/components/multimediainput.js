@@ -261,7 +261,7 @@ export function MultimediaInput({
           </label>
         ) : null}
 
-        <div className="flex w-full shrink-0 items-center justify-end gap-3 md:w-auto" style={{ pointerEvents: 'auto' }}>
+        <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-3 md:w-auto md:flex-nowrap" style={{ pointerEvents: 'auto' }}>
           {supportsAudio && !media.audio ? (
             <SpeechRecorder
               onRecordingComplete={handleAudioSave}
@@ -271,9 +271,9 @@ export function MultimediaInput({
           ) : null}
 
           {(media.audio || media.image || media.video) ? (
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               {media.audio && previews.audio ? (
-                <audio src={previews.audio} controls className="max-w-[180px]" />
+                <audio src={previews.audio} controls className="max-w-[180px] w-full sm:w-auto" />
               ) : null}
               {media.image && previews.image ? (
                 <img
@@ -301,7 +301,7 @@ export function MultimediaInput({
             onClick={doSendMessage}
             disabled={!waitingForInput || !messageHasContent}
             className={clsx(
-              "inline-flex h-11 min-w-[48px] items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+              "inline-flex h-11 min-w-[48px] w-full sm:w-auto items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
               waitingForInput && messageHasContent
                 ? "bg-primary hover:bg-primary/90"
                 : "bg-border/70 text-muted",
@@ -318,3 +318,4 @@ export function MultimediaInput({
 }
 
 export default MultimediaInput;
+

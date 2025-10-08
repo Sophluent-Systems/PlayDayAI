@@ -559,9 +559,10 @@ export const ChatCard = memo((props) => {
                   : 'border-white/15 bg-white/10 text-white hover:border-white/30 hover:bg-white/20',
                 (waitingForProcessingToComplete || !deleteAllowed) && 'cursor-not-allowed opacity-50',
               )}
+              aria-label={state === 'failed' ? 'Retry message' : 'Run message again'}
             >
               {state === 'failed' ? <AlertTriangle className="h-4 w-4" /> : <RefreshCcw className="h-4 w-4" />}
-              {state === 'failed' ? 'Retry' : 'Restart'}
+              {state === 'failed' && 'Retry'}
             </button>
           )}
         </footer>

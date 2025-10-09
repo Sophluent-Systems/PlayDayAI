@@ -10,9 +10,18 @@ import { stateManager } from "@src/client/statemanager";
 export function ImageGenParamsMenu(props) {
   const { Constants } = useConfig();
   const { field, rootObject, onChange, readOnly } = props;
-  const [modelSelectionMenu, setModelSelectionMenu] = React.useState(null);
+  const [modelSelectionMenu, setModelSelectionMenu] = useState(null);
   const currentEndpoint = useRef(null);
   const { account } = React.useContext(stateManager);
+  const modelMetadata = Constants.models?.imageGeneration ?? {};
+
+  const createModelOption = (modelId) => {
+    const metadata = modelMetadata[modelId];
+    return {
+      label: metadata?.label ?? modelId,
+      value: modelId,
+    };
+  };
 
   const endpointOption = [
     {
@@ -30,9 +39,9 @@ export function ImageGenParamsMenu(props) {
     if (currentEndpoint.current) {
       const endpoint = Constants.endpoints.imageGeneration[currentEndpoint.current];
       if (endpoint) {
-        const newOptions = endpoint.models.map((option) => {return {label: option, value: option}});
+        const modelOptions = (endpoint.models ?? []).map(createModelOption);
 
-        let currentModelSelection = newOptions.find((option) => option.value == rootObject.params.model);
+        const currentModelSelection = modelOptions.find((option) => option.value === rootObject.params.model);
         if (!currentModelSelection) {
           // set the first option
           onVariableChanged(rootObject, "params.model", endpoint.defaultModel);
@@ -51,7 +60,7 @@ export function ImageGenParamsMenu(props) {
             path: "params.model",
             type: "dropdown",
             tooltip: "Model to use for requests",
-            options: endpoint.models.map((option) => {return {label: option, value: option}}),
+            options: modelOptions,
           }]);
 
       }

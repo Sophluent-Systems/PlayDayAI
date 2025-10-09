@@ -74,7 +74,9 @@ const doFetchChatGPT = async (params, stream) => {
     const {prompt, llmParameters } = params;
     const { keySource } = llmParameters;
     const { Constants } = Config;
-    const isO1Model = llmParameters.model.startsWith("o1");
+    const model = llmParameters.model || '';
+    const isO1Model = model.startsWith("o1");
+    const isTemperatureLockedModel = /^gpt-5/.test(model) || /^o\d/.test(model);
    
     Constants.debug.logAICalls && console.log("doFetchChatGPT");
   
@@ -100,14 +102,14 @@ const doFetchChatGPT = async (params, stream) => {
 
     let messageArray = createChatGPTMessageArrayFromPrompt(prompt);
 
-    messageArray = fixMessageHistoryForSpecificModels(messageArray, llmParameters.model);
+    messageArray = fixMessageHistoryForSpecificModels(messageArray, model);
 
     let openApiParams = {
       messages: messageArray,
-      model: llmParameters.model,
-      temperature: isO1Model ? 1 : llmParameters.temperature
+      model: model,
+      temperature: isTemperatureLockedModel ? 1 : llmParameters.temperature
     };
-    if (llmParameters.outputFormat == 'json' && !isO1Model && llmParameters.model != 'gpt-4' && llmParameters.model != 'gpt-3-turbo') {
+    if (llmParameters.outputFormat == 'json' && !isO1Model && model != 'gpt-4' && model != 'gpt-3-turbo') {
       openApiParams.response_format = { type: "json_object" }
     }
     if (stream) {

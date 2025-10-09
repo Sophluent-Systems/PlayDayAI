@@ -1,6 +1,7 @@
 import { isFrontend } from './nexthelpers';
 
-export const defaultConstants = {
+const defaultConstantsJSON = `
+{
     "engineVersion": 1,
     "source": "local",
     "hiddenFields": [
@@ -523,12 +524,15 @@ export const defaultConstants = {
         "clientFailureRetryTime": 5000,
         "taskDefaultExpirationTimeMS": 300000,
         "sessionPubSub": {
-            "inactivityTimeout": 10 * 60 * 1000
+            "inactivityTimeout": 600000
         },
         "sandboxLLMBlockingUrl": "http://127.0.0.1:4000/v1/chat/completions",
         "sandboxLLMStreamingUrl": "http://127.0.0.1:4000/v1/chat/completions"
     }
-};
+}
+`;
+
+export const defaultConstants = JSON.parse(defaultConstantsJSON);
 
 
 let loadedConstants = null;

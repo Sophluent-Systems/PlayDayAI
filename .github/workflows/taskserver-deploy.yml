@@ -9,7 +9,7 @@ on:
       - 'packages/shared/**'
       - 'Dockerfile'
       - 'taskserver/Dockerfile'
-      - '.github/workflows/build-and-publish-taskserver.yml'
+      - '.github/workflows/taskserver-deploy.yml'
   workflow_dispatch: {}
 
 permissions:

@@ -8,7 +8,7 @@ on:
       - 'src/server/**'
       - 'packages/shared/**'
       - 'Dockerfile'
-      - 'taskserver/Dockerfile'
+      - 'taskserver/**'
       - '.github/workflows/taskserver-deploy.yml'
       - '.env*'
       - 'docker-compose.yaml'

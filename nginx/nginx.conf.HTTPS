@@ -15,7 +15,7 @@ server {
     }
 
     location = / {
-        return 301 https://${NEXT_PUBLIC_BASE_URL};
+        return 301 https://${BASE_URL};
     }
 
     location / {
@@ -71,7 +71,7 @@ server {
         }
 
         location = / {
-            return 301 https://${NEXT_PUBLIC_BASE_URL};
+            return 301 https://${BASE_URL};
         }
 
         location / {

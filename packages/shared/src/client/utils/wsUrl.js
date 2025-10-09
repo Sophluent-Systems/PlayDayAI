@@ -6,7 +6,10 @@ export function buildWebsocketUrl(options = {}) {
     path: customPath,
   } = options;
 
-  const protocol = explicitProtocol || (typeof window !== 'undefined' ? window.location.protocol : 'https:');
+  // Check for NEXT_PUBLIC_PROTOCOL environment variable, falling back to window.location.protocol
+  const envProtocol = process.env.NEXT_PUBLIC_PROTOCOL === 'HTTPS' ? 'https:' : 
+                       process.env.NEXT_PUBLIC_PROTOCOL === 'HTTP' ? 'http:' : null;
+  const protocol = explicitProtocol || envProtocol || (typeof window !== 'undefined' ? window.location.protocol : 'https:');
   const isHttps = protocol === 'https:';
   const scheme = isHttps ? 'wss' : 'ws';
 

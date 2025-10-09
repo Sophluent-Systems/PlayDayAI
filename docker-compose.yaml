@@ -52,7 +52,7 @@ services:
     restart: always
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
   taskserver:
-    image: taskserver:latest
+    image: ghcr.io/sophluent-systems/playdayai/taskserver:latest
     env_file: ${PLAYDAY_ENV_FILE:-./.env}
     build: 
       context: ./

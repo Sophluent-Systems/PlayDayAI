@@ -1,27 +1,25 @@
 services:
   rabbitmq:
-    image: rabbitmq:4.1.4-management-alpine
+    image: rabbitmq:latest-management-alpine
     env_file: ${PLAYDAY_ENV_FILE:-./.env}
     restart: unless-stopped
     ports:
         - 5672:5672
         - 15672:15672
     volumes:
-        - ~/.playday/rabbitmq/data/:/var/lib/rabbitmq/
-        - ~/.playday/rabbitmq/log/:/var/log/rabbitmq/
+        - /home/playday/rabbitmq/data/:/var/lib/rabbitmq/
+        - /home/playday/rabbitmq/log/:/var/log/rabbitmq/
   mongodb:
-    image: mongodb:8.0.15
     build: ./mongodb
     restart: unless-stopped
     ports:
       - 27017:27017
     volumes:
-      - ~/.playday/mongodb/data/db:/data/db
+      - /home/playday/mongodb/data/db:/data/db
     env_file: ${PLAYDAY_ENV_FILE:-./.env}
     command: ["-f", "/etc/mongod.conf"]
   nginx:
-    image: nginx:1.29.1-alpine
-    env_file: ${PLAYDAY_ENV_FILE:-./.env}
+    image: nginx:latest-alpine
     build: 
       context: ./nginx
       args:
@@ -40,15 +38,15 @@ services:
         max-size: "10m"
         max-file: "3"
     volumes:
-      - ~/.playday/ssldata/certbot/conf:/etc/letsencrypt
-      - ~/.playday/ssldata/certbot/www:/var/www/certbot
-      - ~/.playday/public/gen:/var/public/gen
+      - /home/playday/ssldata/certbot/conf:/etc/letsencrypt
+      - /home/playday/ssldata/certbot/www:/var/www/certbot
+      - /home/playday/public/gen:/var/public/gen
     command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
   certbot:
     image: certbot/certbot
     volumes:
-      - ~/.playday/ssldata/certbot/conf:/etc/letsencrypt
-      - ~/.playday/ssldata/certbot/www:/var/www/certbot
+      - /home/playday/ssldata/certbot/conf:/etc/letsencrypt
+      - /home/playday/ssldata/certbot/www:/var/www/certbot
     restart: unless-stopped
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
   taskserver:
@@ -58,7 +56,7 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
     restart: unless-stopped
     volumes:
-      - ~/.playday/public/gen:/app/public/gen
+      - /home/playday/public/gen:/app/public/gen
     deploy:
       resources:
         limits:

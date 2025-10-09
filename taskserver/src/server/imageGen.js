@@ -35,12 +35,24 @@ export async function doImageGeneration(params) {
     try {
       await fs.access(imagefolder);
     } catch (error) {
-      console.log("Error acessing image folder: ", error);
-      console.log("This is not necessarily fatal... attempting to create the folder now.")
-      await fs.mkdir(imagefolder, { recursive: true });
+      console.log("Error accessing image folder: ", error);
+      console.log("This is not necessarily fatal... attempting to create the folder now.");
+      try {
+        await fs.mkdir(imagefolder, { recursive: true });
+        console.log("Successfully created image folder:", imagefolder);
+      } catch (mkdirError) {
+        console.error("FATAL: Failed to create image folder:", mkdirError);
+        throw mkdirError;
+      }
     }
     
-    await fs.writeFile(imageFullPath, buffer);
+    try {
+      await fs.writeFile(imageFullPath, buffer);
+      console.log("Successfully wrote image to:", imageFullPath);
+    } catch (writeError) {
+      console.error("FATAL: Failed to write image file:", writeError);
+      throw writeError;
+    }
 
     // Return the relative path to the saved image
     return `/gen/images/${filename}`;

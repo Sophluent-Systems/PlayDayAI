@@ -26,12 +26,24 @@ async function writeAudioFile(buffer, extension="mp3") {
   try {
       await fs.access(folderToUse);
   } catch (error) {
-      console.log("Error acessing image folder: ", error);
-      console.log("This is not necessarily fatal... attempting to create the folder now.")
-      await fs.mkdir(folderToUse, { recursive: true });
+      console.log("Error accessing audio folder: ", error);
+      console.log("This is not necessarily fatal... attempting to create the folder now.");
+      try {
+        await fs.mkdir(folderToUse, { recursive: true });
+        console.log("Successfully created audio folder:", folderToUse);
+      } catch (mkdirError) {
+        console.error("FATAL: Failed to create audio folder:", mkdirError);
+        throw mkdirError;
+      }
   }
   
-  await fs.writeFile(fullPath, buffer);
+  try {
+    await fs.writeFile(fullPath, buffer);
+    console.log("Successfully wrote audio to:", fullPath);
+  } catch (writeError) {
+    console.error("FATAL: Failed to write audio file:", writeError);
+    throw writeError;
+  }
 
   // Return the relative path to the saved image
   return `/${subFolder}/${filename}`;

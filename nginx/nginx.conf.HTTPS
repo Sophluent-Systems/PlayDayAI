@@ -70,6 +70,13 @@ server {
             lingering_close off;
         }
 
+        location /gen/ {
+            alias /var/public/gen/;
+            expires 7d;
+            add_header Cache-Control "public, immutable";
+            access_log off;
+        }
+
         location = / {
             return 301 https://${BASE_URL};
         }

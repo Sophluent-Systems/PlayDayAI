@@ -17,6 +17,7 @@ import { PrettyDate, PrettyElapsedTime } from "@src/common/date";
 import { nullUndefinedOrEmpty } from "@src/common/objects";
 import { ImageWithFallback } from "./standard/imagewithfallback";
 import { getMessageStyling } from "@src/client/themestyling";
+import { buildAssetUrl } from "@src/client/utils/assetUrl";
 
 function ChatBotTypingIndicator({ color }) {
   const [ellipsis, setEllipsis] = useState(".");
@@ -188,9 +189,15 @@ export const ChatCard = memo((props) => {
     if (playingThisMessage) {
       onRequestAudioControl?.('pause', audioType);
     } else {
+      // Transform generated audio URLs to use NEXT_PUBLIC_ASSET_BASE_URL
+      const transformedData = { ...data };
+      if (data.source === 'url' && typeof data.data === 'string' && data.data.startsWith('/gen/')) {
+        transformedData.data = buildAssetUrl(data.data);
+      }
+      
       onRequestAudioControl?.('play', audioType, {
         recordID,
-        source: data,
+        source: transformedData,
         speakerName: persona?.displayName,
         styling,
       });
@@ -338,10 +345,11 @@ export const ChatCard = memo((props) => {
           if (nullUndefinedOrEmpty(data) && processing) {
             result.push(renderSpinner(`${key}-spinner`));
           } else if (!nullUndefinedOrEmpty(data)) {
+            const imageUrl = data.startsWith('/gen/') ? buildAssetUrl(data) : data;
             result.push(
               <div key={key} className="flex w-full justify-center">
                 <ImageWithFallback
-                  primary={data}
+                  primary={imageUrl}
                   fallback="https://playday.ai"
                   alt="Generated image"
                   className="max-h-[580px] w-full max-w-3xl rounded-3xl border border-white/10 object-contain shadow-[var(--image-shadow,0_25px_90px_-45px_rgba(15,23,42,0.65))]"

@@ -165,6 +165,12 @@ EXTERNAL_HTTPS_PORT=443
 ## Change the base URL to your domain 
 NEXT_PUBLIC_BASE_URL='yourdomain.com'
 
+## Set the asset base URL (where nginx serves generated images/audio)
+## This is typically the same as your taskserver domain if nginx is serving the assets
+## You can specify just the domain (protocol will be determined by NEXT_PUBLIC_PROTOCOL)
+## or include the full URL with protocol
+NEXT_PUBLIC_ASSET_BASE_URL='yourdomain.com'
+
 ## Admin of your PlayDay.ai instance, which will take effect on first sign-in via Auth0.
 AUTH_ADMIN_ACCOUNT=youraccount@somedomain.com
 

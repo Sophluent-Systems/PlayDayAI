@@ -54,12 +54,6 @@ services:
   taskserver:
     image: ghcr.io/sophluent-systems/playdayai/taskserver:latest
     env_file: ${PLAYDAY_ENV_FILE:-./.env}
-    build: 
-      context: ./
-      dockerfile: taskserver/Dockerfile
-      args:
-        NODE_ENV: ${NODE_ENV:-development}
-        WS_LOCAL_PORT: ${WS_LOCAL_PORT:-3005}
     restart: always
     volumes:
       - ~/.playday/public/gen:/app/public/gen

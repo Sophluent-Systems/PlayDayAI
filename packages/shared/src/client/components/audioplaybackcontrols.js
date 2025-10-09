@@ -308,7 +308,6 @@ export function AudioPlaybackControls({ audioState, onGetAudioController, onAudi
               visualizationColor={audioState.speech.styling.audioVisualizationColor}
               onBrowserBlockedPlayback={() => onBrowserBlockedPlayback("speech")}
               playOnLoad
-              DEBUG_audioType="speech"
               onStateChange={(state) => handleAudioPlayerStateChange("speech", state)}
               getPlaybackControlRef={(ref) => {
                 speechControllerRef.current = ref;
@@ -334,7 +333,6 @@ export function AudioPlaybackControls({ audioState, onGetAudioController, onAudi
               getPlaybackControlRef={(ref) => {
                 bgMusicControllerRef.current = ref;
               }}
-              DEBUG_audioType="backgroundMusic"
               loop={audioState.backgroundMusic.loop || false}
               showControls={false}
               volume={volumeToUse * 0.2}
@@ -356,7 +354,6 @@ export function AudioPlaybackControls({ audioState, onGetAudioController, onAudi
               getPlaybackControlRef={(ref) => {
                 soundEffectControllerRef.current = ref;
               }}
-              DEBUG_audioType="soundEffect"
               loop={audioState.soundEffect.loop || false}
               showControls={false}
               volume={volumeToUse * 0.2}

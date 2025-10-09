@@ -81,7 +81,6 @@ export class MessagesPubServer extends PubSubChannel {
 
     async appendTextContent(recordID, value, params) {
         Constants.debug.logStreamingMessages && console.error(`[appendTextContent]: ${value}`);
-        console.log('[appendTextContent DEBUG] recordID:', recordID, 'value:', JSON.stringify(value), 'value length:', value?.length);
         return await this.enqueueCommand('message:appendstring', { recordID, value: value }, params);
     }
 

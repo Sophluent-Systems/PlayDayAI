@@ -75,7 +75,6 @@ export function SessionViewer({ theme, sessionID, game, editMode }) {
             };
             
             updatedMessages[messageIndex] = updatedMessage;
-            console.log('[SessionViewer DEBUG] Updated message ratings:', JSON.stringify(updatedMessage.ratings));
             return updatedMessages;
           });
         }

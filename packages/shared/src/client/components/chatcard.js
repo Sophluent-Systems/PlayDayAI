@@ -118,23 +118,6 @@ export const ChatCard = memo((props) => {
     hideOutput,
   } = message;
 
-  // DEBUG: Log text content when it changes
-  useEffect(() => {
-    if (content && content.text) {
-      console.log('[ChatCard DEBUG] Text content changed for recordID:', recordID);
-      console.log('[ChatCard DEBUG] Text length:', content.text?.length);
-      console.log('[ChatCard DEBUG] Text value:', JSON.stringify(content.text));
-      console.log('[ChatCard DEBUG] Text preview (first 200 chars):', content.text.substring(0, 200));
-      console.log('[ChatCard DEBUG] Processing status:', processing);
-    }
-  }, [content, recordID, processing]);
-
-  // DEBUG: Log ratings when they change
-  useEffect(() => {
-    console.log('[ChatCard DEBUG] Ratings changed for recordID:', recordID);
-    console.log('[ChatCard DEBUG] Ratings value:', JSON.stringify(ratings));
-  }, [ratings, recordID]);
-
   const mediaTypes = nodeAttributes?.mediaTypes || [];
   const hidden = hideOutput || persona?.hideFromEndUsers;
   const isAIResponse = nodeAttributes?.isAIResponse;
@@ -219,8 +202,6 @@ export const ChatCard = memo((props) => {
       canRateResponse && isPlayerRating ? responseFeedbackMode?.user : responseFeedbackMode?.admin;
     let textHint = isPlayerRating ? null : 'Admin rating';
 
-    console.log('[renderResponseRatings DEBUG] Initial mode:', mode, 'editMode:', editMode, 'canRateResponse:', canRateResponse);
-
     if (editMode && canRateResponse) {
       if (isPlayerRating) {
         mode = null;
@@ -229,8 +210,6 @@ export const ChatCard = memo((props) => {
         textHint = 'Admin rating';
       }
     }
-
-    console.log('[renderResponseRatings DEBUG] Final mode:', mode);
 
     if (!mode) {
       return null;
@@ -242,12 +221,6 @@ export const ChatCard = memo((props) => {
 
     const thumbsDownTint = ratingExists && ratingValue <= 0;
     const thumbsUpTint = ratingExists && ratingValue > 0;
-
-    // DEBUG: Log rating button state
-    console.log('[renderResponseRatings DEBUG] isPlayerRating:', isPlayerRating, 'recordID:', recordID);
-    console.log('[renderResponseRatings DEBUG] ratings object:', JSON.stringify(ratings));
-    console.log('[renderResponseRatings DEBUG] ratingValue:', ratingValue, 'ratingExists:', ratingExists);
-    console.log('[renderResponseRatings DEBUG] thumbsDownTint:', thumbsDownTint, 'thumbsUpTint:', thumbsUpTint);
 
     return (
       <div className="flex items-center gap-2">

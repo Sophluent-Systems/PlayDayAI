@@ -90,7 +90,6 @@ const sortMessagesForDisplay = (messages) => {
   });
 };
 
-
 export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMessageComplete, debug, handlers, autoConnect = true }) {
   const { accessToken, refreshAccessToken } = React.useContext(stateManager);
   const [messages, setMessages] = useState([]);
@@ -200,12 +199,6 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     const currentMessage = baseMessages[index];
     const currentContent = currentMessage.content;
 
-    // DEBUG: Log what we're appending and the current structure
-    console.log('[appendMessageContent DEBUG] Appending to messageID:', messageID);
-    console.log('[appendMessageContent DEBUG] Content to append:', JSON.stringify(content));
-    console.log('[appendMessageContent DEBUG] Current message.content:', JSON.stringify(currentContent));
-    console.log('[appendMessageContent DEBUG] Current message.content type:', typeof currentContent);
-
     // Handle content properly - it should be an object with media type keys (e.g., { text: "..." })
     let updatedContent;
     if (typeof currentContent === 'object' && currentContent !== null) {
@@ -222,8 +215,6 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
       // Fallback: if content is a string or null/undefined, treat as string concatenation
       updatedContent = (currentContent || '') + content;
     }
-
-    console.log('[appendMessageContent DEBUG] Updated message.content:', JSON.stringify(updatedContent));
 
     const updatedMessage = {
       ...currentMessage,
@@ -361,19 +352,9 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
         if (verification?.sessionID !== sessionID) return;
         const key = resolveMessageKey(payload);
         if (!key) return;
-        
-        // DEBUG: Log field updates, especially ratings
-        if (payload.field === 'ratings') {
-          console.log('[message:field DEBUG] Ratings update received for key:', key);
-          console.log('[message:field DEBUG] New ratings value:', JSON.stringify(payload.value));
-        }
-        
+
         const updatedMessage = updateMessageField(key, payload.field, payload.value);
-        
-        if (payload.field === 'ratings') {
-          console.log('[message:field DEBUG] Updated message after ratings update:', JSON.stringify(updatedMessage));
-        }
-        
+
         callbacks.onMessageUpdate?.(key, payload.field, payload.value);
         if (updatedMessage) {
           externalHandlers.updateMessage?.(updatedMessage);
@@ -584,7 +565,6 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     replaceMessages([]);
     handlersRef.current?.replaceMessageList?.([]);
   };
-
 
   const sendHalt = async () => {
     if (!wsRef.current) {

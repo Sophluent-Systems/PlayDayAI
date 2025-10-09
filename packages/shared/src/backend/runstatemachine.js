@@ -74,7 +74,6 @@ export async function runStateMachine(db, acl, account, channel, task, threadID)
     let active = true;
     let stepLimit = singleStep ? 1 : Constants.config.hardCodedStepLimit;
     console.error("STEP LIMIT: ", stepLimit, `(singleStep: ${singleStep})`);
-    console.error("DEBUGGING TURNED ON: ", session.temp.debuggingTurnedOn ? "YES" : "NO")
 
     const incomingCommandHandler = {
       "stateMachineCommand": (command, data) => {

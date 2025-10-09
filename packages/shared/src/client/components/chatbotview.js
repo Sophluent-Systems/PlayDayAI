@@ -160,7 +160,7 @@ export default function ChatBotView(props) {
 
         </div>
 
-        <div className="sticky bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/60 backdrop-blur-xl">
+        <div className="sticky bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/60 backdrop-blur-xl" style={{ pointerEvents: 'auto' }}>
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
             {htmlForStatusBar && (
               <div
@@ -178,17 +178,15 @@ export default function ChatBotView(props) {
               theme={theme}
             />
 
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-inner">
-              <MultimediaInput
-                theme={theme}
-                inputLength={inputLength}
-                waitingForInput={waitingForInput}
-                supportedMediaTypes={supportedMediaTypes}
-                handleSendMessage={onSendMessage}
-                sendAudioOnSpeechEnd={conversational}
-                debug={false}
-              />
-            </div>
+            <MultimediaInput
+              theme={theme}
+              inputLength={inputLength}
+              waitingForInput={waitingForInput}
+              supportedMediaTypes={supportedMediaTypes}
+              handleSendMessage={onSendMessage}
+              sendAudioOnSpeechEnd={conversational}
+              debug={false}
+            />
           </div>
         </div>
       </div>

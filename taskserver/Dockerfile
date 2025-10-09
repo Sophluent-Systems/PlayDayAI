@@ -1,33 +1,29 @@
-FROM node:23-alpine
-
-ARG NODE_ENV=development
-ARG WS_LOCAL_PORT=3005
-
-RUN echo "TASKSERVER build args: NODE_ENV=${NODE_ENV}, WS_LOCAL_PORT=${WS_LOCAL_PORT}"
-
+# syntax=docker/dockerfile:1.7
+FROM node:23-alpine AS base
 WORKDIR /app
+ENV NODE_ENV=production
 
-ENV NODE_ENV=${NODE_ENV}
+# Useful utils for HEALTHCHECKs
+RUN apk add --no-cache curl
 
-# Copy application sources
-COPY ./.env* /app
-COPY ./taskserver/*.cjs /app
-COPY ./taskserver/*.mjs /app
-COPY ./taskserver/*.json /app
-COPY ./taskserver/src/server /app/src/server
+# Copy only what you need first for caching
+COPY package.json pnpm-lock.yaml* ./
+RUN npm install -g pnpm && pnpm fetch
+
+# Copy source
+# (do NOT copy any .env files)
+COPY ./taskserver/*.cjs ./taskserver/*.mjs ./taskserver/*.json ./
+COPY ./taskserver/src/server ./src/server
 COPY ./packages/shared/src/backend /packages/shared/src/backend
 COPY ./packages/shared/src/common /packages/shared/src/common
 
-RUN npm install -g pnpm
+# Install deps
+RUN pnpm install --prod
 
-# Install dependencies
-RUN pnpm install
+# Default port, but can be overridden via compose env
+EXPOSE 3005
 
-EXPOSE ${WS_LOCAL_PORT}
-
-ENV WS_LOCAL_PORT=${WS_LOCAL_PORT}
-ENV NEXT_PUBLIC_WS_PORT=${WS_LOCAL_PORT}
-ENV PORT=${WS_LOCAL_PORT}
+# Provide sane non-secret defaults; override at runtime via compose env
 ENV HOSTNAME=0.0.0.0
 
-CMD NODE_ENV=${NODE_ENV} WS_LOCAL_PORT=${WS_LOCAL_PORT} node --loader ./custom-loader.mjs ./server.mjs
+CMD ["node", "--loader", "./custom-loader.mjs", "./server.mjs"]

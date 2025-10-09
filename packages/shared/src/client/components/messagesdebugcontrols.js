@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Wrench, StepForward } from 'lucide-react';
+import clsx from 'clsx';
 import { useConfig } from '@src/client/configprovider';
 import { getNestedObjectProperty, setNestedObjectProperty } from '@src/common/objects';
 import { stateManager } from '@src/client/statemanager';
@@ -398,7 +399,12 @@ export function MessagesDebugControls(props) {
 
   return (
     <div
-      className={`${className || ''} pointer-events-auto flex h-auto min-h-[2.5rem] w-full max-w-full flex-wrap items-start gap-3 overflow-hidden rounded-l-3xl rounded-r-none border border-r-0 px-3 py-2 shadow-2xl backdrop-blur transition-transform duration-200 ease-out sm:h-10 sm:w-auto sm:flex-nowrap sm:items-center sm:px-0 sm:py-0`}
+      className={clsx(
+        `${className || ''} pointer-events-auto flex overflow-hidden rounded-l-3xl rounded-r-none border border-r-0 shadow-2xl backdrop-blur transition-transform duration-200 ease-out`,
+        expanded
+          ? 'h-auto min-h-[2.5rem] w-full max-w-full flex-wrap items-start gap-3 px-3 py-2 sm:h-auto sm:w-auto sm:flex-nowrap sm:items-center sm:px-4 sm:py-2'
+          : 'h-10 w-[200vw] sm:w-[200vw] flex-nowrap items-center gap-3 px-0 py-0'
+      )}
       style={floatingStyle}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -410,19 +416,24 @@ export function MessagesDebugControls(props) {
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
         title={expanded ? 'Hide debug controls' : 'Debug controls'}
-        className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-150 hover:-translate-y-0.5"
+        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-transform duration-150 hover:-translate-y-0.5"
         style={{ backgroundColor: tokens.neutralButtonBg, color: tokens.neutralButtonText }}
       >
         <Wrench className="h-4 w-4" strokeWidth={2.5} />
       </button>
       <div
-        className={`flex flex-wrap items-center gap-3 text-xs transition-all duration-200 ${
-          expanded ? 'opacity-100 translate-x-0' : 'pointer-events-none opacity-0 -translate-x-6'
-        } ml-0 mt-2 w-full sm:ml-3 sm:mt-0 sm:w-auto`}
+        className={clsx(
+          'ml-0 flex flex-wrap items-center gap-3 text-xs transition-all duration-200 sm:ml-3 sm:mt-0 sm:w-auto',
+          expanded
+            ? 'mt-2 w-full translate-x-0 opacity-100 pointer-events-auto sm:mt-0'
+            : '-translate-x-6 mt-0 w-0 overflow-hidden opacity-0 pointer-events-none sm:w-0'
+        )}
         style={{ color: tokens.inputTextColor }}
+        aria-hidden={!expanded}
       >
         {controls}
       </div>
     </div>
   );
 }
+

@@ -311,13 +311,15 @@ export function UserProfileMenu({ className, variant = "standard" }) {
       {open ? (
         <div
           ref={containerRef}
-          className="fixed z-[60] w-80 min-w-[18rem] origin-top-right rounded-3xl border border-border/70 bg-surface/95 p-4 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.6)] backdrop-blur"
+          className="fixed z-[60] flex w-80 min-w-[18rem] flex-col origin-top-right rounded-3xl border border-border/70 bg-surface/95 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.6)] backdrop-blur"
           style={{
             top: `${dropdownPosition.top}px`,
+            maxHeight: typeof window !== 'undefined' ? `calc(100vh - ${dropdownPosition.top}px - 16px)` : 'auto',
             ...(dropdownPosition.left !== undefined && { left: `${dropdownPosition.left}px` }),
             ...(dropdownPosition.right !== undefined && { right: `${dropdownPosition.right}px` }),
           }}
         >
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth p-4">
           {isLoggedIn ? (
             <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-surface/80 px-3 py-3">
               <AvatarBubble account={account} />
@@ -408,6 +410,7 @@ export function UserProfileMenu({ className, variant = "standard" }) {
               />
             )}
           </MenuSection>
+          </div>
         </div>
       ) : null}
     </div>

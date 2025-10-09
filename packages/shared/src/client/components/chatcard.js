@@ -118,6 +118,23 @@ export const ChatCard = memo((props) => {
     hideOutput,
   } = message;
 
+  // DEBUG: Log text content when it changes
+  useEffect(() => {
+    if (content && content.text) {
+      console.log('[ChatCard DEBUG] Text content changed for recordID:', recordID);
+      console.log('[ChatCard DEBUG] Text length:', content.text?.length);
+      console.log('[ChatCard DEBUG] Text value:', JSON.stringify(content.text));
+      console.log('[ChatCard DEBUG] Text preview (first 200 chars):', content.text.substring(0, 200));
+      console.log('[ChatCard DEBUG] Processing status:', processing);
+    }
+  }, [content, recordID, processing]);
+
+  // DEBUG: Log ratings when they change
+  useEffect(() => {
+    console.log('[ChatCard DEBUG] Ratings changed for recordID:', recordID);
+    console.log('[ChatCard DEBUG] Ratings value:', JSON.stringify(ratings));
+  }, [ratings, recordID]);
+
   const mediaTypes = nodeAttributes?.mediaTypes || [];
   const hidden = hideOutput || persona?.hideFromEndUsers;
   const isAIResponse = nodeAttributes?.isAIResponse;
@@ -202,6 +219,8 @@ export const ChatCard = memo((props) => {
       canRateResponse && isPlayerRating ? responseFeedbackMode?.user : responseFeedbackMode?.admin;
     let textHint = isPlayerRating ? null : 'Admin rating';
 
+    console.log('[renderResponseRatings DEBUG] Initial mode:', mode, 'editMode:', editMode, 'canRateResponse:', canRateResponse);
+
     if (editMode && canRateResponse) {
       if (isPlayerRating) {
         mode = null;
@@ -210,6 +229,8 @@ export const ChatCard = memo((props) => {
         textHint = 'Admin rating';
       }
     }
+
+    console.log('[renderResponseRatings DEBUG] Final mode:', mode);
 
     if (!mode) {
       return null;
@@ -222,6 +243,12 @@ export const ChatCard = memo((props) => {
     const thumbsDownTint = ratingExists && ratingValue <= 0;
     const thumbsUpTint = ratingExists && ratingValue > 0;
 
+    // DEBUG: Log rating button state
+    console.log('[renderResponseRatings DEBUG] isPlayerRating:', isPlayerRating, 'recordID:', recordID);
+    console.log('[renderResponseRatings DEBUG] ratings object:', JSON.stringify(ratings));
+    console.log('[renderResponseRatings DEBUG] ratingValue:', ratingValue, 'ratingExists:', ratingExists);
+    console.log('[renderResponseRatings DEBUG] thumbsDownTint:', thumbsDownTint, 'thumbsUpTint:', thumbsUpTint);
+
     return (
       <div className="flex items-center gap-2">
         {textHint && (
@@ -232,6 +259,7 @@ export const ChatCard = memo((props) => {
           disabled={isReadOnly}
           onClick={() =>
             onCardActionSelected?.('responseFeedback', {
+              message,
               recordID,
               isPlayerRating,
               rating: -1,
@@ -239,9 +267,9 @@ export const ChatCard = memo((props) => {
           }
           className={clsx(
             'flex h-8 w-8 items-center justify-center rounded-full border transition',
-            'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
-            thumbsDownTint && 'border-rose-400/60 bg-rose-500/70 text-rose-950',
-            isReadOnly && 'cursor-not-allowed opacity-60 hover:bg-white/5 hover:text-white/80',
+            !thumbsDownTint && 'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
+            thumbsDownTint && 'border-rose-400/60 bg-rose-500/70 text-rose-950 hover:bg-rose-600/80',
+            isReadOnly && 'cursor-not-allowed opacity-60',
           )}
           aria-label="Rate response thumbs down"
         >
@@ -252,6 +280,7 @@ export const ChatCard = memo((props) => {
           disabled={isReadOnly}
           onClick={() =>
             onCardActionSelected?.('responseFeedback', {
+              message,
               recordID,
               isPlayerRating,
               rating: 1,
@@ -259,9 +288,9 @@ export const ChatCard = memo((props) => {
           }
           className={clsx(
             'flex h-8 w-8 items-center justify-center rounded-full border transition',
-            'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
-            thumbsUpTint && 'border-emerald-400/70 bg-emerald-500/70 text-emerald-950',
-            isReadOnly && 'cursor-not-allowed opacity-60 hover:bg-white/5 hover:text-white/80',
+            !thumbsUpTint && 'border-white/15 bg-white/5 text-white/80 hover:border-white/40 hover:bg-white/15 hover:text-white',
+            thumbsUpTint && 'border-emerald-400/70 bg-emerald-500/70 text-emerald-950 hover:bg-emerald-600/80',
+            isReadOnly && 'cursor-not-allowed opacity-60',
           )}
           aria-label="Rate response thumbs up"
         >
@@ -530,9 +559,10 @@ export const ChatCard = memo((props) => {
                   : 'border-white/15 bg-white/10 text-white hover:border-white/30 hover:bg-white/20',
                 (waitingForProcessingToComplete || !deleteAllowed) && 'cursor-not-allowed opacity-50',
               )}
+              aria-label={state === 'failed' ? 'Retry message' : 'Run message again'}
             >
               {state === 'failed' ? <AlertTriangle className="h-4 w-4" /> : <RefreshCcw className="h-4 w-4" />}
-              {state === 'failed' ? 'Retry' : 'Restart'}
+              {state === 'failed' && 'Retry'}
             </button>
           )}
         </footer>

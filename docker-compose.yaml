@@ -2,7 +2,7 @@ services:
   rabbitmq:
     image: rabbitmq:4.1.4-management-alpine
     env_file: ${PLAYDAY_ENV_FILE:-./.env}
-     restart: unless-stopped
+    restart: unless-stopped
     ports:
         - 5672:5672
         - 15672:15672
@@ -12,7 +12,7 @@ services:
   mongodb:
     image: mongodb:8.0.15
     build: ./mongodb
-     restart: unless-stopped
+    restart: unless-stopped
     ports:
       - 27017:27017
     volumes:
@@ -30,7 +30,7 @@ services:
         EXTERNAL_HTTPS_PORT: ${EXTERNAL_HTTPS_PORT:-443}
         WS_LOCAL_PORT: ${WS_LOCAL_PORT:-3005}
         SERVER_NAME: ${NEXT_PUBLIC_WS_BASE_URL:-localhost}
-     restart: unless-stopped
+    restart: unless-stopped
     ports:
       - ${EXTERNAL_HTTP_PORT:-80}:${EXTERNAL_HTTP_PORT:-80}
       - ${EXTERNAL_HTTPS_PORT:-443}:${EXTERNAL_HTTPS_PORT:-443}
@@ -49,7 +49,7 @@ services:
     volumes:
       - ~/.playday/ssldata/certbot/conf:/etc/letsencrypt
       - ~/.playday/ssldata/certbot/www:/var/www/certbot
-     restart: unless-stopped
+    restart: unless-stopped
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
   taskserver:
     image: ghcr.io/sophluent-systems/playdayai/taskserver:latest

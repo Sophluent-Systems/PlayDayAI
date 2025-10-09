@@ -2,7 +2,7 @@
 set -e
 
 # Log configuration for easier troubleshooting
-echo "PROTOCOL: ${NEXT_PUBLIC_PROTOCOL}"
+echo "PROTOCOL: ${PROTOCOL}"
 echo "SERVER_NAME: ${SERVER_NAME}"
 echo "WS_LOCAL_PORT: ${WS_LOCAL_PORT}"
 echo "EXTERNAL_HTTP_PORT: ${EXTERNAL_HTTP_PORT}"

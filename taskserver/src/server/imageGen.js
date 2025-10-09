@@ -37,7 +37,7 @@ export async function doImageGeneration(params) {
     } catch (error) {
       console.log("Error acessing image folder: ", error);
       console.log("This is not necessarily fatal... attempting to create the folder now.")
-      await fs.mkdir(imagefolder);
+      await fs.mkdir(imagefolder, { recursive: true });
     }
     
     await fs.writeFile(imageFullPath, buffer);

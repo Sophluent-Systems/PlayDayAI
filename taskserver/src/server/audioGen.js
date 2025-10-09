@@ -28,7 +28,7 @@ async function writeAudioFile(buffer, extension="mp3") {
   } catch (error) {
       console.log("Error acessing image folder: ", error);
       console.log("This is not necessarily fatal... attempting to create the folder now.")
-      await fs.mkdir(folderToUse);
+      await fs.mkdir(folderToUse, { recursive: true });
   }
   
   await fs.writeFile(fullPath, buffer);

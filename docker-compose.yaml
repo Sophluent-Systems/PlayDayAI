@@ -1,6 +1,6 @@
 services:
   rabbitmq:
-    image: rabbitmq:latest-management-alpine
+    image: rabbitmq:management-alpine
     env_file: ${PLAYDAY_ENV_FILE:-./.env}
     restart: unless-stopped
     ports:
@@ -19,7 +19,7 @@ services:
     env_file: ${PLAYDAY_ENV_FILE:-./.env}
     command: ["-f", "/etc/mongod.conf"]
   nginx:
-    image: nginx:latest-alpine
+    image: nginx:stable-alpine
     build: 
       context: ./nginx
       args:

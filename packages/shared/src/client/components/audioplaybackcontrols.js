@@ -2,15 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import {
-  Gauge,
-  Music,
-  SlidersHorizontal,
-  Volume1,
-  Volume2,
-  VolumeX,
-  Waves,
-} from "lucide-react";
+import { Gauge, Music, Volume1, Volume2, VolumeX, Waves } from "lucide-react";
 import AudioPlayer from "./audioplayer";
 import { useConfig } from "@src/client/configprovider";
 import { stateManager } from "@src/client/statemanager";
@@ -65,15 +57,22 @@ function Popover({ open, anchorRef, children, onDismiss }) {
       return undefined;
     }
 
-    const handleClick = (event) => {
+    const handlePointerDown = (event) => {
       const panel = panelRef.current;
       const anchor = anchorRef?.current;
-      if (!panel || panel.contains(event.target)) {
+      const eventPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+
+      // Treat interactions inside the panel as internal
+      if (panel && (panel.contains(event.target) || eventPath.includes(panel))) {
         return;
       }
-      if (anchor && anchor.contains(event.target)) {
+
+      // Allow interactions with the anchor button to toggle it normally
+      if (anchor && (anchor.contains(event.target) || eventPath.includes(anchor))) {
         return;
       }
+
+      // Interaction occurred outside of the popover and anchor, so dismiss
       onDismiss?.();
     };
 
@@ -83,11 +82,27 @@ function Popover({ open, anchorRef, children, onDismiss }) {
       }
     };
 
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
+    // Use a small delay to prevent immediate dismissal on open
+    const timeoutId = setTimeout(() => {
+      const supportsPointerEvents = typeof window !== "undefined" && "PointerEvent" in window;
+      if (supportsPointerEvents) {
+        document.addEventListener("pointerdown", handlePointerDown);
+      } else {
+        document.addEventListener("mousedown", handlePointerDown);
+        document.addEventListener("touchstart", handlePointerDown);
+      }
+      document.addEventListener("keydown", handleKey);
+    }, 0);
 
     return () => {
-      document.removeEventListener("mousedown", handleClick);
+      clearTimeout(timeoutId);
+      const supportsPointerEvents = typeof window !== "undefined" && "PointerEvent" in window;
+      if (supportsPointerEvents) {
+        document.removeEventListener("pointerdown", handlePointerDown);
+      } else {
+        document.removeEventListener("mousedown", handlePointerDown);
+        document.removeEventListener("touchstart", handlePointerDown);
+      }
       document.removeEventListener("keydown", handleKey);
     };
   }, [open, anchorRef, onDismiss]);
@@ -100,6 +115,10 @@ function Popover({ open, anchorRef, children, onDismiss }) {
     <div
       ref={panelRef}
       className="absolute right-0 top-full z-50 mt-3 w-56 rounded-2xl border border-border/60 bg-surface/95 p-4 shadow-2xl backdrop-blur-xl"
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        event.nativeEvent?.stopImmediatePropagation?.();
+      }}
     >
       {children}
     </div>
@@ -143,7 +162,7 @@ export function AudioPlaybackControls({ audioState, onGetAudioController, onAudi
     if (!onGetAudioController) {
       return;
     }
-    onGetAudioController((audioType, action) => {
+    onGetAudioController((audioType, action, payload) => {
       let controllerRef;
       switch (audioType) {
         case "speech":
@@ -163,7 +182,10 @@ export function AudioPlaybackControls({ audioState, onGetAudioController, onAudi
         return;
       }
 
-      switch (action) {
+      const actionType = typeof action === "string" ? action : action?.type;
+      const actionPayload = typeof action === "string" ? payload : action;
+
+      switch (actionType) {
         case "play":
           if ((audioType === "backgroundMusic" && bgMusicMuted) || (audioType === "soundEffect" && soundEffectMuted)) {
             return;
@@ -177,10 +199,32 @@ export function AudioPlaybackControls({ audioState, onGetAudioController, onAudi
           controllerRef.current.stop();
           break;
         case "setVolume":
-          controllerRef.current.setVolume(action.volume);
+          {
+            const nextVolume =
+              typeof actionPayload === "number"
+                ? actionPayload
+                : typeof actionPayload?.volume === "number"
+                  ? actionPayload.volume
+                  : undefined;
+            if (typeof nextVolume === "number") {
+              controllerRef.current.setVolume?.(nextVolume);
+            }
+          }
           break;
         case "seekTo":
-          controllerRef.current.seekTo(action.seekTo);
+          {
+            const nextPosition =
+              typeof actionPayload === "number"
+                ? actionPayload
+                : typeof actionPayload?.time === "number"
+                  ? actionPayload.time
+                  : typeof actionPayload?.seekTo === "number"
+                    ? actionPayload.seekTo
+                    : undefined;
+            if (typeof nextPosition === "number") {
+              controllerRef.current.seekTo?.(nextPosition);
+            }
+          }
           break;
         default:
           break;
@@ -283,12 +327,6 @@ export function AudioPlaybackControls({ audioState, onGetAudioController, onAudi
 
   return (
     <div className="flex h-10 w-full items-center">
-      {(audioState.backgroundMusic?.source || audioState.soundEffect?.source || audioState.speech?.source) && (
-        <span className="mr-auto ml-2 text-muted" title="Audio mix">
-          <SlidersHorizontal className="h-4 w-4" />
-        </span>
-      )}
-
       <div className="flex flex-1 items-center justify-center overflow-hidden">
         {audioState.speech?.source && audioState.speech?.styling ? (
           <div
@@ -370,6 +408,8 @@ export function AudioPlaybackControls({ audioState, onGetAudioController, onAudi
             className={iconButtonClasses}
             style={baseIconStyle}
             title={bgMusicMuted ? "Unmute background music" : "Mute background music"}
+            aria-label={bgMusicMuted ? "Unmute background music" : "Mute background music"}
+            aria-pressed={bgMusicMuted}
             onClick={() => {
               if (bgMusicMuted) {
                 unMuteAudio("backgroundMusic");
@@ -388,6 +428,8 @@ export function AudioPlaybackControls({ audioState, onGetAudioController, onAudi
             className={iconButtonClasses}
             style={baseIconStyle}
             title={soundEffectMuted ? "Unmute sound effects" : "Mute sound effects"}
+            aria-label={soundEffectMuted ? "Unmute sound effects" : "Mute sound effects"}
+            aria-pressed={soundEffectMuted}
             onClick={() => {
               if (soundEffectMuted) {
                 unMuteAudio("soundEffect");

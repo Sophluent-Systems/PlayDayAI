@@ -162,7 +162,7 @@ export default function ChatBotView(props) {
         </div>
 
         <div className="sticky bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/60 backdrop-blur-xl" style={{ pointerEvents: 'auto' }}>
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
+          <div className={`mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8${editMode ? " sm:pr-24" : ""}`}>
             {htmlForStatusBar && (
               <div
                 className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm leading-relaxed text-white/80 shadow-inner"

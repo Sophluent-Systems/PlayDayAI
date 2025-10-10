@@ -403,7 +403,7 @@ export function MessagesDebugControls(props) {
         `${className || ''} pointer-events-auto flex overflow-hidden rounded-l-3xl rounded-r-none border border-r-0 shadow-2xl backdrop-blur transition-transform duration-200 ease-out`,
         expanded
           ? 'h-auto min-h-[2.5rem] w-full max-w-full flex-wrap items-start gap-3 px-3 py-2 sm:h-auto sm:w-auto sm:flex-nowrap sm:items-center sm:px-4 sm:py-2'
-          : 'h-10 w-[200vw] sm:w-[200vw] flex-nowrap items-center gap-3 px-0 py-0'
+          : 'h-10 min-w-[5.5rem] flex-nowrap items-center gap-3 px-0 py-0'
       )}
       style={floatingStyle}
       onMouseEnter={handleMouseEnter}

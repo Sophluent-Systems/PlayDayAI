@@ -141,6 +141,21 @@ const AudioPlayer = ({
           audioRef.current.currentTime = 0;
         }
       },
+      setVolume: (value) => {
+        if (audioRef.current) {
+          audioRef.current.volume = value;
+        }
+      },
+      setPlaybackRate: (value) => {
+        if (audioRef.current) {
+          audioRef.current.playbackRate = value;
+        }
+      },
+      seekTo: (timeInSeconds) => {
+        if (audioRef.current) {
+          audioRef.current.currentTime = timeInSeconds;
+        }
+      },
     });
   }, [getPlaybackControlRef, onBrowserBlockedPlayback]);
 

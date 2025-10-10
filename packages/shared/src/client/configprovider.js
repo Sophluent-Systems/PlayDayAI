@@ -9,8 +9,14 @@ const ConfigContext = createContext(defaultConfig);
 export function ConfigProvider({ children }) {
     const [config, setConfig] = useState(defaultConfig);
     const auth0 = useUser();
+    const forceLocalConfig =
+        Boolean(defaultConfig?.debug?.useLocalConfigOnly) ||
+        (typeof process !== "undefined" && process.env.NEXT_PUBLIC_FORCE_LOCAL_CONFIG === "true");
 
     async function updateConfig() {
+        if (forceLocalConfig) {
+            return;
+        }
         try {
             const response = await fetch('/api/getconfig');
             const data = await response.json();
@@ -23,6 +29,13 @@ export function ConfigProvider({ children }) {
     }
 
     useEffect(() => {
+        if (forceLocalConfig) {
+            if (defaultConfig?.debug?.logInit) {
+                console.info("ConfigProvider: using local default configuration (debug override)");
+            }
+            setConfig(defaultConfig);
+            return;
+        }
         if (process.env.SANDBOX != "true") {
             if (!auth0.isLoading && auth0.user) {
                 updateConfig();
@@ -30,7 +43,7 @@ export function ConfigProvider({ children }) {
         } else {
             setConfig(defaultConfig);
         }
-    }, [auth0.isLoading]);
+    }, [auth0.isLoading, auth0.user, forceLocalConfig]);
 
     return (
         <ConfigContext.Provider value={config}>

@@ -460,7 +460,8 @@ const defaultConstantsJSON = `
         "onlyRecordOnSpeaking": true,
         "continuousRecording": false,
         "echoCancellation": false,
-        "debug": true,
+        "debug": false,
+        "autoSendOnSpeechEnd": true,
         "timeSlice": 200,
         "speechInterval": 50,
         "speechThreshold": -60,
@@ -468,7 +469,18 @@ const defaultConstantsJSON = `
         "speechDetectMode": "vad",
         "minimumSpeechDuration": 600,
         "audioSessionType": "play-and-record",
-        "audioSessionChangeDelay": 200
+        "audioSessionChangeDelay": 200,
+        "vad": {
+            "assetBaseUrl": "/vad/",
+            "onnxWasmBaseUrl": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.0/dist/",
+            "model": "legacy",
+            "positiveSpeechThreshold": 0.05,
+            "negativeSpeechThreshold": 0.02,
+            "redemptionMs": 450,
+            "minSpeechMs": 220,
+            "preSpeechPadMs": 180,
+            "submitUserSpeechOnPause": true
+        }
     },
     "supportedMimeTypes": [
         "audio/mpeg",
@@ -515,7 +527,8 @@ const defaultConstantsJSON = `
         "logTTS": false,
         "logVersionDiffs": false,
         "logVersionEditor": false,
-        "logWhileLoop": false
+        "logWhileLoop": false,
+        "useLocalConfigOnly": false
     },
     "config": {
         "hardCodedStepLimit": 100,

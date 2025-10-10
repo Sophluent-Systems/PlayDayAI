@@ -40,6 +40,15 @@ export class sttNode extends nodeType {
           fileName = `audio.${fileExtension}`
           blob = new Blob([buffer], { type: storageEntry.mimeType, name: fileName });
 
+        } else if (params.audio.source === "base64") {
+
+          Constants.debug.logSTT && console.error("STT: using inline base64 audio payload");
+          const mimeType = params.audio.mimeType || "audio/mpeg";
+          const fileExtension = mimeType.split("/")[1] || "mpeg";
+          fileName = `audio.${fileExtension}`;
+          const buffer = Buffer.from(params.audio.data, 'base64');
+          blob = new Blob([buffer], { type: mimeType, name: fileName });
+
         } else {
 
           throw new Error("Unsupported source type for audio");

@@ -33,6 +33,7 @@ export default function ChatBotView(props) {
     onSendMessage,
     supportedMediaTypes,
     conversational,
+    autoSendAudioOnSpeechEnd = true,
     audioState,
     onAudioStateChange,
     onGetAudioController,
@@ -184,7 +185,7 @@ export default function ChatBotView(props) {
               waitingForInput={waitingForInput}
               supportedMediaTypes={supportedMediaTypes}
               handleSendMessage={onSendMessage}
-              sendAudioOnSpeechEnd={conversational}
+              sendAudioOnSpeechEnd={conversational || autoSendAudioOnSpeechEnd}
               debug={false}
             />
           </div>

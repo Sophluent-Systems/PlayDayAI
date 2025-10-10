@@ -123,6 +123,7 @@ export default function VoiceTest() {
     silenceTimeout: Number(silenceTimeout),
     speechDetectMode,
     minimumSpeechDuration: Number(minimumSpeechDuration),
+    vad: Constants.audioRecordingDefaults.vad,
   });
 
   const handleRecordToggle = () => {

@@ -51,6 +51,7 @@ function ChatBot(props) {
   const [editorSaveRequest, setEditorSaveRequest] = useAtom(editorSaveRequestState);
   const [dirtyEditor, setDirtyEditor] = useAtom(dirtyEditorState);
   const [supportedMediaTypes, setSupportedMediaTypes] = useState([]);
+  const autoSendAudioOnSpeechEnd = Constants.audioRecordingDefaults?.autoSendOnSpeechEnd !== false;
   const scrollRef = useRef(null);
   const showAlert = useAlert();
   const themeToUse = useMemo(() => normalizeTheme(theme), [theme]);
@@ -416,9 +417,7 @@ function ChatBot(props) {
                 }
               }
               if (data.waitingFor.includes("audio")) {
-                if (data.conversational) {
-                  setConversational(true);
-                }
+                setConversational(data.conversational === true);
               }
               break;
             case "stopped":
@@ -703,6 +702,7 @@ const handleAudioStateChange = (audioType, newState) => {
               theme={themeToUse}
               inputLength={maximumInputLength}
               conversational={conversational}
+              autoSendAudioOnSpeechEnd={autoSendAudioOnSpeechEnd}
               editMode={editMode && gamePermissions && gamePermissions.includes('game_edit')}
               supportsSuggestions={supportsSuggestions}
               supportedMediaTypes={supportedMediaTypes}
@@ -760,9 +760,6 @@ const handleAudioStateChange = (audioType, newState) => {
 
 
 export default memo(ChatBot);
-
-
-
 
 
 

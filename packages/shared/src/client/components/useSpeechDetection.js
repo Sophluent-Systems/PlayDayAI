@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, memo } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import lamejs from '@breezystack/lamejs';
 import { SpeechDetector } from '../speechdetector';
 
@@ -13,11 +13,23 @@ export const defaultSpeechRecorderConfig = {
   speechThreshold: -60,
   silenceTimeout: 500,
   minimumSpeechDuration: 200,
-  speechDetectMode: 'hark',
+  speechDetectMode: 'vad',
   debug: false,
   audioDuckingControl: 'on_speaking',
   audioSessionType: 'play-and-record',
   audioSessionChangeDelay: 200,
+  vad: {
+    assetBaseUrl: '/vad/',
+    onnxWasmBaseUrl: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.0/dist/',
+    model: 'v5',
+    positiveSpeechThreshold: undefined,
+    negativeSpeechThreshold: undefined,
+    redemptionMs: undefined,
+    minSpeechMs: undefined,
+    preSpeechPadMs: undefined,
+    submitUserSpeechOnPause: false,
+    workletOptions: undefined,
+  },
 }
 
 export const useSpeechDetection = (config = {}) => {
@@ -26,6 +38,11 @@ if (typeof window === 'undefined') {
     return {
     recording: false,
     speaking: false,
+    listeningForSpeech: false,
+    soundDetected: false,
+    mostRecentSpeakingDuration: 0,
+    longestSilenceDuration: 0,
+    audioInfo: {},
     startRecording: () => {},
     stopRecording: () => {},
     };
@@ -46,6 +63,7 @@ if (typeof window === 'undefined') {
     audioDuckingControl,
     audioSessionType,
     audioSessionChangeDelay,
+    vad: vadConfig = {},
   } = {
     ...defaultSpeechRecorderConfig,
     ...config,
@@ -69,6 +87,34 @@ if (typeof window === 'undefined') {
   const tempChunks = useRef([]);
   const silenceStartTime = useRef(null);
   const waitingForFinalChunk = useRef(false);
+  const pendingHeaderChunks = useRef([]);
+  const pendingHeaderBytes = useRef(0);
+  const {
+    assetBaseUrl: vadAssetBaseUrl,
+    onnxWasmBaseUrl: vadOnnxWasmBaseUrl,
+    model: vadModel,
+    positiveSpeechThreshold: vadPositiveSpeechThreshold,
+    negativeSpeechThreshold: vadNegativeSpeechThreshold,
+    redemptionMs: vadRedemptionMs,
+    minSpeechMs: vadMinSpeechMs,
+    preSpeechPadMs: vadPreSpeechPadMs,
+    submitUserSpeechOnPause: vadSubmitUserSpeechOnPause,
+    workletOptions: vadWorkletOptions,
+  } = vadConfig;
+
+  const debugLog = (...args) => {
+    if (!debug) {
+      return;
+    }
+    console.debug('[SpeechDetection]', ...args);
+  };
+
+  const debugWarn = (...args) => {
+    if (!debug) {
+      return;
+    }
+    console.warn('[SpeechDetection]', ...args);
+  };
 
   /* 
     speakingState can be one of the following states:
@@ -89,17 +135,19 @@ if (typeof window === 'undefined') {
   const localLongestSilenceDuration = useRef(0);
  
   const setSpeakingState = (state) => {
-    debug && console.log(`Speaking state: ${speakingStateRef.current} -> ${state}`);
+    debugLog(`Speaking state: ${speakingStateRef.current} -> ${state}`);
     speakingStateRef.current = state;
   };
 
   const resetChunks = () => {
     chunks.current = [];
     tempChunks.current = [];
+    pendingHeaderChunks.current = [];
+    pendingHeaderBytes.current = 0;
   }
   
   const cleanup = async () => {
-    debug && console.log("cleanup")
+    debugLog("cleanup")
     if (recorder.current) {
       await onStopRecording();
     }
@@ -109,6 +157,7 @@ if (typeof window === 'undefined') {
     setSpeaking(false);
     setListeningForSpeech(false);
     setRecording(false);
+    setSoundDetected(false);
     resetChunks();
     cancelSilenceTimer();
     cancelSpeechTimer();
@@ -118,7 +167,7 @@ if (typeof window === 'undefined') {
   useEffect(() => {
     const init = async () => {
     if (typeof window != "undefined") {
-        debug && console.log("useSpeechDetection: Init")
+        debugLog("useSpeechDetection: Init")
         if (!ExtendableMediaRecorder.current) {
           try {
             const EMR = await import('extendable-media-recorder');
@@ -133,24 +182,34 @@ if (typeof window === 'undefined') {
             }
 
 
-            if (audioDuckingControl === 'always_on') {
-              if ('audioSession' in navigator) {
-                debug && console.log(`Setting audio session type to '${audioSessionType}'`)
-                navigator.audioSession['type'] = audioSessionType;
-              }
-            }
-
           } catch (e) {
-            // Do nothing
+            debugWarn('Falling back to native MediaRecorder', e);
+          }
+
+          if (!ExtendableMediaRecorder.current && typeof window !== 'undefined') {
+            if (window.MediaRecorder && typeof window.MediaRecorder.isTypeSupported === 'function' && window.MediaRecorder.isTypeSupported('audio/wav')) {
+              ExtendableMediaRecorder.current = window.MediaRecorder;
+            } else {
+              throw new Error('WAV recording is not supported in this browser.');
+            }
+          }
+
+          if (audioDuckingControl === 'always_on' && typeof navigator !== 'undefined' && 'audioSession' in navigator) {
+            debugLog(`Setting audio session type to '${audioSessionType}'`)
+            navigator.audioSession['type'] = audioSessionType;
           }
         }
       }
     };
 
-    init();
+    init().catch((error) => {
+      console.error('Failed to initialise speech detection recording', error);
+    });
 
     return () => {
-      cleanup();
+      cleanup().catch((error) => {
+        console.error('Error during speech detection cleanup', error);
+      });
     }
   }, []);
   
@@ -169,7 +228,7 @@ const setFinalDataCallback = () => {
 
   // Set a timer in case onDataAvailable isn't called again
   finalDataCallbackTimeout.current = setTimeout(async () => {
-    debug && console.log("Final data callback timeout")
+    debugLog("Final data callback timeout")
     setSpeakingState('no_speech');
     await onSendSpeechData();
   }, timeSlice * 2); // Wait for double the timeSlice duration
@@ -177,7 +236,7 @@ const setFinalDataCallback = () => {
 
 const cancelFinalDataCallback = () => {
   if (finalDataCallbackTimeout.current) {
-    debug && console.log("Cancel final data callback")
+    debugLog("Cancel final data callback")
     clearTimeout(finalDataCallbackTimeout.current);
     finalDataCallbackTimeout.current = undefined;
   }
@@ -196,97 +255,17 @@ const cancelFinalDataCallback = () => {
     }
   }
 
-  // Function to get the microphone stream
-  async function getMicrophoneSource(audioContext) {
-    try {
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const micSource = audioContext.createMediaStreamSource(micStream);
-      return micSource;
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      throw error;
-    }
-  }
-
-  // Function to get the speaker stream
-  async function getSpeakerSource(audioContext) {
-    try {
-      console.log("AudioContext: ", audioContext)
-      const speakerStream = await navigator.mediaDevices.getUserMedia({
-        audio: { mediaSource: 'audioCapture' },
-      });
-      const speakerSource = audioContext.createMediaStreamSource(speakerStream);
-      return speakerSource;
-    } catch (error) {
-      console.error('Error accessing speaker:', error);
-      throw error;
-    }
-  }
-
   // Main function to set up echo cancellation
   async function setupEchoCancellation() {
     try {
-
-      // Create an audio context
-      const audioContext = new (AudioContext || webkitAudioContext)();
-
-      console.log("Getting mic source")
-      const micSource = await getMicrophoneSource(audioContext);
-      console.log("Getting speaker source")
-      const speakerSource = await getSpeakerSource(audioContext);
-
-      console.log("Attempting to set up echo cancellation")
-
-      // Create a delay node to account for system latency
-      const delay = audioContext.createDelay(1); // Max delay of 1 second
-      delay.delayTime.value = 0.05; // 50ms delay, adjust as needed
-
-      // Create a gain node for the inverted speaker signal
-      const invertedSpeaker = audioContext.createGain();
-      invertedSpeaker.gain.value = -1;
-
-      console.log("Connecting nodes")
-
-      // Create an analyzer node for adaptive filtering
-      const analyzerMic = audioContext.createAnalyser();
-      const analyzerSpeaker = audioContext.createAnalyser();
-
-      // Connect the nodes
-      speakerSource.connect(delay);
-      delay.connect(invertedSpeaker);
-      delay.connect(analyzerSpeaker);
-
-      micSource.connect(analyzerMic);
-
-      // Create a worklet for adaptive filtering
-      await audioContext.audioWorklet.addModule('/js/adaptive-filter-worklet.js');
-
-      const adaptiveFilter = new AudioWorkletNode(audioContext, 'adaptive-filter', {
-        numberOfInputs: 2,
-        numberOfOutputs: 1,
-        outputChannelCount: [1]
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
       });
-      
-      adaptiveFilter.port.onmessage = (event) => {
-        if (event.data.type === 'stableLatencyAchieved') {
-          console.log(`Stable latency achieved: ${event.data.latency} samples`);
-
-          startListeningForSpeech();
-        }
-      };
-
-      // Connect the analyzed signals to the adaptive filter
-      analyzerMic.connect(adaptiveFilter, 0, 0);
-      analyzerSpeaker.connect(adaptiveFilter, 0, 1);
-
-      // Create the output
-      const output = audioContext.createMediaStreamDestination();
-      adaptiveFilter.connect(output);
-
-      // Use the output as the new audio source
-      const newStream = new MediaStream([output.stream.getAudioTracks()[0]]);
-
-      return newStream;
     } catch (error) {
       console.error('Error setting up echo cancellation:', error);
       throw error;
@@ -305,7 +284,7 @@ const cancelFinalDataCallback = () => {
    * - register hark speaking detection listeners
    */
   const onStartStreaming = async () => {
-    debug && console.log("onStartStreaming")
+    debugLog("onStartStreaming")
 
     try {
       if (stream.current) {
@@ -313,62 +292,77 @@ const cancelFinalDataCallback = () => {
       }
       
       header.current = undefined;
+      pendingHeaderChunks.current = [];
+      pendingHeaderBytes.current = 0;
       
       setSpeakingState('no_speech');
       
+      const requestStream = async (enableEcho) => navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: enableEcho,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
+
       let audioSessionChangeOccurred = false;
-      if (audioDuckingControl === 'on_speaking') {
-        if ('audioSession' in navigator) {
-          //
-          // If we're changing the audio session type, we need to wait for the change to take effect
-          // before starting the speech detector. 
-          //
-          const start = Date.now();
-          
-          navigator.audioSession.onstatechange = () => {
-            debug && console.log(`Audio session state change: ${navigator.audioSession.state}`);
+      if (audioDuckingControl === 'on_speaking' && 'audioSession' in navigator) {
+        const start = Date.now();
+        const handleStateChange = () => {
+          debugLog(`Audio session state change: ${navigator.audioSession.state}`);
 
-            if (navigator.audioSession.state === "active") {
-              const end = Date.now();
-              debug && console.log(`Audio session activated after ${end - start}ms`);
-              navigator.audioSession.removeEventListener('statechange', onStateChange);
+          if (navigator.audioSession.state === "active") {
+            const end = Date.now();
+            debugLog(`Audio session activated after ${end - start}ms`);
+            navigator.audioSession.onstatechange = null;
 
-              startListeningForSpeech();
+            const invokeDetector = () => {
+              startListeningForSpeech().catch((error) => {
+                console.error('Failed to start speech detector after audio session activation', error);
+              });
+            };
+
+            if (audioSessionChangeDelay > 0) {
+              setTimeout(invokeDetector, audioSessionChangeDelay);
+            } else {
+              invokeDetector();
             }
-          };
-          
-          navigator.audioSession['type'] = audioSessionType;
-          audioSessionChangeOccurred = true;
-          debug && console.log(`Audio session type set to '${audioSessionType}' -- waiting for state change to occur`);
-        }
+          }
+        };
+
+        navigator.audioSession.onstatechange = handleStateChange;
+        navigator.audioSession['type'] = audioSessionType;
+        audioSessionChangeOccurred = true;
+        debugLog(`Audio session type set to '${audioSessionType}' -- waiting for state change to occur`);
       }
         
       if (echoCancellation) {
-        debug && console.log("Setting up echo cancellation");
+        debugLog("Setting up echo cancellation");
 
-        stream.current = await setupEchoCancellation();
+        try {
+          stream.current = await setupEchoCancellation();
+        } catch (error) {
+          console.error('Falling back to basic media stream', error);
+          stream.current = await requestStream(true);
+        }
       } else {
-        debug && console.log("Skipping echo cancellation");
+        debugLog("Skipping echo cancellation");
 
-        stream.current = await navigator.mediaDevices.getUserMedia({ audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        }, 
-        video: false});
+        stream.current = await requestStream(false);
       }
 
       if (!audioSessionChangeOccurred) {
-        startListeningForSpeech();
+        await startListeningForSpeech();
       }
       
-      debug && console.log("Stream active:", stream.current.active);
+      debugLog("Stream active:", stream.current.active);
       if (debug) {
         let trackInfo = stream.current.getAudioTracks();
         if (Array.isArray(trackInfo) && trackInfo.length > 0) {
           trackInfo = trackInfo[0];
         }
-        console.log("Audio Info: ", trackInfo);
+        debugLog("Audio Info: ", trackInfo);
         const audioInfoToSet = {
           contentHint: trackInfo.contentHint,
           enabled: trackInfo.enabled,
@@ -383,34 +377,62 @@ const cancelFinalDataCallback = () => {
 
     } catch (err) {
       console.error(err)
-      reject(err);
+      throw err;
     }
   }
 
-  const startListeningForSpeech = () => {
+  const startListeningForSpeech = async () => {
+    if (!stream.current) {
+      return;
+    }
 
-    debug && console.log("Initializing speech detector")
-    listener.current = new SpeechDetector({debug, mode: speechDetectMode});
-    listener.current.start({
-      stream: stream.current,
-      speechInterval: speechInterval,
-      speechThreshold: speechThreshold,
-      silenceTimeout: silenceTimeout,
-      minimumSpeechDuration: minimumSpeechDuration,
-      speechDetectMode: speechDetectMode,
-      onSpeechStart: onStartSpeaking,
-      onSpeechEnd: onStopSpeaking,
-      onSoundDetected: debug ? (detected) => {
-        setSoundDetected(detected);
-      } : null,
-    });
-    setListeningForSpeech(true);
-  }
+    if (listener.current) {
+      listener.current.stop();
+      listener.current = undefined;
+    }
+
+    debugLog("Initializing speech detector");
+
+    try {
+      const detector = new SpeechDetector({ debug, speechDetectMode });
+      await detector.start({
+        stream: stream.current,
+        speechInterval,
+        speechThreshold,
+        silenceTimeout,
+        minimumSpeechDuration,
+        onSpeechStart: onStartSpeaking,
+        onSpeechEnd: onStopSpeaking,
+        onSoundDetected: (detected) => {
+          setSoundDetected(detected);
+        },
+        vadOptions: {
+          assetBasePath: vadAssetBaseUrl,
+          onnxWasmBasePath: vadOnnxWasmBaseUrl,
+          model: vadModel,
+          positiveSpeechThreshold: vadPositiveSpeechThreshold,
+          negativeSpeechThreshold: vadNegativeSpeechThreshold,
+          redemptionMs: vadRedemptionMs,
+          minSpeechMs: vadMinSpeechMs,
+          preSpeechPadMs: vadPreSpeechPadMs,
+          submitUserSpeechOnPause: vadSubmitUserSpeechOnPause,
+          workletOptions: vadWorkletOptions,
+        },
+      });
+
+      listener.current = detector;
+      setListeningForSpeech(true);
+      debugLog("Speech detector started and listening for speech events");
+    } catch (error) {
+      console.error('Failed to start speech detector', error);
+      setListeningForSpeech(false);
+    }
+  };
 
   const startSpeechTimer = () => {
     cancelSpeechTimer();
     speechTimer.current = setTimeout(() => {
-      debug && console.log("Minimum speech duration met")
+      debugLog("Minimum speech duration met")
       if (!speakingRef.current) {
         speakingRef.current = true;
         setSpeakingState('speaking');
@@ -424,27 +446,28 @@ const cancelFinalDataCallback = () => {
 
   const cancelSpeechTimer = () => { 
     if (speechTimer.current) {
-      debug && console.log("Cancel speech timer")
+      debugLog("Cancel speech timer")
       clearTimeout(speechTimer.current);
       speechTimer.current = null;
     }
   };
 
-  const onSilenceTimeout = () => {
-    debug && console.log("Silence timeout")
-    if (speakingRef.current) {
-      speakingRef.current = false;
-      setSpeaking(false);
+const onSilenceTimeout = () => {
+  debugLog("Silence timeout")
+  if (speakingRef.current) {
+    speakingRef.current = false;
+    setSpeaking(false);
       if (onlyRecordOnSpeaking) {
         setRecording(false);
       }
     }
-    waitingForFinalChunk.current = true;
-    setSpeakingState('getting_final_chunk');
-    setFinalDataCallback();
+  waitingForFinalChunk.current = true;
+  setSpeakingState('getting_final_chunk');
+  setFinalDataCallback();
+  debugLog(`Silence timeout captured ${chunks.current.length} primary chunks and ${tempChunks.current.length} queued chunks`);
 
-    // Discard temporary chunks
-    tempChunks.current = [];
+  // Discard temporary chunks
+  tempChunks.current = [];
 
     silenceStartTime.current = null;
   };
@@ -459,7 +482,7 @@ const cancelFinalDataCallback = () => {
 
   const cancelSilenceTimer = () => {
     if (silenceTimer.current) {
-      debug && console.log("Cancel silence timer")
+      debugLog("Cancel silence timer")
       clearTimeout(silenceTimer.current);
       silenceTimer.current = null;
     }
@@ -470,7 +493,7 @@ const cancelFinalDataCallback = () => {
   const updateLongestSilence = () => {
     if (silenceStartTime.current) {
       const currentSilenceDuration = Date.now() - silenceStartTime.current;
-      debug && console.log("Silence duration:", currentSilenceDuration);
+      debugLog("Silence duration:", currentSilenceDuration);
       if (currentSilenceDuration > localLongestSilenceDuration.current) {
         localLongestSilenceDuration.current = currentSilenceDuration;
         setLongestSilenceDuration(currentSilenceDuration);
@@ -494,6 +517,9 @@ const cancelFinalDataCallback = () => {
         case 'waiting_for_silence_timeout':
           cancelSilenceTimer();
           if (tempChunks.current.length > 0) {
+            debugLog(
+                `Merging ${tempChunks.current.length} queued chunks back into active recording`,
+              );
             chunks.current = [...chunks.current, ...tempChunks.current];
             tempChunks.current = [];
           }
@@ -509,7 +535,7 @@ const cancelFinalDataCallback = () => {
     } else {
       if (currentSpeakingStartTime.current !== null) {
         const speakingDuration = currentTime - currentSpeakingStartTime.current;
-        debug && console.log("Speaking duration:", speakingDuration);
+        debugLog("Speaking duration:", speakingDuration);
         setMostRecentSpeakingDuration(speakingDuration);
         currentSpeakingStartTime.current = null;
       }
@@ -528,7 +554,7 @@ const cancelFinalDataCallback = () => {
   };
 
   const onStartSpeaking = () => {
-    debug && console.log('start speaking');
+    debugLog('start speaking');
     processSpeechEvent(true);
   };
 
@@ -540,7 +566,7 @@ const cancelFinalDataCallback = () => {
    * - update recording state to true
    */
   const onStartRecording = async () => {
-    debug && console.log("onStartRecording")
+    debugLog("onStartRecording")
     try {
       await cleanup();  // Call the cleanup function we defined earlier
       
@@ -565,7 +591,7 @@ const cancelFinalDataCallback = () => {
         if (!onlyRecordOnSpeaking) {
           setRecording(true);
         }
-        debug && console.log("Recording! timeSlice=", timeSlice);
+        debugLog("Recording! timeSlice=", timeSlice);
       }
     } catch (err) {
       console.error(err)
@@ -580,7 +606,7 @@ const cancelFinalDataCallback = () => {
    */
 
   const onStopSpeaking = () => {
-    debug && console.log('stop speaking');
+    debugLog('stop speaking');
     processSpeechEvent(false);
   };
 
@@ -592,14 +618,14 @@ const cancelFinalDataCallback = () => {
    * - set recording state to false
    */
   const onStopRecording = async () => {
-    debug && console.log("onStopRecording")
+    debugLog("onStopRecording")
     try {
 
       if (recorder.current) {
-        debug && console.log("Stopping recorder")
+        debugLog("Stopping recorder")
         const defunctRecorder = recorder.current;
         recorder.current = undefined;
-        await defunctRecorder.stop();
+        defunctRecorder.stop();
         
         resetChunks();
         setRecording(false)
@@ -619,7 +645,7 @@ const cancelFinalDataCallback = () => {
    * - clear media stream from ref
    */
   const onStopStreaming = () => {
-    debug && console.log("onStopStreaming")
+    debugLog("onStopStreaming")
     if (listener.current) {
         listener.current.stop();
         listener.current = undefined;
@@ -638,7 +664,7 @@ const cancelFinalDataCallback = () => {
 
         // Check if audioSession exists before trying to use it
         if (audioDuckingControl === 'on_speaking' && 'audioSession' in navigator) {
-            debug && console.log("Setting audio session type to 'playback'")
+            debugLog("Setting audio session type to 'playback'")
             navigator.audioSession['type'] = 'playback';
         }
         stream.current = undefined;
@@ -649,6 +675,7 @@ const cancelFinalDataCallback = () => {
     currentSpeakingStartTime.current = null;
     setListeningForSpeech(false)
     setSpeaking(false)
+    setSoundDetected(false);
 }
 
   function printWavHeader(chunk) {
@@ -673,22 +700,23 @@ const cancelFinalDataCallback = () => {
       const bitsPerSample = view.getUint16(34, true);
       const subchunk2Id = String.fromCharCode(...new Uint8Array(view.buffer.slice(36, 40)));
       const subchunk2Size = view.getUint32(40, true);
-  
-      console.log('WAV Header Information:');
-      console.log(`Chunk ID: ${chunkId}`);
-      console.log(`Chunk Size: ${chunkSize}`);
-      console.log(`Format: ${format}`);
-      console.log(`Subchunk1 ID: ${subchunk1Id}`);
-      console.log(`Subchunk1 Size: ${subchunk1Size}`);
-      console.log(`Audio Format: ${audioFormat} (1 = PCM)`);
-      console.log(`Number of Channels: ${numChannels}`);
-      console.log(`Sample Rate: ${sampleRate}`);
-      console.log(`Byte Rate: ${byteRate}`);
-      console.log(`Block Align: ${blockAlign}`);
-      console.log(`Bits Per Sample: ${bitsPerSample}`);
-      console.log(`Subchunk2 ID: ${subchunk2Id}`);
-      console.log(`Subchunk2 Size: ${subchunk2Size}`);
-  
+
+      debugLog('WAV header', {
+        chunkId,
+        chunkSize,
+        format,
+        subchunk1Id,
+        subchunk1Size,
+        audioFormat,
+        numChannels,
+        sampleRate,
+        byteRate,
+        blockAlign,
+        bitsPerSample,
+        subchunk2Id,
+        subchunk2Size,
+      });
+
       // Additional checks
       if (chunkId !== 'RIFF') {
         console.warn('Warning: ChunkID is not "RIFF". This may not be a valid WAV file.');
@@ -702,34 +730,91 @@ const cancelFinalDataCallback = () => {
       if (subchunk2Id !== 'data') {
         console.warn('Warning: Subchunk2ID is not "data". The WAV format may be non-standard.');
       }
-  
+
     } catch (error) {
       console.error('Error parsing WAV header:', error);
-      console.log('Raw header data:', Array.from(new Uint8Array(view.buffer.slice(0, 44))));
+      debugLog('Raw header data', Array.from(new Uint8Array(view.buffer.slice(0, 44))));
     }
   }
   
+const bytesForLog = (chunk) => {
+  if (!chunk) {
+    return 0;
+  }
+  if (typeof chunk.size === 'number') {
+    return chunk.size;
+  }
+  if (typeof chunk.byteLength === 'number') {
+    return chunk.byteLength;
+  }
+  return 0;
+};
+
 const onDataAvailable = async (data) => {
   let finalData = data;
 
   if (!header.current) {
-    if (debug) {
-      const buffer = await data.arrayBuffer();
-      printWavHeader(buffer);
+    const dataSize = bytesForLog(data);
+
+    if (pendingHeaderBytes.current > 0) {
+      pendingHeaderChunks.current.push(data);
+      pendingHeaderBytes.current += dataSize;
+      const combined = new Blob(pendingHeaderChunks.current, { type: data.type || 'audio/wav' });
+
+      if (combined.size < 44) {
+        debugWarn(`Accumulating WAV header bytes (have ${combined.size}/44); waiting for more data`);
+        return;
+      }
+
+      header.current = combined.slice(0, 44);
+      finalData = combined.slice(44);
+      pendingHeaderChunks.current = [];
+      pendingHeaderBytes.current = 0;
+    } else if (dataSize < 44) {
+      pendingHeaderChunks.current = [data];
+      pendingHeaderBytes.current = dataSize;
+      debugWarn(`Received initial chunk smaller than WAV header (${dataSize} bytes); waiting for next chunk`);
+      return;
+    } else {
+      header.current = data.slice(0, 44);
+      finalData = data.slice(44);
     }
-    header.current = data.slice(0, 44);
-    finalData = data.slice(44);
+
+    if (debug && header.current) {
+      try {
+        const headerBuffer = await header.current.arrayBuffer();
+        printWavHeader(headerBuffer);
+      } catch (error) {
+        console.warn('Unable to inspect WAV header', error);
+      }
+    }
+
+    debugLog(`Captured WAV header (${header.current?.size || 0} bytes)`);
   }
+
+  if (finalData instanceof Blob && finalData.size === 0) {
+    debugLog('No audio payload in chunk after extracting WAV header');
+    return;
+  }
+
+  debugLog(
+    `onDataAvailable received chunk: state=${speakingStateRef.current} size=${bytesForLog(finalData)} bytes`,
+  );
 
   function addChunkToCircularBuffer(chunk) {
     if (chunks.current.length  > 0) {
       chunks.current.shift();
     }
+    debugLog(
+        `Buffering pre-roll chunk (${bytesForLog(chunk)} bytes); circular buffer length=${chunks.current.length + 1}`,
+      );
     chunks.current.push(chunk);
   }
 
   function addChunkToRecording(chunk) {
-    debug && console.log("+");
+    debugLog(
+        `Appending recording chunk (${bytesForLog(chunk)} bytes); total chunks=${chunks.current.length + 1}`,
+      );
     chunks.current.push(chunk);
   }
 
@@ -751,6 +836,9 @@ const onDataAvailable = async (data) => {
         break;
       case 'waiting_for_silence_timeout':
         tempChunks.current.push(finalData);
+        debugLog(
+            `Queued chunk during silence timeout (${bytesForLog(finalData)} bytes); temp buffer length=${tempChunks.current.length}`,
+          );
         break;
       case 'no_speech':
         addChunkToCircularBuffer(finalData);
@@ -776,32 +864,53 @@ async function convertWavToMp3(wavBlob) {
   const wavNumChannels = wavHeader.getUint16(22, true);
 
   const samples = new Int16Array(buffer, 44); // Skip WAV header (44 bytes)
-  const mp3Encoder = new lamejs.Mp3Encoder(wavNumChannels, wavSampleRate, 128); 
-  
-  // split "samples" into a left and right channel
-  let left = [];
-  let right = [];
-  if (wavNumChannels == 1) {
-    left = samples;
-    right = undefined;
-  } else if (wavNumChannels == 2) {
-    for (let i = 0; (i+1) < samples.length; i += 2) {
-      left.push(samples[i]);
-      right.push(samples[i + 1]);
+  const mp3Encoder = new lamejs.Mp3Encoder(wavNumChannels, wavSampleRate, 128);
+
+  const mp3Chunks = [];
+  const samplesPerFrame = 1152;
+
+  if (wavNumChannels === 1) {
+    for (let i = 0; i < samples.length; i += samplesPerFrame) {
+      const sampleChunk = samples.subarray(i, i + samplesPerFrame);
+      const mp3buf = mp3Encoder.encodeBuffer(sampleChunk);
+      if (mp3buf.length > 0) {
+        mp3Chunks.push(mp3buf);
+      }
+    }
+  } else if (wavNumChannels === 2) {
+    const left = new Int16Array(samples.length / 2);
+    const right = new Int16Array(samples.length / 2);
+
+    for (let i = 0, j = 0; i + 1 < samples.length; i += 2, j += 1) {
+      left[j] = samples[i];
+      right[j] = samples[i + 1];
+    }
+
+    for (let i = 0; i < left.length; i += samplesPerFrame) {
+      const leftChunk = left.subarray(i, i + samplesPerFrame);
+      const rightChunk = right.subarray(i, i + samplesPerFrame);
+      const mp3buf = mp3Encoder.encodeBuffer(leftChunk, rightChunk);
+      if (mp3buf.length > 0) {
+        mp3Chunks.push(mp3buf);
+      }
     }
   } else {
     throw new Error('Unsupported number of channels in mic input: ' + wavNumChannels);
   }
 
-  const mp3Data = mp3Encoder.encodeBuffer(left, right);
+  const flushChunk = mp3Encoder.flush();
+  if (flushChunk.length > 0) {
+    mp3Chunks.push(flushChunk);
+  }
 
-  const mp3Blob = new Blob([mp3Data], { type: 'audio/mp3' });
+  const mp3Blob = new Blob(mp3Chunks, { type: 'audio/mpeg' });
+  debugLog(`Converted WAV (${wavBlob.size} bytes) to MP3 (${mp3Blob.size} bytes)`);
   return mp3Blob;
 }
 
 
 const onSendSpeechData = async () => {
-  debug && console.log("onSendSpeechData chunk count=", chunks.current.length)
+  debugLog("onSendSpeechData chunk count=", chunks.current.length)
 
   cancelFinalDataCallback();
 
@@ -819,6 +928,7 @@ const onSendSpeechData = async () => {
 
     // Concatenate all the chunks into a single blob
     const wavblob = new Blob(chunks.current, { type: 'audio/wav' });
+    debugLog(`Assembled WAV blob=${wavblob.size} bytes from ${chunks.current.length} chunks`);
     const blob = await convertWavToMp3(wavblob);
 
     onSpeechDataBlobAvailable?.(blob, debugInfo);

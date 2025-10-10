@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Mic, MicOff, Play, Settings2 } from "lucide-react";
 import { useSpeechDetection } from "./useSpeechDetection";
@@ -15,6 +15,7 @@ const pillButtonClasses =
 
 function Popover({ open, anchorRef, children, onDismiss }) {
   const panelRef = useRef(null);
+  const [placement, setPlacement] = useState('bottom');
 
   useEffect(() => {
     if (!open) {
@@ -48,14 +49,39 @@ function Popover({ open, anchorRef, children, onDismiss }) {
     };
   }, [open, anchorRef, onDismiss]);
 
+  useLayoutEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const panel = panelRef.current;
+    const anchor = anchorRef?.current;
+    if (!panel || !anchor) {
+      return;
+    }
+
+    const panelRect = panel.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - anchorRect.bottom;
+    const spaceAbove = anchorRect.top;
+    const needsFlip = spaceBelow < panelRect.height + 12 && spaceAbove > spaceBelow;
+    const nextPlacement = needsFlip ? 'top' : 'bottom';
+
+    if (nextPlacement !== placement) {
+      setPlacement(nextPlacement);
+    }
+  }, [open, anchorRef, placement]);
+
   if (!open) {
     return null;
   }
 
+  const positionClass = placement === 'top' ? 'bottom-full mb-3' : 'top-full mt-3';
+
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-full z-50 mt-3 w-56 rounded-2xl border border-border/60 bg-surface/95 p-4 shadow-2xl backdrop-blur-xl"
+      className={`absolute right-0 ${positionClass} z-50 w-56 rounded-2xl border border-border/60 bg-surface/95 p-4 shadow-2xl backdrop-blur-xl`}
     >
       {children}
     </div>
@@ -100,6 +126,7 @@ export const SpeechRecorder = memo(function SpeechRecorder(props) {
     audioDuckingControl: audioDuckingMode,
     audioSessionType: Constants.audioRecordingDefaults.audioSessionType,
     audioSessionChangeDelay: Constants.audioRecordingDefaults.audioSessionChangeDelay,
+    vad: Constants.audioRecordingDefaults.vad,
   });
 
   useEffect(() => {
@@ -115,7 +142,9 @@ export const SpeechRecorder = memo(function SpeechRecorder(props) {
     setIsListening(shouldListen);
   }, [disableListening, isMuted]);
 
-  useEffect(() => () => speechDetection.stopRecording(), [speechDetection]);
+  useEffect(() => () => {
+    speechDetection.stopRecording();
+  }, []);
 
   const playSelectedBlob = () => {
     if (selectedBlobIndex < 0) {

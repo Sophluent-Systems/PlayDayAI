@@ -91,7 +91,7 @@ export function MultimediaInput({
       handleSendMessage({
         audio: {
           data: blob,
-          mimeType: "audio/webm",
+          mimeType: blob?.type || "audio/mpeg",
           source: "blob",
         },
       });
@@ -102,7 +102,7 @@ export function MultimediaInput({
       ...prev,
       audio: {
         data: blob,
-        mimeType: "audio/webm",
+        mimeType: blob?.type || "audio/mpeg",
         source: "blob",
       },
     }));

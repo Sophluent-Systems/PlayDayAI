@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Plus, Pencil, Save, Trash2, X, Loader2 } from "lucide-react";
+import clsx from "clsx";
 import { nullUndefinedOrEmpty } from "@src/common/objects";
 import { FileDropZone } from "@src/client/components/standard/filedropzone";
 import { callUploadBlob } from "@src/client/blobclient";

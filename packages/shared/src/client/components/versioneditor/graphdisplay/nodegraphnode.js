@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useState, memo } from 'react';
+import React, { useEffect, useMemo, useState, memo } from 'react';
 
 import { Handle, Position, useStore } from 'reactflow';
 
@@ -15,7 +15,12 @@ import { getMessageStyling } from '@src/client/themestyling';
 
 import { getWarningsForNode } from '../versioneditorutils';
 
-import { getInputsAndOutputsForNode } from '@src/common/nodeMetadata';
+import { getInputsAndOutputsForNode, getMetadataForNodeType } from '@src/common/nodeMetadata';
+import {
+  buildContainerStylingFromPalette,
+  getVisualsForNode,
+  nodeUsesCustomPersona,
+} from '../nodepalette';
 
 
 
@@ -137,37 +142,50 @@ const NodeGraphNode = memo((props) => {
 
 
 
+  const nodeMetadata = useMemo(
+    () => (node ? getMetadataForNodeType(node.nodeType) : undefined),
+    [node]
+  );
+
+  const usesCustomPersona = useMemo(
+    () => nodeUsesCustomPersona(node, nodeMetadata),
+    [node, nodeMetadata]
+  );
+
+  const paletteVisuals = useMemo(
+    () => (!usesCustomPersona && node ? getVisualsForNode(node.nodeType, nodeMetadata) : null),
+    [node, nodeMetadata, usesCustomPersona]
+  );
+
   useEffect(() => {
+    let baseStyling;
 
-    let newStyling = getMessageStyling(['text'], persona);
+    if (usesCustomPersona) {
+      baseStyling = getMessageStyling(['text'], persona);
+    } else {
+      baseStyling = buildContainerStylingFromPalette(paletteVisuals);
+    }
 
+    const base = baseStyling || {};
+    const fallbackBackground = base.backgroundColor ?? 'rgba(12, 26, 48, 0.85)';
+    const fallbackBorder = base.borderColor ?? 'rgba(148, 163, 184, 0.45)';
+    const fallbackColor = base.color ?? '#f8fafc';
 
-
-    newStyling = {
-
-      ...newStyling,
-
-      backgroundColor: isTarget || isSelected ? 'rgba(56, 189, 248, 0.15)' : newStyling.backgroundColor,
-
+    const newStyling = {
+      ...base,
+      backgroundColor: isTarget || isSelected ? 'rgba(56, 189, 248, 0.15)' : fallbackBackground,
       borderStyle: isTarget ? 'dashed' : 'solid',
-
-      borderColor: isSelected ? 'rgba(56, 189, 248, 0.65)' : newStyling.borderColor,
-
+      borderColor: isSelected ? 'rgba(56, 189, 248, 0.65)' : fallbackBorder,
+      color: fallbackColor,
       className: clsx(
-
         'transition-all duration-200',
-
+        !usesCustomPersona && paletteVisuals?.hoverClass,
         isSelected ? 'ring-2 ring-sky-400/70 ring-offset-2 ring-offset-slate-950/50' : 'ring-0'
-
       ),
-
     };
 
-
-
     setStyling(newStyling);
-
-  }, [persona, isSelected, isTarget]);
+  }, [paletteVisuals, persona, usesCustomPersona, isSelected, isTarget]);
 
 
 

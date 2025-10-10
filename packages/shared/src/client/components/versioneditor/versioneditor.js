@@ -2,7 +2,7 @@
 import { useRouter } from "next/router";
 import React, { memo, useState, useEffect, useRef } from "react";
 import { defaultAppTheme } from "@src/common/theme";
-import { AlertCircle, CheckCircle2, Play, Save, Trash2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, GaugeCircle, Layers, Play, Save, Settings2, Trash2, Workflow, X } from "lucide-react";
 import { VersionSelector } from "@src/client/components/versionselector";
 import { useAtom } from "jotai";
 import { vhState } from "@src/client/states";
@@ -27,7 +27,6 @@ import { SettingsMenu } from "@src/client/components/settingsmenus/settingsmenu"
 import { VersionTemplates } from "./versiontemplates";
 import { NodeGraphDisplay } from "./graphdisplay/nodegraphdisplay";
 import { v4 as uuidv4 } from "uuid";
-import { ModalMenu } from "@src/client/components/standard/modalmenu";
 import ReactMarkdown from "react-markdown";
 import { replacePlaceholderSettingWithFinalValue } from "@src/client/components/settingsmenus/menudatamodel";
 import { getMetadataForNodeType } from "@src/common/nodeMetadata";
@@ -38,6 +37,8 @@ import "ace-builds/src-noconflict/theme-monokai";
 import "ace-builds/src-noconflict/ext-language_tools";
 import { NodeInputsEditor } from "./nodeinputseditor";
 import { NodeInitMenu } from "./nodeinitmenu";
+import { FloatingPanel } from "./floatingpanel";
+import { NodeLibraryTree } from "./nodelibrarytree";
 
 const globalOptions = [
   {
@@ -211,23 +212,26 @@ function VersionEditor(props) {
   const [readOnly, setreadOnly] = useState(true);
   const [settingsDiff, setSettingsDiff] = useState(null);
   const [vh] = useAtom(vhState);
-  const graphAreaHeight = `${Math.max((vh ?? 0) - 160, 520)}px`;
 
   const settingsDiffTimeoutId = useRef(null);
   const versionInfoUpdateTimeoutId = useRef(null);
-  const [modalEditingMode, setModalEditingMode] = useState(undefined);
+  const [inspectorState, setInspectorState] = useState(undefined);
   const initDataRef = useRef(null);
   const [discardChangesDialogOpen, setDiscardChangesDialogOpen] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [useAppKeysDialogOpen, setUseAppKeysDialogOpen] = useState(false);
+  const [infoPanelOpen, setInfoPanelOpen] = useState(true);
+  const [actionsPanelOpen, setActionsPanelOpen] = useState(true);
+  const [libraryPanelOpen, setLibraryPanelOpen] = useState(true);
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const [inspectorPanelOpen, setInspectorPanelOpen] = useState(false);
 
   const gameTheme = game?.theme ? game.theme : defaultAppTheme;
   const baseBackgroundColor = gameTheme?.colors?.titleBackgroundColor || '#0f172a';
   const accentColor = gameTheme?.palette?.textSecondary || gameTheme?.colors?.primaryButtonColor || '#38bdf8';
   const isDarkTheme = getLuminance(baseBackgroundColor) < 0.6;
 
-  const contentAreaClassName = 'relative flex w-full flex-1 flex-col items-center px-6 pb-12 pt-10 transition-colors sm:px-8 lg:px-12';
-  const contentAreaStyle = {
+  const workspaceStyle = {
     minHeight: `${vh || 0}px`,
     background: `linear-gradient(160deg, ${colorWithAlpha(baseBackgroundColor, isDarkTheme ? 0.95 : 0.9)} 0%, ${colorWithAlpha(baseBackgroundColor, isDarkTheme ? 0.65 : 0.45)} 45%, ${colorWithAlpha('#0f172a', isDarkTheme ? 0.85 : 0.2)} 100%)`,
     color: isDarkTheme ? '#f8fafc' : '#0f172a',
@@ -238,9 +242,6 @@ function VersionEditor(props) {
   const infoBubbleClassName = isDarkTheme
     ? 'relative w-full max-w-4xl rounded-3xl border border-white/15 bg-white/10 px-6 py-6 text-slate-100 shadow-[0_45px_120px_-60px_rgba(56,189,248,0.55)] backdrop-blur'
     : 'relative w-full max-w-4xl rounded-3xl border border-slate-200 bg-white px-6 py-6 text-slate-900 shadow-[0_30px_90px_-60px_rgba(15,23,42,0.18)]';
-  const heroCardClass = isDarkTheme
-    ? 'rounded-3xl border border-white/15 bg-gradient-to-br from-white/10 via-white/5 to-white/0 p-6 shadow-[0_55px_140px_-65px_rgba(56,189,248,0.55)] backdrop-blur'
-    : 'rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 p-6 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.2)]';
   const heroTextClass = isDarkTheme ? 'flex flex-col gap-1 text-slate-100' : 'flex flex-col gap-1 text-slate-900';
   const heroSubtitleClass = isDarkTheme
     ? 'text-xs font-medium uppercase tracking-[0.35em] text-slate-300'
@@ -254,15 +255,6 @@ function VersionEditor(props) {
   const savedBadgeClass = isDarkTheme
     ? 'ml-2 inline-flex items-center text-slate-200'
     : 'ml-2 inline-flex items-center text-slate-500';
-  const cardSectionClass = isDarkTheme
-    ? 'rounded-3xl border border-white/10 bg-white/5 text-slate-100 shadow-[0_55px_140px_-65px_rgba(56,189,248,0.45)] backdrop-blur'
-    : 'rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.18)]';
-  const graphCardClass = isDarkTheme
-    ? 'rounded-3xl border border-white/10 bg-slate-950/70 p-4 text-slate-100 shadow-[0_65px_150px_-70px_rgba(14,165,233,0.65)] backdrop-blur'
-    : 'rounded-3xl border border-slate-200 bg-white p-4 text-slate-900 shadow-[0_35px_90px_-45px_rgba(15,23,42,0.18)]';
-  const dangerCardClass = isDarkTheme
-    ? 'rounded-3xl border border-white/10 bg-white/5 p-6 text-center text-slate-100 shadow-[0_55px_140px_-65px_rgba(244,63,94,0.45)] backdrop-blur'
-    : 'rounded-3xl border border-rose-200/60 bg-white p-6 text-center text-slate-900 shadow-[0_35px_90px_-45px_rgba(244,63,94,0.25)]';
   const lightButtonStyles = {
     subtle: 'inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60',
     primary: 'inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 to-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_40px_-20px_rgba(56,189,248,0.6)] transition hover:from-sky-400 hover:to-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60',
@@ -617,11 +609,18 @@ const handleCancelDelete = () => {
         initDataRef.current = JSON.parse(JSON.stringify(nodeMetadata.newNodeTemplate));
         initDataRef.current.instanceID = uuidv4();
         if (initMenu) {
-          setModalEditingMode({
+          setInspectorState({
             menu: initMenu,
             mode: 'nodeInit',
-            onConfirm: (result) => result && onNodeStructureChange(node, "finishadd", {templateName}),
+            onConfirm: (result) => {
+              if (result) {
+                onNodeStructureChange(node, "finishadd", { templateName });
+              } else {
+                initDataRef.current = null;
+              }
+            },
           });
+          setInspectorPanelOpen(true);
           return;
         } else {
           return onNodeStructureChange(node, "finishadd", {});
@@ -950,34 +949,135 @@ const handleCancelDelete = () => {
     return returnValue;
   }
   
-  function renderInfoBubble(content) {
-    return (
-      <div className={infoBubbleClassName}>
+  const renderStatusOverlay = (content) => (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6">
+      <div className={`pointer-events-auto ${infoBubbleClassName}`}>
         <div className="flex w-full items-start gap-4">{content}</div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  function renderWithFormatting(content) {
-    return (
-      <div
-        className={contentAreaClassName}
-        style={contentAreaStyle}
-      >
-        {renderInfoBubble(content)}
-      </div>
-    );
-  }
+  const inspectorNodes = newVersionInfoRef.current?.stateMachineDescription?.nodes ?? [];
+  const inspectorNode =
+    inspectorState && inspectorNodes.length > inspectorState.nodeIndex
+      ? inspectorNodes[inspectorState.nodeIndex]
+      : null;
 
-  const handleOpenNodeSettingsMenu = (node) => setModalEditingMode({
-    nodeIndex: newVersionInfoRef.current.stateMachineDescription.nodes.findIndex((n) => n.instanceID == node.instanceID),
-    mode: 'nodeDetails'
-  });
-  const handleOpenInputSettingsMenu = (producerNode, consumerNode) => setModalEditingMode({
-    nodeIndex: newVersionInfoRef.current.stateMachineDescription.nodes.findIndex((n) => n.instanceID == consumerNode.instanceID),
-    producerNode: producerNode,
-    mode: 'inputDetails'
-  });
+  const renderInspectorContent = () => {
+    if (!inspectorState) {
+      return (
+        <p className="text-sm text-slate-300">
+          Select a node to inspect its configuration.
+        </p>
+      );
+    }
+
+    if (inspectorState.mode === 'nodeDetails') {
+      return (
+        <NodeSettingsMenu
+          node={inspectorNode}
+          readOnly={readOnly}
+          nodes={inspectorNodes}
+          onChange={onVariableChanged}
+          onNodeStructureChange={onNodeStructureChange}
+          onPersonaListChange={onPersonaListChange}
+          versionInfo={newVersionInfoRef.current}
+        />
+      );
+    }
+
+    if (inspectorState.mode === 'inputDetails') {
+      return (
+        <NodeInputsEditor
+          node={inspectorNode}
+          readOnly={readOnly}
+          nodes={inspectorNodes}
+          onChange={onVariableChanged}
+          onNodeStructureChange={onNodeStructureChange}
+          onPersonaListChange={onPersonaListChange}
+          producerNodeID={inspectorState.producerNode?.instanceID}
+        />
+      );
+    }
+
+    if (inspectorState.mode === 'nodeInit') {
+      return (
+        <NodeInitMenu
+          node={initDataRef.current}
+          menu={inspectorState.menu}
+          versionInfo={newVersionInfoRef.current}
+          onVariableChanged={onVariableChanged}
+          onPersonaListChange={onPersonaListChange}
+          gameTheme={gameTheme}
+        />
+      );
+    }
+
+    return null;
+  };
+
+  const inspectorHasActions = Boolean(inspectorState?.onConfirm);
+
+  const renderEmptyWorkspace = (content) => (
+    <div className="relative h-full w-full overflow-hidden" style={workspaceStyle}>
+      <div className="absolute inset-0" style={overlayStyle} />
+      {renderStatusOverlay(content)}
+    </div>
+  );
+
+  const hasVersionSelected = Boolean(versionName);
+  const versionLoaded = Boolean(versionInfo && newVersionInfoRef.current);
+  const showGraph = hasVersionSelected && versionLoaded;
+  const hasNodes = inspectorNodes.length > 0;
+  const shouldShowTemplateChooser = showGraph && !hasNodes;
+  const showSelectVersionMessage = !hasVersionSelected;
+  const showLoadingMessage = hasVersionSelected && !versionLoaded;
+  const editorStatusLabel = readOnly
+    ? "Viewing as read-only"
+    : dirtyEditor
+      ? "Unsaved changes"
+      : isUpdated
+        ? "All changes saved"
+        : "No changes yet";
+
+  const closeInspectorPanel = (shouldCancel = false) => {
+    if (shouldCancel && inspectorState?.onConfirm) {
+      inspectorState.onConfirm(false);
+    }
+    setInspectorState(undefined);
+    setInspectorPanelOpen(false);
+  };
+
+  const handleInspectorConfirm = () => {
+    inspectorState?.onConfirm?.(true);
+    setInspectorState(undefined);
+    setInspectorPanelOpen(false);
+  };
+
+  const handleInspectorCancel = () => {
+    inspectorState?.onConfirm?.(false);
+    setInspectorState(undefined);
+    setInspectorPanelOpen(false);
+  };
+
+  const handleOpenNodeSettingsMenu = (node) => {
+    const nodeIndex = newVersionInfoRef.current.stateMachineDescription.nodes.findIndex((n) => n.instanceID == node.instanceID);
+    setInspectorState({
+      nodeIndex,
+      mode: 'nodeDetails',
+    });
+    setInspectorPanelOpen(true);
+  };
+
+  const handleOpenInputSettingsMenu = (producerNode, consumerNode) => {
+    const nodeIndex = newVersionInfoRef.current.stateMachineDescription.nodes.findIndex((n) => n.instanceID == consumerNode.instanceID);
+    setInspectorState({
+      nodeIndex,
+      producerNode,
+      mode: 'inputDetails',
+    });
+    setInspectorPanelOpen(true);
+  };
 
   const onPublishedSettingsChanged = (object, relativePath, newValue) => {
     if (relativePath === "published") {
@@ -1003,27 +1103,61 @@ const handleCancelDelete = () => {
 
   if (!(account && gamePermissions)) {
     console.log("Account or game permissions not loaded yet: ",  account ? "account" : "gamePermissions");
-    return renderWithFormatting(<h1>Loading...</h1>);
+    return renderEmptyWorkspace(<h1>Loading...</h1>);
   }
 
   if (!gamePermissions.includes("game_viewSource") && !gamePermissions.includes("game_edit")) {
     console.log("User is not authorized to view source or edit this game");
-    return renderWithFormatting(<h1>You are not authorized to edit this app.</h1>);
+    return renderEmptyWorkspace(<h1>You are not authorized to edit this app.</h1>);
   }
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-y-auto">
-      <div className={contentAreaClassName} style={contentAreaStyle}>
+    <div className="relative h-full w-full overflow-hidden" style={workspaceStyle}>
+      <div className="absolute inset-0">
+        {showGraph ? (
+          <NodeGraphDisplay
+            theme={gameTheme}
+            versionInfo={newVersionInfoRef.current}
+            onNodeClicked={handleOpenNodeSettingsMenu}
+            onNodeStructureChange={onNodeStructureChange}
+            onEdgeClicked={handleOpenInputSettingsMenu}
+            onPersonaListChange={onPersonaListChange}
+            readOnly={readOnly}
+          />
+        ) : null}
         <div className="pointer-events-none absolute inset-0" style={overlayStyle} />
-        <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col gap-8">
-          <div className={heroCardClass}>
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+      </div>
+
+      {showSelectVersionMessage
+        ? renderStatusOverlay(
+            <div className="space-y-3">
+              <h1 className="text-2xl font-semibold">Select a version to begin</h1>
+              <p className="text-sm text-slate-300">
+                Use the Version menu to choose an existing version or create a new one.
+              </p>
+            </div>
+          )
+        : null}
+
+      {showLoadingMessage ? renderStatusOverlay(<h1 className="text-2xl font-semibold">Loading...</h1>) : null}
+
+      {showGraph ? (
+        <div className="pointer-events-none absolute inset-0 px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+          <FloatingPanel
+            title="Version"
+            icon={<GaugeCircle className="h-4 w-4 text-sky-300" />}
+            positionClass="absolute top-6 left-6"
+            open={infoPanelOpen}
+            onOpenChange={setInfoPanelOpen}
+            size="lg"
+          >
+            <div className="space-y-5">
               <div className={heroTextClass}>
                 <p
                   className={heroSubtitleClass}
                   style={{ fontFamily: gameTheme?.fonts?.titleFont }}
                 >
-                  {game ? 'PlayDay Game' : 'Loading'}
+                  {game ? "PlayDay Game" : "Loading"}
                 </p>
                 <h1
                   className="text-3xl font-semibold uppercase tracking-[0.2em]"
@@ -1032,157 +1166,180 @@ const handleCancelDelete = () => {
                     color: gameTheme?.colors?.titleFontColor,
                     textShadow: gameTheme?.palette?.textSecondary
                       ? `0px 0px 15px ${gameTheme.palette.textSecondary}`
-                      : '0px 0px 25px rgba(56,189,248,0.45)',
+                      : "0px 0px 25px rgba(56,189,248,0.45)",
                   }}
                 >
-                  {game ? game.title : 'Loading'}
+                  {game ? game.title : "Loading"}
                 </h1>
                 <p
                   className={heroVersionClass}
                   style={{ fontFamily: gameTheme?.fonts?.titleFont }}
                 >
-                  {versionInfo ? versionInfo.versionName : ''}
+                  {versionInfo ? versionInfo.versionName : ""}
                 </p>
               </div>
-              <div className="w-full max-w-sm">
-                <VersionSelector allowNewGameOption={true} firstOptionUnselectable dropdown={true} chooseMostRecent={true} />
-              </div>
-            </div>
-          </div>
-
-          {!versionName ? (
-            renderInfoBubble(<h1>Select a version from the dropdown above (or hit + to add one)</h1>)
-          ) : !versionInfo ? (
-            renderInfoBubble(<h1>Loading...</h1>)
-          ) : (
-            <div className="flex flex-col gap-8">
-              {newVersionInfoRef.current?.stateMachineDescription?.nodes ? (
-                <div className="space-y-6">
-                  <div className={`${cardSectionClass} p-6`}>
-                    <div className="flex w-full flex-wrap items-center justify-end gap-3">
-                      <button
-                        type="button"
-                        onClick={handleDiscardChanges}
-                        disabled={!dirtyEditor}
-                        className={buttonStyles.subtle}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Discard changes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={submitNewVersionInfo}
-                        disabled={readOnly || !dirtyEditor}
-                        className={buttonStyles.primary}
-                      >
-                        <Save className="h-4 w-4" />
-                        Save changes
-                        {dirtyEditor ? (
-                          <span title="Unsaved changes" className={unsavedBadgeClass}>
-                            <AlertCircle className="h-5 w-5" />
-                          </span>
-                        ) : isUpdated ? (
-                          <span title="Changes saved" className={savedBadgeClass}>
-                            <CheckCircle2 className="h-5 w-5" />
-                          </span>
-                        ) : null}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => router.push(`/play/${game.url}?versionName=${versionInfo.versionName}`)}
-                        className={buttonStyles.accent}
-                      >
-                        <Play className="h-4 w-4" />
-                        Play
-                      </button>
-                    </div>
-                  </div>
-
-                  <div
-                    className={graphCardClass}
-                    style={{ height: graphAreaHeight }}
-                  >
-                    <NodeGraphDisplay
-                      theme={gameTheme}
-                      versionInfo={newVersionInfoRef.current}
-                      onNodeClicked={handleOpenNodeSettingsMenu}
-                      onNodeStructureChange={onNodeStructureChange}
-                      onEdgeClicked={handleOpenInputSettingsMenu}
-                      onPersonaListChange={onPersonaListChange}
-                      readOnly={readOnly}
-                    />
-                  </div>
-
-                </div>
-              ) : (
-                <TemplateChooser templateChosen={(template) => templateChosen(template)} />
-              )}
-
-              <div className={`${cardSectionClass} p-6`}>
-                <SettingsMenu
-                  menu={globalOptions}
-                  rootObject={newVersionInfoRef.current}
-                  onChange={onPublishedSettingsChanged}
-                  key={"settingsEditor"}
-                  readOnly={readOnly}
+              <div className="space-y-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400">
+                  Active Version
+                </span>
+                <VersionSelector
+                  allowNewGameOption={true}
+                  firstOptionUnselectable
+                  dropdown={true}
+                  chooseMostRecent={true}
                 />
               </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-200/80">
+                {editorStatusLabel}
+              </div>
+            </div>
+          </FloatingPanel>
 
-              <div className={dangerCardClass}>
+          <FloatingPanel
+            title="Actions"
+            icon={<Workflow className="h-4 w-4 text-sky-300" />}
+            positionClass="absolute top-6 right-6"
+            open={actionsPanelOpen}
+            onOpenChange={setActionsPanelOpen}
+            size="md"
+          >
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
-                  onClick={handleDeleteVersion}
-                  disabled={readOnly}
-                  className={buttonStyles.danger}
+                  onClick={handleDiscardChanges}
+                  disabled={!dirtyEditor}
+                  className={buttonStyles.subtle}
                 >
-                  Delete version
+                  <Trash2 className="h-4 w-4" />
+                  Discard changes
+                </button>
+                <button
+                  type="button"
+                  onClick={submitNewVersionInfo}
+                  disabled={readOnly || !dirtyEditor}
+                  className={buttonStyles.primary}
+                >
+                  <Save className="h-4 w-4" />
+                  Save changes
+                  {dirtyEditor ? (
+                    <span title="Unsaved changes" className={unsavedBadgeClass}>
+                      <AlertCircle className="h-5 w-5" />
+                    </span>
+                  ) : isUpdated ? (
+                    <span title="Changes saved" className={savedBadgeClass}>
+                      <CheckCircle2 className="h-5 w-5" />
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/play/${game.url}?versionName=${versionInfo.versionName}`)}
+                  className={buttonStyles.accent}
+                >
+                  <Play className="h-4 w-4" />
+                  Play
                 </button>
               </div>
-
-              {dirtyEditor && settingsDiff}
+              <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400">
+                {editorStatusLabel}
+              </div>
+              {dirtyEditor && settingsDiff ? (
+                <div className="max-h-60 overflow-y-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-100">
+                  {settingsDiff}
+                </div>
+              ) : null}
             </div>
-          )}
+          </FloatingPanel>
+
+          <FloatingPanel
+            title="Node Library"
+            icon={<Layers className="h-4 w-4 text-sky-300" />}
+            positionClass="absolute bottom-6 left-6"
+            open={libraryPanelOpen}
+            onOpenChange={setLibraryPanelOpen}
+            size="lg"
+          >
+            <NodeLibraryTree versionInfo={newVersionInfoRef.current} readOnly={readOnly} />
+          </FloatingPanel>
+
+          <FloatingPanel
+            title="Version Settings"
+            icon={<Settings2 className="h-4 w-4 text-sky-300" />}
+            positionClass="absolute bottom-6 right-6"
+            open={settingsPanelOpen}
+            onOpenChange={setSettingsPanelOpen}
+            size="md"
+          >
+            <div className="space-y-5">
+              <SettingsMenu
+                menu={globalOptions}
+                rootObject={newVersionInfoRef.current}
+                onChange={onPublishedSettingsChanged}
+                key="settingsEditor"
+                readOnly={readOnly}
+              />
+              <button
+                type="button"
+                onClick={handleDeleteVersion}
+                disabled={readOnly}
+                className={buttonStyles.danger}
+              >
+                Delete version
+              </button>
+            </div>
+          </FloatingPanel>
+
+          <FloatingPanel
+            title={inspectorState?.mode === 'nodeInit' ? 'Initialize Node' : 'Inspector'}
+            icon={<GaugeCircle className="h-4 w-4 text-sky-300" />}
+            positionClass="absolute right-6 top-1/2 -translate-y-1/2"
+            open={inspectorPanelOpen && Boolean(inspectorState)}
+            onOpenChange={(open) => {
+              if (!open) {
+                closeInspectorPanel(true);
+              } else {
+                setInspectorPanelOpen(true);
+              }
+            }}
+            size="lg"
+            actions={
+              inspectorState ? (
+                <button
+                  type="button"
+                  onClick={() => closeInspectorPanel(true)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-slate-200 transition hover:border-white/30 hover:text-white"
+                  aria-label="Close inspector"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null
+            }
+          >
+            <div className="space-y-4">
+              {renderInspectorContent()}
+              {inspectorHasActions ? (
+                <div className="flex justify-end gap-3">
+                  <button type="button" className={buttonStyles.outline} onClick={handleInspectorCancel}>
+                    Cancel
+                  </button>
+                  <button type="button" className={buttonStyles.primary} onClick={handleInspectorConfirm}>
+                    Done
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </FloatingPanel>
         </div>
-      </div>
-      {modalEditingMode && 
-        <ModalMenu
-          onCloseRequest={() => setModalEditingMode(undefined)}
-          onConfirm={modalEditingMode.onConfirm}
-        >
-          {(modalEditingMode.mode == 'nodeDetails') &&
-            <NodeSettingsMenu
-              node={newVersionInfoRef.current?.stateMachineDescription?.nodes[modalEditingMode.nodeIndex]}
-              readOnly={readOnly}
-              nodes={newVersionInfoRef.current?.stateMachineDescription?.nodes}
-              onChange={onVariableChanged}
-              onNodeStructureChange={onNodeStructureChange}
-              onPersonaListChange={onPersonaListChange}
-              versionInfo={newVersionInfoRef.current}
-            />
-          }
-          {(modalEditingMode.mode == 'inputDetails') &&
-            <NodeInputsEditor
-              node={newVersionInfoRef.current?.stateMachineDescription?.nodes[modalEditingMode.nodeIndex]}
-              readOnly={readOnly}
-              nodes={newVersionInfoRef.current?.stateMachineDescription?.nodes}
-              onChange={onVariableChanged}
-              onNodeStructureChange={onNodeStructureChange}
-              onPersonaListChange={onPersonaListChange}
-              producerNodeID={modalEditingMode.producerNode.instanceID}
-            />
-          }
-          {(modalEditingMode.mode == 'nodeInit') &&
-            <NodeInitMenu
-              node={initDataRef.current}
-              menu={modalEditingMode.menu}
-              versionInfo={newVersionInfoRef.current}
-              onVariableChanged={onVariableChanged}
-              onPersonaListChange={onPersonaListChange}
-              gameTheme={gameTheme}
-            />
-          }
-        </ModalMenu>
-      }
+      ) : null}
+
+      {shouldShowTemplateChooser ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6">
+          <div className="pointer-events-auto w-full max-w-5xl rounded-3xl border border-white/15 bg-slate-950/80 p-6 shadow-[0_45px_120px_-60px_rgba(56,189,248,0.65)] backdrop-blur">
+            <TemplateChooser templateChosen={(template) => templateChosen(template)} />
+          </div>
+        </div>
+      ) : null}
       <DialogShell
         open={deleteDialogOpen}
         onClose={handleCancelDelete}
@@ -1327,12 +1484,3 @@ const handleCancelDelete = () => {
 }
 
 export default memo(VersionEditor);
-
-
-
-
-
-
-
-
-

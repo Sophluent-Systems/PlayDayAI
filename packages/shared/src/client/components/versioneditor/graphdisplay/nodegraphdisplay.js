@@ -13,7 +13,6 @@ import SelfConnectingEdge from './customedges/selfconnectingedge';
 import CustomSmartEdge from './customedges/customsmartedge';
 import { SmartBezierEdge } from '@tisoap/react-flow-smart-edge'
 import CurvyEdge from './customedges/curvyedge';
-import { DragDropSidebar } from "./dragdropsidebar";
 import { createPortal } from 'react-dom';
 import { Copy, Trash2, ClipboardPaste, SquareStack } from 'lucide-react';
 import FloatingEdge from './customedges/floatingedge';
@@ -1013,7 +1012,6 @@ export function NodeGraphDisplay(params) {
         
         // Handle paste: Command+A on macOS, Ctrl+A on Windows
         if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
-            console.log('Ctrl+A pressed');
             handleSelectAll(event);
         }
     };
@@ -1030,15 +1028,14 @@ export function NodeGraphDisplay(params) {
 
     return (
       <div
-        className="relative flex h-full w-full flex-col gap-4 rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-slate-100 shadow-[inset_0_1px_0_rgba(148,163,184,0.2)]"
-        style={{ background: 'radial-gradient(circle at top, rgba(56,189,248,0.12), transparent 65%)' }}
+        className="relative h-full w-full overflow-hidden rounded-[2rem] bg-slate-950/25 p-2 text-slate-100 shadow-[inset_0_1px_0_rgba(148,163,184,0.12)]"
+        style={{ background: 'radial-gradient(circle at top, rgba(56,189,248,0.06), transparent 70%)' }}
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >
-        <div className="absolute inset-0 -z-10 rounded-3xl bg-[radial-gradient(circle_at_20%_0%,rgba(56,189,248,0.12),transparent_60%)]" />
-
+        <div className="absolute inset-0 -z-10 rounded-[1.9rem] bg-[radial-gradient(circle_at_25%_0%,rgba(56,189,248,0.1),transparent_65%)]" />
         <div
-          className="relative flex min-h-[240px] flex-1 overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 shadow-[0_45px_90px_-60px_rgba(56,189,248,0.75)]"
+          className="absolute inset-2 rounded-[1.75rem] bg-slate-950/82 shadow-[0_45px_90px_-75px_rgba(56,189,248,0.55)]"
           style={{ backgroundColor: canvasBackground }}
         >
           <ReactFlowProvider>
@@ -1077,6 +1074,8 @@ export function NodeGraphDisplay(params) {
               minZoom={0.1}
               maxZoom={2}
               fitView
+              className="!bg-transparent"
+              style={{ width: '100%', height: '100%' }}
             >
               <Controls className="!bg-slate-900/80 !text-slate-100" />
             </ReactFlow>
@@ -1128,13 +1127,6 @@ export function NodeGraphDisplay(params) {
               Select All
             </ContextMenuItem>
           </ContextMenu>
-        </div>
-
-        <div
-          className="flex-none h-[320px] w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70 shadow-inner"
-          style={{ backgroundColor: canvasBackground }}
-        >
-          <DragDropSidebar theme={theme} versionInfo={versionInfo} readOnly={readOnly} />
         </div>
       </div>
     );

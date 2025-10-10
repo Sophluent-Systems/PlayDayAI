@@ -175,7 +175,7 @@ const AudioPlayer = ({
 
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved.url, playOnLoad, playbackSpeed, volume, loop]);
+  }, [resolved.url, playOnLoad]);
 
   // Events wiring.
   useEffect(() => {

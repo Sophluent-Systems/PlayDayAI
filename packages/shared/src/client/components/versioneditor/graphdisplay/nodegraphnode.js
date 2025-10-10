@@ -226,7 +226,7 @@ const NodeGraphNode = memo((props) => {
 
   return (
 
-    <NodeContainer styling={styling} height={height} width={defaultWidth}>
+    <NodeContainer styling={styling} height={height} width={defaultWidth} draggable={false}>
       <div className="custom-drag-handle absolute inset-x-0 top-0 h-6 cursor-grab active:cursor-grabbing" />
 
 

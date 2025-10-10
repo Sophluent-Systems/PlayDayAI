@@ -40,7 +40,7 @@ export function NodeContainer(props) {
             )}
             style={containerStyle}
             onDragStart={onDragStart}
-            draggable={draggable}
+            draggable={draggable ?? undefined}
         >
             {children}
         </div>

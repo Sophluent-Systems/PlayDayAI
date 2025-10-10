@@ -1,3 +1,113 @@
+/*
+ * Processor-Oriented Mental Model
+ * --------------------------------
+ * The task server executes graph nodes the way a simple CPU executes instructions.
+ * Every node instance is an "instruction" that can only issue once its operands
+ * (producer records) are ready, and the scheduler keeps the pipeline full without
+ * violating data dependencies.
+ *
+ * This commentary assumes familiarity with processor pipelines: issue queues,
+ * scoreboards, reorder buffers, branch resolution, and stall management. By
+ * mapping those concepts onto node execution, the maintenance story for this
+ * state machine remains approachable even as the graph of LLM and I/O nodes grows.
+ * 
+ * Vocabulary crosswalk:
+ * - Program / basic blocks  -> versionInfo.stateMachineDescription graph
+ * - Instruction issue queue -> this.plan.readyToProcess
+ * - Functional units        -> individual node instances (`run` implementations)
+ * - Reorder buffer          -> this.recordsInProgress plus recordHistory persistence
+ * - Scoreboard              -> createPlan/findReadyToProcess/generateRunInfoForNode
+ * - Branch & loop handling  -> performPostProcessAndFlowControl + RecordGraph
+ *
+ * 1. Fetch and decode (plan creation)
+ *    - `drainQueue` repeatedly calls `createPlan`, analogous to refilling the
+ *      issue queue. `createPlan` fetches the latest DAG history (records from the
+ *      DB plus any in-flight executions) and deduplicates it to avoid double
+ *      counting records inserted while the query was running.
+ *    - `recordsByNodeInstanceID` is built so later passes can ask "which outputs
+ *      has producer X committed?" in O(1), mirroring how a CPU partitions the
+ *      register file or reservation stations by producer.
+ *    - The very first cycle seeds the pipeline with the start node when there are
+ *      no prior records, matching the reset vector of a processor.
+ *
+ * 2. Scoreboarding and hazard detection
+ *    - `findReadyToProcess` walks every node description and, for each input edge,
+ *      calls `generateUnconsumedInputsForNode`. That helper identifies the newest
+ *      completed producer records that have not yet been consumed by this node,
+ *      using `getMostRecentRecordConsumingNodeType` as the "last read" pointer.
+ *    - `generateRunInfoForNode` assembles a run bundle when all data hazards are
+ *      cleared. It enforces trigger semantics (`requireAllEventTriggers` and
+ *      `requireAllInputs`) and variable availability. If any required trigger or
+ *      variable is missing, the node stalls and remains un-issued.
+ *    - Variable-only dependencies are handled by `applyUnconsumedVariableInputsToRunInfo`.
+ *      It back-fills operand values from the latest producer outputs, respecting
+ *      composite payloads defined in node metadata. Missing variables stall the
+ *      node when `requireAllVariables` is set.
+ *    - Pending or failed records behave like long-latency instructions. When a
+ *      node returns `waitingForExternalInput` or `failed`, the existing record is
+ *      replayed into the plan only after the inputs are validated against the
+ *      current node signature. If the node was deleted or its inputs changed,
+ *      the stale record is marked deleted to prevent phantom replays.
+ *
+ * 3. Issue and ready queue management
+ *    - Successful hazard checks push a `runInfo` bundle into
+ *      `this.plan.readyToProcess`, the equivalent of an instruction issue queue.
+ *      Inputs are removed from their unconsumed lists to prevent the same
+ *      operands from issuing twice, mirroring how a scoreboard marks operands as
+ *      "in flight".
+ *    - `applyMessageHistoryToRunInfo` fetches contextual history per input when
+ *      required, similar to supplying operand history for context-aware units.
+ *    - `drainQueue` enforces a `stepLimit`, trimming the ready queue if the caller
+ *      only granted a fixed instruction budget for this drain cycle.
+ *
+ * 4. Execution stage
+ *    - Once issued, `preRunProcessing` acts like register read and micro-op
+ *      expansion. It materializes or clones the record, gathers persona/context,
+ *      and lets the node perform `gatherInputs` and `preProcess` work. The record
+ *      is pushed into `recordsInProgress`, analogous to reserving an entry in a
+ *      reorder buffer.
+ *    - `runInfo.nodeInstance.run` is the functional unit executing the node. Calls
+ *      are concurrent: each ready node is wrapped in a promise and placed in
+ *      `this.plan.processing`. `Promise.race` waits for the first completion so
+ *      the scheduler can immediately recompute dependencies, just like a CPU
+ *      waking up on functional-unit interrupts.
+ *
+ * 5. Completion, retirement, and write-back
+ *    - `postProcessProcessing` validates that the node reported a legal terminal
+ *      state, promotes the record to completed/failed/pending, and updates the
+ *      database via RecordHistory. Successful completions clear the
+ *      waitForUpdateBeforeReattempting scoreboard bit; pending results set it so
+ *      we do not spin on the same instruction until external input arrives.
+ *    - `nodeInstance.postProcess` is invoked before the record is considered
+ *      retired, allowing nodes to emit side effects (audio updates, messages,
+ *      etc.) while we still have execution context at hand.
+ *    - Once committed, the record leaves `recordsInProgress`, and upstream nodes
+ *      become eligible when the next planning pass observes the new completed
+ *      output.
+ *
+ * 6. Control-flow resolution
+ *    - After populating the ready queue, `performPostProcessAndFlowControl`
+ *      builds a `RecordGraph`, which marks consumption edges and detects
+ *      flow-control nodes whose entire subtrees have completed (loops, conditionals).
+ *    - `processFlowControlSubtree` walks the flow-control tree bottom-up,
+ *      mirroring how a CPU resolves branches once all dependent instructions have
+ *      retired. It clones or rewires records as needed, re-inserts the updated
+ *      flow-control record into the ready queue, and marks ancestor records as
+ *      unconsumed so downstream nodes rescan with the new control decision.
+ *
+ * 7. Stall conditions and safeguards
+ *    - Cancellation (`wasCancelled`) exits the drain loop immediately, like a
+ *      processor flush.
+ *    - Missing node instances, deleted producers, or signature mismatches cause
+ *      records to be soft-deleted to avoid executing instructions with undefined
+ *      operands.
+ *    - Long-latency nodes (LLMs, external services) simply occupy the processing
+ *      queue until their promises resolve; lighter-weight nodes retire quickly,
+ *      letting the scheduler immediately replan.
+ *    - Errors propagate through `onStateMachineError` and the promise chain so
+ *      that a single faulty unit does not deadlock the entire pipeline.
+ *
+ */
 import { Config } from "@src/backend/config";
 import { exportRecordsAsMessageList } from '@src/backend/messageHistory';
 import { RecordHistory } from './recordHistory';

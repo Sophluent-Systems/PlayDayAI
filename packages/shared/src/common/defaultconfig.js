@@ -474,11 +474,11 @@ const defaultConstantsJSON = `
             "assetBaseUrl": "/vad/",
             "onnxWasmBaseUrl": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.0/dist/",
             "model": "legacy",
-            "positiveSpeechThreshold": 0.05,
-            "negativeSpeechThreshold": 0.02,
-            "redemptionMs": 450,
-            "minSpeechMs": 220,
-            "preSpeechPadMs": 180,
+            "positiveSpeechThreshold": 0.6,
+            "negativeSpeechThreshold": 0.4,
+            "redemptionMs": 1000,
+            "minSpeechMs": 250,
+            "preSpeechPadMs": 300,
             "submitUserSpeechOnPause": true
         }
     },

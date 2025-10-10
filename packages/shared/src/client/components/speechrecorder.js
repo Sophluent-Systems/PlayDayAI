@@ -164,6 +164,19 @@ export const SpeechRecorder = memo(function SpeechRecorder(props) {
     { value: "always_on", label: "Always on" },
   ];
 
+  const statusText = (() => {
+    if (isMuted) {
+      return "Mic muted";
+    }
+    if (disableListening) {
+      return "Mic idle";
+    }
+    if (isListening) {
+      return "Listening";
+    }
+    return "Starting microphone...";
+  })();
+
   if (typeof window === "undefined") {
     return null;
   }
@@ -180,7 +193,7 @@ export const SpeechRecorder = memo(function SpeechRecorder(props) {
           {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5 text-primary" />}
         </button>
         <span className="text-sm text-muted">
-          {isMuted ? "Mic muted" : isListening ? "Listening" : "Starting microphone..."}
+          {statusText}
         </span>
         <div className="relative ml-auto">
           <button

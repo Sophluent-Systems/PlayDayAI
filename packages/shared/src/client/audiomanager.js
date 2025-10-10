@@ -1,22 +1,18 @@
 import { getMessageStyling } from "@src/client/themestyling";
 import { Constants } from '@src/common/defaultconfig';
 
+const defaultAudioEntry = {
+    playState: "none",
+    recordID: null,
+    source: null,
+    autoPlayOnLoad: true,
+    preferImmediate: false,
+};
+
 const defaultAudioState = {
-    backgroundMusic: {
-        playState: "none",
-        recordID: null,
-        source: null,
-    },
-    soundEffect: {
-        playState: "none",
-        recordID: null,
-        source: null,
-    },
-    speech: {
-        playState: "none",
-        recordID: null,
-        source: null,
-    },
+    backgroundMusic: { ...defaultAudioEntry },
+    soundEffect: { ...defaultAudioEntry },
+    speech: { ...defaultAudioEntry },
     theme: {},
   }
 
@@ -84,7 +80,12 @@ export class AudioManager {
             Constants.debug.logAudioPlayback && console.log("AudioManager: Playing background music: ", bgMusicMessage.content.audio);
             if (this.audioState?.backgroundMusic?.source?.recordID != bgMusicMessage.recordID) {
                 // If not, start it
-                this.requestAudioControl("play", "backgroundMusic", { recordID: bgMusicMessage.recordID, source: bgMusicMessage.content.audio});
+                this.requestAudioControl("play", "backgroundMusic", {
+                    recordID: bgMusicMessage.recordID,
+                    source: bgMusicMessage.content.audio,
+                    autoPlayOnLoad: true,
+                    preferImmediate: false,
+                });
             }
         }
     }
@@ -211,6 +212,8 @@ export class AudioManager {
                     source: audio.message.content.audio,
                     styling,
                     speakerName,
+                    autoPlayOnLoad: true,
+                    preferImmediate: false,
                   });
                   this.pendingPlayback[type] = audio.message.content.audio;
                 }
@@ -267,38 +270,100 @@ export class AudioManager {
         this.updateAudioPlayqueues();
     }
  
-    requestAudioControl(action, playerInstance, params) {
+    requestAudioControl(action, playerInstance, params = {}) {
         Constants.debug.logAudioPlayback && console.log("requestAudioControl ", action, playerInstance, params )
 
-        let newAudioState = {...this.audioState}; 
+        let newAudioState = { ...this.audioState };
+        const currentState = this.audioState[playerInstance] || {};
+        newAudioState[playerInstance] = { ...currentState };
+        const nextState = newAudioState[playerInstance];
 
-        if (action == "play") {
+        let shouldPlayImmediately = false;
+        let shouldPlayAfterUpdate = false;
+        const hasAutoPlayOverride = Object.prototype.hasOwnProperty.call(params, "autoPlayOnLoad");
+        const hasPreferImmediate = Object.prototype.hasOwnProperty.call(params, "preferImmediate");
+
+        if (!Object.prototype.hasOwnProperty.call(nextState, "autoPlayOnLoad")) {
+          nextState.autoPlayOnLoad = true;
+        }
+        if (!Object.prototype.hasOwnProperty.call(nextState, "preferImmediate")) {
+          nextState.preferImmediate = false;
+        }
+
+        if (action === "play") {
           const { recordID, source, speakerName, styling } = params;
-          const sameSource = this.audioState[playerInstance].source == source;
-          const sameRecord = this.audioState[playerInstance].recordID == recordID;
-            
-          if (!sameRecord) {
+          const previousRecordID = currentState.recordID;
+          const previousSource = currentState.source;
 
-            newAudioState[playerInstance].source = source;
-            newAudioState[playerInstance].recordID = recordID;
+          const hasRecordID = recordID !== null && typeof recordID !== "undefined";
+          const sameRecord = hasRecordID && previousRecordID === recordID;
+          const sameSource =
+            sameRecord &&
+            previousSource?.source === source?.source &&
+            previousSource?.data === source?.data;
 
-            if (playerInstance == "speech") {
-                newAudioState[playerInstance].speakerName = speakerName;
-                newAudioState[playerInstance].styling = styling;
+          if (params?.preferImmediate && source && typeof this.controller === "function") {
+            try {
+                this.controller(playerInstance, { type: "loadSourceAndPlay", source });
+            } catch (err) {
+                Constants.debug.logAudioPlayback && console.warn("AudioManager: immediate play failed", err);
             }
           }
 
-          if (sameSource) {
-        
-                this.controller(playerInstance, "play");            
+          if (!sameSource) {
+            nextState.source = source;
           }
-        }
-      
-        if (action == "pause") {
+
+          if (!sameRecord) {
+            nextState.recordID = recordID;
+          }
+
+          if (playerInstance === "speech") {
+            if (typeof speakerName !== "undefined") {
+              nextState.speakerName = speakerName;
+            }
+            if (typeof styling !== "undefined") {
+              nextState.styling = styling;
+            }
+          }
+
+          if (hasAutoPlayOverride) {
+            nextState.autoPlayOnLoad = params.autoPlayOnLoad;
+          }
+          if (hasPreferImmediate) {
+            nextState.preferImmediate = !!params.preferImmediate;
+          } else {
+            nextState.preferImmediate = false;
+          }
+
+          if (sameSource) {
+            shouldPlayImmediately = true;
+          } else {
+            shouldPlayAfterUpdate = true;
+          }
+        } else if (action === "pause") {
+          if (this.controller) {
             this.controller(playerInstance, "pause");
+          }
+        } else if (hasAutoPlayOverride) {
+          nextState.autoPlayOnLoad = params.autoPlayOnLoad;
         }
-      
+
         this.audioState = newAudioState;
         this.onAudioStateChange(newAudioState);
+
+        if (action === "play" && this.controller) {
+          const triggerPlay = () => this.controller(playerInstance, "play");
+
+          if (shouldPlayImmediately) {
+            triggerPlay();
+          } else if (shouldPlayAfterUpdate) {
+            const schedule =
+              typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+                ? (fn) => window.requestAnimationFrame(() => fn())
+                : (fn) => setTimeout(fn, 0);
+            schedule(triggerPlay);
+          }
+        }
     }
 }

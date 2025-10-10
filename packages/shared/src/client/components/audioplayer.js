@@ -1,167 +1,280 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+﻿"use client";
 
+import React, { useEffect, useRef, useState } from "react";
+import { resolveAudioURL } from "../audioUtils";
+
+/**
+ * Lightweight, reliable HTMLAudio player.
+ *
+ * Props:
+ * - source: { source: 'url'|'storage', data: string }
+ * - getBlobForStorageSource?: (data: string) => Promise<Blob>
+ * - playbackSpeed?: number
+ * - volume?: number
+ * - loop?: boolean
+ * - showControls?: boolean
+ * - playOnLoad?: boolean
+ * - onStateChange?: (state: 'playing'|'paused'|'stopped'|'error') => void
+ * - onBrowserBlockedPlayback?: (err?: any) => void
+ * - getPlaybackControlRef?: (api: Controller) => void
+ * - debug?: boolean
+ */
 const AudioPlayer = ({
   source,
-  textColor,
-  getPlaybackControlRef,
+  getBlobForStorageSource,
+  playbackSpeed = 1,
+  volume = 1,
+  loop = false,
+  showControls = true,
+  playOnLoad = false,
+  preferImmediateSrc = false,
   onStateChange,
   onBrowserBlockedPlayback,
-  buttonColor,
-  playOnLoad,
-  playbackSpeed = 1,
-  volume = 1.0,
-  showControls = true,
+  getPlaybackControlRef,
+  debug = false,
 }) => {
   const audioRef = useRef(null);
-  const [playing, setPlaying] = useState(false);
-  const [audioSrc, setAudioSrc] = useState(null);
+  const [resolved, setResolved] = useState({ url: null, revoke: undefined });
+  const pendingPlayRef = useRef(false);
+  const userInitiatedPlayRef = useRef(false);
 
-  const getFinalAudioURL = async (sourceToTry) => {
-    if (sourceToTry.source === 'storage') {
-      const blob = await callGetBlob(sessionID, sourceToTry.data);
-      return URL.createObjectURL(blob);
-    }
-
-    if (sourceToTry.source === 'url') {
-      try {
-        const result = await fetch(sourceToTry.data, { method: 'HEAD' });
-        if (result.ok) {
-          return sourceToTry.data;
-        }
-      } catch (error) {
-        // Ignore and try fallback
-      }
-
-      try {
-        const secondURLtoTry = `https://playday.ai${sourceToTry.data}`;
-        const result = await fetch(secondURLtoTry, { method: 'HEAD' });
-        if (result.ok) {
-          return secondURLtoTry;
-        }
-      } catch (error) {
-        // Ignore fallback failures
-      }
-    }
-
-    return null;
-  };
-
+  // Resolve source -> url (and cleanup old object URLs).
   useEffect(() => {
+    let cancelled = false;
+    const prev = resolved;
+    if (prev?.revoke) prev.revoke();
+
+    const el = audioRef.current;
+    if (!el) return undefined;
+
     if (!source) {
-      return;
+      el.removeAttribute("src");
+      el.load();
+      setResolved({ url: null, revoke: undefined });
+      return () => {
+        cancelled = true;
+      };
     }
 
-    getFinalAudioURL(source).then((url) => {
-      if (url) {
-        setAudioSrc(url);
-      } else if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
+    let provisionalUrl = null;
+
+    if (preferImmediateSrc && source?.source === "url") {
+      provisionalUrl = source.data;
+      if (typeof provisionalUrl === "string" && provisionalUrl.length > 0) {
+        el.src = provisionalUrl;
+        setResolved({ url: provisionalUrl, revoke: undefined });
+      } else {
+        provisionalUrl = null;
       }
-    });
-  }, [source]);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.playbackRate = playbackSpeed;
-      audioRef.current.volume = volume;
-    }
-  }, [playbackSpeed, volume]);
-
-  useEffect(() => {
-    if (!audioRef.current || !audioSrc) {
-      return;
     }
 
-    audioRef.current.src = audioSrc;
-    if (playOnLoad) {
-      audioRef.current
-        .play()
-        .catch((error) => {
-          onBrowserBlockedPlayback?.(error);
-        })
-        .then(() => {
-          if (audioRef.current) {
-            audioRef.current.playbackRate = playbackSpeed;
-            audioRef.current.volume = volume;
-          }
-        });
-    }
-  }, [audioSrc]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) {
-      return;
-    }
-
-    const handlePlay = () => {
-      audio.playbackRate = playbackSpeed;
-      audio.volume = volume;
-      setPlaying(true);
-      onStateChange?.('playing');
-    };
-
-    const handlePause = () => {
-      setPlaying(false);
-      onStateChange?.('paused');
-    };
-
-    const handleEnded = () => {
-      setPlaying(false);
-      onStateChange?.('stopped');
-    };
-
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('pause', handlePause);
-    audio.addEventListener('ended', handleEnded);
+    (async () => {
+      const res = await resolveAudioURL({ source, getBlobForStorageSource, debug });
+      if (cancelled) {
+        res.revoke?.();
+        return;
+      }
+      if (res?.url && el.src !== res.url) {
+        el.src = res.url;
+      }
+      if (!res?.url && !provisionalUrl) {
+        el.removeAttribute("src");
+        el.load();
+      }
+      setResolved(res);
+    })();
 
     return () => {
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('pause', handlePause);
-      audio.removeEventListener('ended', handleEnded);
+      cancelled = true;
     };
-  }, [onStateChange, playbackSpeed, volume]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, getBlobForStorageSource, preferImmediateSrc]);
+
+  // Playback rate & volume updates.
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.playbackRate = playbackSpeed;
+  }, [playbackSpeed]);
 
   useEffect(() => {
-    if (!getPlaybackControlRef) {
-      return;
+    const el = audioRef.current;
+    if (!el) return;
+    el.volume = volume;
+  }, [volume]);
+
+  const attemptPlay = useRef();
+  attemptPlay.current = (fromUser = false) => {
+    const el = audioRef.current;
+    if (!el) return Promise.resolve(false);
+
+    if (fromUser) {
+      userInitiatedPlayRef.current = true;
     }
 
-    getPlaybackControlRef({
-      play: () =>
-        audioRef.current?.play().catch((error) => {
-          console.error('PLAY: Error playing audio:', error);
-          onBrowserBlockedPlayback?.(error);
-        }),
+    if (!el.src || el.src.length === 0) {
+      pendingPlayRef.current = true;
+      return Promise.resolve(false);
+    }
+
+    el.playbackRate = playbackSpeed;
+    el.volume = volume;
+    el.loop = loop;
+
+    try {
+      const playPromise = el.play();
+      if (!playPromise || typeof playPromise.then !== "function") {
+        pendingPlayRef.current = false;
+        if (!playOnLoad) {
+          userInitiatedPlayRef.current = false;
+        }
+        return Promise.resolve(true);
+      }
+
+      return playPromise
+        .then(() => {
+          pendingPlayRef.current = false;
+          if (!playOnLoad) {
+            userInitiatedPlayRef.current = false;
+          }
+          return true;
+        })
+        .catch((err) => {
+          if (debug) console.warn("Audio: play() error", err);
+          if (err?.name === "NotAllowedError") {
+            onBrowserBlockedPlayback?.(err);
+            userInitiatedPlayRef.current = false;
+          } else {
+            pendingPlayRef.current = true;
+          }
+          return false;
+        });
+    } catch (err) {
+      if (debug) console.warn("Audio: play() threw synchronously", err);
+      pendingPlayRef.current = true;
+      return Promise.resolve(false);
+    }
+  };
+
+  // Manage playback when URL ready.
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !resolved.url) return;
+
+    el.src = resolved.url;
+    el.load();
+
+    const shouldAttempt =
+      playOnLoad || pendingPlayRef.current || userInitiatedPlayRef.current;
+    if (!shouldAttempt) return;
+
+    const wasUserInitiated = userInitiatedPlayRef.current;
+    const raf = requestAnimationFrame(() => {
+      attemptPlay.current?.(wasUserInitiated);
+    });
+
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolved.url, playOnLoad, playbackSpeed, volume, loop]);
+
+  // Events wiring.
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+
+    const handlePlay = () => {
+      pendingPlayRef.current = false;
+      onStateChange?.("playing");
+    };
+    const handlePause = () => onStateChange?.("paused");
+    const handleEnded = () => {
+      pendingPlayRef.current = false;
+      onStateChange?.("stopped");
+    };
+    const handleError = () => onStateChange?.("error");
+
+    el.addEventListener("play", handlePlay);
+    el.addEventListener("pause", handlePause);
+    el.addEventListener("ended", handleEnded);
+    el.addEventListener("error", handleError);
+
+    return () => {
+      el.removeEventListener("play", handlePlay);
+      el.removeEventListener("pause", handlePause);
+      el.removeEventListener("ended", handleEnded);
+      el.removeEventListener("error", handleError);
+    };
+  }, [onStateChange]);
+
+  // Imperative controller
+  useEffect(() => {
+    if (!getPlaybackControlRef) return;
+
+    const api = {
+      loadSourceAndPlay: ({ source: loadSource } = {}) => {
+        const el = audioRef.current;
+        if (!el || !loadSource) return Promise.resolve(false);
+
+        userInitiatedPlayRef.current = true;
+
+        if (loadSource.source === "url" && typeof loadSource.data === "string" && loadSource.data.length > 0) {
+          setResolved((prev) => {
+            prev?.revoke?.();
+            return { url: loadSource.data, revoke: undefined };
+          });
+          el.src = loadSource.data;
+          return attemptPlay.current?.(true) ?? Promise.resolve(false);
+        }
+
+        pendingPlayRef.current = true;
+        return attemptPlay.current?.(true) ?? Promise.resolve(false);
+      },
+      play: () => attemptPlay.current?.(true),
       pause: () => audioRef.current?.pause(),
       stop: () => {
-        if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current.currentTime = 0;
-        }
+        const el = audioRef.current;
+        if (!el) return;
+        el.pause();
+        el.currentTime = 0;
       },
       setVolume: (value) => {
-        if (audioRef.current) {
-          audioRef.current.volume = value;
-        }
+        const el = audioRef.current;
+        if (!el) return;
+        el.volume = Math.max(0, Math.min(1, Number(value) || 0));
       },
       setPlaybackRate: (value) => {
-        if (audioRef.current) {
-          audioRef.current.playbackRate = value;
-        }
+        const el = audioRef.current;
+        if (!el) return;
+        el.playbackRate = Math.max(0.25, Math.min(4, Number(value) || 1));
       },
-      seekTo: (timeInSeconds) => {
-        if (audioRef.current) {
-          audioRef.current.currentTime = timeInSeconds;
-        }
+      seekTo: (sec) => {
+        const el = audioRef.current;
+        if (!el || typeof sec !== "number") return;
+        el.currentTime = Math.max(0, sec);
       },
-    });
-  }, [getPlaybackControlRef, onBrowserBlockedPlayback]);
+    };
+
+    getPlaybackControlRef(api);
+  }, [getPlaybackControlRef, onBrowserBlockedPlayback, debug]);
+
+  // Cleanup Blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      resolved.revoke?.();
+    };
+  }, [resolved]);
 
   return (
     <div className="flex w-full items-center">
-      <audio ref={audioRef} className="w-full" controls={showControls} />
+      <audio
+        ref={audioRef}
+        // keep src in JSX for SSR hydration and quick paint; we also set it in effect after resolve
+        src={resolved.url ?? undefined}
+        loop={loop}
+        controls={showControls}
+        preload="auto"
+        className="w-full"
+      />
     </div>
   );
 };

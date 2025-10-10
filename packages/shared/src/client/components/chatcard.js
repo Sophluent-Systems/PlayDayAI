@@ -200,6 +200,8 @@ export const ChatCard = memo((props) => {
         source: transformedData,
         speakerName: persona?.displayName,
         styling,
+        autoPlayOnLoad: false,
+        preferImmediate: true,
       });
     }
   };

@@ -96,7 +96,7 @@ const normalizeOption = (option, index, prefix) => {
   const value = `${prefix}-${index}`;
   return { value, label: `${prefix} ${index + 1}` };
 };
-const indicatorPillClasses = 'absolute left-1/2 top-0 flex h-7 w-20 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 shadow-lg backdrop-blur';
+const indicatorPillClasses = 'custom-drag-handle pointer-events-auto absolute left-1/2 top-0 z-20 flex h-9 w-28 -translate-x-1/2 -translate-y-[calc(100%+6px)] items-center justify-center rounded-full border border-white/30 bg-slate-950/80 text-white/80 shadow-lg backdrop-blur cursor-grab active:cursor-grabbing transition-colors duration-150';
 
 
 
@@ -178,7 +178,7 @@ const NodeGraphNode = memo((props) => {
       borderColor: isSelected ? 'rgba(56, 189, 248, 0.65)' : fallbackBorder,
       color: fallbackColor,
       className: clsx(
-        'transition-all duration-200',
+        'transition-colors duration-200',
         !usesCustomPersona && paletteVisuals?.hoverClass,
         isSelected ? 'ring-2 ring-sky-400/70 ring-offset-2 ring-offset-slate-950/50' : 'ring-0'
       ),
@@ -353,9 +353,8 @@ const NodeGraphNode = memo((props) => {
 
 
       <div className={indicatorPillClasses}>
-
         <GripVertical className="h-4 w-4" />
-
+        <span className="ml-2 text-[10px] uppercase tracking-[0.35em]">Drag</span>
       </div>
 
 
@@ -399,4 +398,5 @@ const NodeGraphNode = memo((props) => {
 
 
 export default NodeGraphNode;
+
 

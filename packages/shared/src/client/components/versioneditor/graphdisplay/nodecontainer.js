@@ -33,7 +33,7 @@ export function NodeContainer(props) {
     return (
         <div
             className={clsx(
-                "relative flex items-center gap-2 rounded-2xl border px-4 py-2 shadow-[0_18px_45px_-30px_rgba(56,189,248,0.45)] backdrop-blur transition",
+                "relative flex items-center gap-2 rounded-2xl border px-4 py-2 shadow-[0_18px_45px_-30px_rgba(56,189,248,0.45)] backdrop-blur transition-colors duration-200",
                 !draggable ? "cursor-default" : "cursor-grab active:cursor-grabbing",
                 styling.className,
                 className,

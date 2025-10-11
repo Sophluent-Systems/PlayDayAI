@@ -1,6 +1,6 @@
 import { claimTask } from '@src/backend/tasks';
 import { runStateMachine } from '../runstatemachine';
-import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub.js';
+import { InProcessSessionChannel } from '@src/common/pubsub/inprocesssessionchannel.js';
 import { lookupAccount } from '@src/backend/accounts';
 import ACL from 'acl2';
 import { promisify } from 'util';
@@ -43,7 +43,7 @@ async function cleanup(channel) {
   }
 }
 
-export default async ({ sessionID }) => {
+export default async ({ sessionID, port }) => {
   console.error(`[worker ${threadID}] Task worker started`);
   let result = "done";
   let channel = null;
@@ -70,7 +70,7 @@ export default async ({ sessionID }) => {
 
     let task = await claimTask(db, sessionID, machineID, threadID);
 
-    channel = new SessionPubSubChannel(sessionID);
+    channel = new InProcessSessionChannel({ port, sessionID });
     await channel.connect();
 
     while (task) {

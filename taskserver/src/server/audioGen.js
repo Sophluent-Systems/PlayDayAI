@@ -39,7 +39,6 @@ async function writeAudioFile(buffer, extension="mp3") {
   
   try {
     await fs.writeFile(fullPath, buffer);
-    console.log("Successfully wrote audio to:", fullPath);
   } catch (writeError) {
     console.error("FATAL: Failed to write audio file:", writeError);
     throw writeError;

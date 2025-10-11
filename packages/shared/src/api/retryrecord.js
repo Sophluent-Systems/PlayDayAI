@@ -6,7 +6,8 @@ import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { getRecord, deleteRecord } from '@src/backend/records';
 import { hasRight } from '@src/backend/accesscontrol';
 import { enqueueNewTask, notifyServerOnTaskQueued } from '@src/backend/tasks';
-import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub';
+import { enqueueSessionCommand, getActiveSessionMachine } from '@src/backend/sessionCommands';
+import { resolveWebsocketInfo } from '@src/backend/websocket';
 
 async function handle(req, res) {
   const { validationError, db, user, acl, account, Constants } = await doAuthAndValidation('POST', req, res, ['service_basicAccess']);
@@ -124,20 +125,21 @@ async function handle(req, res) {
 
       console.error("recordIDsDeleted: ", recordIDsDeleted);
 
-      if (recordIDsDeleted) {
-        let workerChannel = new SessionPubSubChannel(sessionID);
-        await workerChannel.connect();
-        await workerChannel.deleteMessages(recordIDsDeleted);
+      if (recordIDsDeleted && recordIDsDeleted.length > 0) {
+        const activeInfo = await getActiveSessionMachine(db, sessionID);
+        await enqueueSessionCommand(
+          db,
+          sessionID,
+          'message:delete',
+          { recordIDsDeleted },
+          { target: 'client', machineID: activeInfo?.machineID ?? null }
+        );
       }
 
-      
       //
       // Submit task to the task queue to kick off processing, using
       // the same seed as the original task
       //
-      let workerChannel = new SessionPubSubChannel(sessionID);
-      await workerChannel.connect();
-
       let taskParams = {
         seed: seed,
         singleStep: (typeof singleStep != 'undefined') ? singleStep : false,
@@ -147,7 +149,13 @@ async function handle(req, res) {
       
       notifyServerOnTaskQueued();
 
-      res.status(200).json({status: "success"});
+      res.status(200).json({
+        status: "success",
+        sessionID,
+        taskID: newTask?.taskID ?? null,
+        websocket: resolveWebsocketInfo(),
+        recordIDsDeleted: recordIDsDeleted ?? [],
+      });
       
     } catch(error) {
       if (error.response) {

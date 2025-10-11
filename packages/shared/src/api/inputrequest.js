@@ -6,7 +6,8 @@ import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { getOldestPendingRecordForInputTypes, updateRecord } from '@src/backend/records';
 import { hasRight } from '@src/backend/accesscontrol';
 import { messageFromRecord, getNodeByInstanceID } from '@src/backend/messageHistory';
-import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub';
+import { enqueueSessionCommand, getActiveSessionMachine } from '@src/backend/sessionCommands';
+import { resolveWebsocketInfo } from '@src/backend/websocket';
 
 const validRequestTypes = [
   "input",
@@ -123,16 +124,11 @@ const handler = withApiAuthRequired(async (req, res) => {
 
 
   try {
-    
-    let workerChannel = new SessionPubSubChannel(sessionID);
-    await workerChannel.connect();
-
     //
     // If input was reported, write a record
     //
     
     let result = {};
-    let stateMachineCommand = null;
 
     let newRecord = null;
     if (requestType == "input") {
@@ -243,29 +239,19 @@ const handler = withApiAuthRequired(async (req, res) => {
       // Send the new user message to any listening websocket listeners
       //
       const updatedUserMessage = messageFromRecord(session.versionInfo, pendingRecord);
-      await workerChannel.sendFullMessage(updatedUserMessage);
-
-      stateMachineCommand = "continuation";
+      const activeInfo = await getActiveSessionMachine(db, sessionID);
+      await enqueueSessionCommand(
+        db,
+        sessionID,
+        'message:full',
+        updatedUserMessage,
+        { target: 'client', machineID: activeInfo?.machineID ?? null }
+      );
 
     }
 
-    // First, attempt to send the request to an active worker
-
-    // give this command up to 1sec to be acknowledged
-    const acknowledgement = await workerChannel.sendCommand("stateMachineCommand", { command: stateMachineCommand }, { awaitAck: true, timeoutMs: 500 });
-
-    const successfullyNotifiedWorker = acknowledgement && acknowledgement?.acknowledged;
-    const processorIsRunning = acknowledgement?.result;
-    
-    if (successfullyNotifiedWorker && processorIsRunning) {
-      console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-      console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-      console.error("   ^^ CAUGHT A CASE WHERE WE WOULD HAVE DOUBLE-PROCESSED^^^");
-      console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-      console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-    }
-
-    if ((!successfullyNotifiedWorker || !processorIsRunning) && requestType != "halt") {
+    if (requestType != "halt") {
+      // Always enqueue a task so an idle or restarted worker will resume the session.
 
       // 
       // Submit task to the task queue
@@ -288,6 +274,9 @@ const handler = withApiAuthRequired(async (req, res) => {
         result.record = newRecord;
       }
     }
+
+    result.sessionID = sessionID;
+    result.websocket = resolveWebsocketInfo();
 
     res.status(200).json(result);
     return;

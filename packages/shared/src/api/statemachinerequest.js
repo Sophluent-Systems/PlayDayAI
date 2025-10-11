@@ -4,7 +4,9 @@ import { withApiAuthRequired } from '@src/backend/authWithToken';
 import { doAuthAndValidation, validateRequiredPermissions } from '@src/backend/validation';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { hasRight } from '@src/backend/accesscontrol';
-import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub';
+import { sendSessionCommandIfActive } from '@src/backend/sessionCommands';
+import { resolveWebsocketInfo } from '@src/backend/websocket';
+import { threadSetInactive } from '../../../../taskserver/src/server/threads.js';
 
 const validRequestTypes = [
   "continuation",
@@ -21,7 +23,7 @@ async function handle(req, res) {
     return;
   }
 
-  const { requestType, sessionID, seed, singleStep } = req.body;
+  const { requestType, sessionID, seed, singleStep, forceReassign } = req.body;
 
   if (!requestType || !validRequestTypes.includes(requestType) || nullUndefinedOrEmpty(sessionID)) {
       console.error("statemachinerequest Invalid parameters: ", req.body);
@@ -64,9 +66,6 @@ async function handle(req, res) {
 
   try {
     
-    let workerChannel = new SessionPubSubChannel(sessionID);
-    await workerChannel.connect();
-
     //
     // If input was reported, write a record
     //
@@ -84,28 +83,17 @@ async function handle(req, res) {
       stateMachineCommand = "halt";
     }
 
-    // First, attempt to send the request to an active worker
-
-    const stateMachineParams = {
-      seed: typeof seed == "number" ? seed : -1,
-      singleStep: singleStep
+    if (stateMachineCommand === "halt") {
+      await sendSessionCommandIfActive(
+        db,
+        sessionID,
+        "stateMachineCommand",
+        { command: stateMachineCommand }
+      );
     }
 
-    // give this command up to 1sec to be acknowledged
-    const acknowledgement = await workerChannel.sendCommand("stateMachineCommand", { command: stateMachineCommand }, { awaitAck: true, timeoutMs: 500 });
-
-    const successfullyNotifiedWorker = acknowledgement && acknowledgement?.acknowledged;
-    const processorIsRunning = acknowledgement?.result;
-    
-  if (successfullyNotifiedWorker && processorIsRunning) {
-    console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-    console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-    console.error("   ^^ CAUGHT A CASE WHERE WE WOULD HAVE DOUBLE-PROCESSED^^^");
-    console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-    console.error("   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-  }
-
-    if ((!successfullyNotifiedWorker || !processorIsRunning) && requestType != "halt") {
+    if (requestType != "halt") {
+      // Always enqueue the task so dormant sessions resume once a worker is available.
 
       // 
       // Submit task to the task queue
@@ -115,6 +103,25 @@ async function handle(req, res) {
         seed: typeof seed == "number" ? seed : -1,
         singleStep: singleStep
       };
+
+      if (forceReassign) {
+        try {
+          await threadSetInactive(db, sessionID);
+          await db.collection('tasks').updateMany(
+            { sessionID, status: 'processing' },
+            {
+              $set: {
+                status: 'queued',
+                machineID: null,
+                threadID: null,
+                expirationTime: new Date(),
+              }
+            }
+          );
+        } catch (error) {
+          console.error("statemachinerequest.forceReassign", error);
+        }
+      }
 
       const newTask = await enqueueNewTask(db, account.accountID, sessionID, requestType, taskParams);
 
@@ -129,6 +136,9 @@ async function handle(req, res) {
       }
     }
     
+    result.sessionID = sessionID;
+    result.websocket = resolveWebsocketInfo();
+
     res.status(200).json(result);
   } catch (error) {
     console.error("Error processing statemachine request: ", error, "\n", error.stack);

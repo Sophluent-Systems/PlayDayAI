@@ -5,17 +5,18 @@ import { env } from './env.mjs';
 import * as WebSocket from 'ws';
 import { listenForTasks } from './src/server/workerThreads/listener.js';
 import { Constants } from "@src/common/defaultconfig";
-import { doAuthAndValidationToken } from '@src/backend/validation.js';
+import { doAuthAndValidationToken, validateRequiredPermissions } from '@src/backend/validation.js';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
-import { RabbitMQPubSubChannel } from '@src/common/pubsub/rabbitmqpubsub.js';
-import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub.js';
-import { getAllThreadsForMachine, deleteAllThreadsForMachine } from './src/server/threads.js';
+import { attachWebSocketToBridge, detachWebSocketFromBridge, getSessionBridge } from './src/server/sessionBridgeManager.js';
+import { getAllThreadsForMachine, deleteAllThreadsForMachine, threadSetInactive } from './src/server/threads.js';
 import { MongoClient } from 'mongodb';
 import { getMachineIdentifier } from './src/server/machineid';
 import { StateMachine } from './src/server/stateMachine/stateMachine.js';
-import { deleteTasksForThreadID, deleteTasksForSession } from '@src/backend/tasks';
+import { deleteTasksForThreadID, deleteTasksForSession, enqueueNewTask, notifyServerOnTaskQueued } from '@src/backend/tasks';
 import { hasRight } from '@src/backend/accesscontrol.js';
 import { getGameSession } from '@src/backend/gamesessions.js';
+import { sendSessionCommandIfActive } from '@src/backend/sessionCommands';
+import { resolveWebsocketInfo } from '@src/backend/websocket';
 
 console.log("INIT: environment");
 
@@ -24,35 +25,16 @@ const machineID = await getMachineIdentifier();
 async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsChannel, hasViewSourcePermissions }) {
   Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: session=", session.sessionID, " wsChannel=", wsChannel.clientID);
 
-  const workerChannel = new SessionPubSubChannel(session.sessionID);
-  await workerChannel.connect();
-  
-  Constants.debug.logTaskSystem && console.error(`initializeConnectionAndSubscribeForTaskUpdates: Opened channel session_${session.sessionID}`);
-
-  const filterAllHandler = {
-    "*": (command, data) => {
-      if (command != "stateMachineCommand") {
-        Constants.debug.logStreamingMessages && console.error(`[listener -> WS]: command: ${command}`);
-        wsChannel.proxyCommand(command, data)
-          .catch((error) => {
-            console.error(`[listener -> WS]: Error sending command: ${command}`, error);
-            workerChannel.unsubscribe({"*": () => {}});
-            workerChannel.close();
-          });
-        return true;
-      }
-    },
-  }
+  attachWebSocketToBridge(session.sessionID, wsChannel);
 
   const wsConnectionCallbacks = {
     onError: (error) => {
-      workerChannel.unsubscribe(filterAllHandler);
-      workerChannel.close();
+      console.error('WebSocket error', error);
+      detachWebSocketFromBridge(session.sessionID, wsChannel);
     },
     onClose() {
       console.error('WebSocket closed');
-      workerChannel.unsubscribe(filterAllHandler);
-      workerChannel.close();
+      detachWebSocketFromBridge(session.sessionID, wsChannel);
     }
   }
 
@@ -83,8 +65,6 @@ async function initializeConnectionAndSubscribeForTaskUpdates({ db, session, wsC
   Constants.debug.logTaskSystem && console.error("initializeConnectionAndSubscribeForTaskUpdates: Got messages");
 
   await wsChannel.initializeAndSendMessageHistory(messages);
-  
-  workerChannel.subscribe(filterAllHandler);
 
   Constants.debug.logWebSockets && console.error(`WS: Messages synced`);
 
@@ -124,12 +104,80 @@ async function handleHalt(params) {
 
   await deleteTasksForSession(db, sessionID);
 
-  const workerChannel = new SessionPubSubChannel(sessionID); 
-  await workerChannel.connect();
-  
-  await workerChannel.sendCommand("stateMachineCommand", { command: "halt" });
+  const bridge = getSessionBridge(sessionID);
+  bridge.sendCommand("stateMachineCommand", { command: "halt" });
 
   await channel.sendCommand("statemachinestatusupdate", {state: "completed", result: "halted", sessionID: sessionID});
+
+  return { success: true };
+}
+
+async function handleContinuation(params) {
+  const { db, channel, payload, account, acl } = params;
+  const { sessionID, singleStep, seed, forceReassign } = payload || {};
+
+  if (!sessionID) {
+    await channel.sendCommand("error", { status: 'error', message: 'Continuation request missing sessionID' });
+    return { success: false };
+  }
+
+  const session = await getGameSession(db, account.accountID, sessionID, false);
+
+  if (!session) {
+    await channel.sendCommand("error", { status: 'error', message: `Session ${sessionID} could not be found.` });
+    return { success: false };
+  }
+
+  const { permissionsError } = await validateRequiredPermissions(acl, account,
+    [
+      { resourceType: "game", resource: session.gameInfo.gameID, access: "game_play" }
+    ]);
+
+  if (permissionsError) {
+    await channel.sendCommand("error", { status: 'error', message: permissionsError.message });
+    return { success: false };
+  }
+
+  if (forceReassign) {
+    try {
+      await threadSetInactive(db, sessionID);
+      await db.collection('tasks').updateMany(
+        { sessionID, status: 'processing' },
+        {
+          $set: {
+            status: 'queued',
+            machineID: null,
+            threadID: null,
+            expirationTime: new Date(),
+          }
+        }
+      );
+    } catch (error) {
+      console.error(`[worker ${machineID}] Failed to force reassign session ${sessionID}`, error);
+    }
+  }
+
+  await sendSessionCommandIfActive(
+    db,
+    sessionID,
+    "stateMachineCommand",
+    { command: "continuation" }
+  );
+
+  const taskParams = {
+    seed: typeof seed === "number" ? seed : -1,
+    singleStep: singleStep === true
+  };
+
+  const queuedTask = await enqueueNewTask(db, account.accountID, sessionID, "continuation", taskParams);
+
+  await notifyServerOnTaskQueued();
+
+  await channel.sendCommand("continuationAccepted", {
+    sessionID,
+    taskID: queuedTask?.taskID ?? null,
+    websocket: resolveWebsocketInfo(),
+  });
 
   return { success: true };
 }
@@ -142,6 +190,7 @@ export async function startServer() {
   
     const wsHandlers = {
       "halt": handleHalt,
+      "continuation": handleContinuation,
     };
   
     Constants.debug.logInit && console.error("CLEARING STALE ENTRIES");
@@ -286,10 +335,9 @@ export async function startServer() {
 
     Constants.debug.logInit && console.error("Starting task listener");
 
-    // RabbitMQ task listener
     listenForTasks()
     .catch((error) => {
-      console.error('RabbitMQ server error:', error);
+      console.error('Task scheduler error:', error);
     });
 
     Constants.debug.logInit && console.error("Server is listening on port:", wsPort);

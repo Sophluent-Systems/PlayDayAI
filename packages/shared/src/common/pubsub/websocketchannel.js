@@ -52,7 +52,13 @@ export class WebSocketChannel extends MessagesPubServer {
               reject('WebSocketChannel.connect: No URL provided');
               return;
             }
-            ws = new WebSocket(url);
+            try {
+              ws = new WebSocket(url);
+            } catch (error) {
+              console.warn('WebSocketChannel.connect: Failed to create WebSocket to ', url, " ", error);
+              reject('WebSocketChannel.connect: Failed to create WebSocket to ' + url);
+              return;
+            }
           }
 
           // Add connection timeout for client-side connections

@@ -8,7 +8,7 @@ import {
 } from '@src/backend/gamesessions';
 import { rateLLMResponse } from '@src/backend/ailogging.js';
 import { hasRight } from '@src/backend/accesscontrol.js';
-import { SessionPubSubChannel } from '@src/common/pubsub/sessionpubsub';
+import { enqueueSessionCommand, getActiveSessionMachine } from '@src/backend/sessionCommands';
 
 
 async function handle(req, res) {
@@ -120,10 +120,19 @@ async function handle(req, res) {
         }
         const updates = await rateLLMResponse(db, session.sessionID, req.body.recordID, ratings);
 
-        let workerChannel = new SessionPubSubChannel(session.sessionID);
-        await workerChannel.connect();
-
-        await workerChannel.sendField(req.body.recordID, "ratings", ratings, { bypassRecordExistenceCheck: true });
+        const activeInfo = await getActiveSessionMachine(db, session.sessionID);
+        await enqueueSessionCommand(
+          db,
+          session.sessionID,
+          'message:field',
+          {
+            recordID: req.body.recordID,
+            field: 'ratings',
+            value: ratings,
+            params: { bypassRecordExistenceCheck: true },
+          },
+          { target: 'client', machineID: activeInfo?.machineID ?? null }
+        );
 
         res.status(200).json({ updates: updates });
     } catch (error) {

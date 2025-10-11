@@ -544,7 +544,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
     }
 
     if (reconnectAttemptsRef.current > RECONNECT_THRESHOLDS[RECONNECT_THRESHOLDS.length - 1].threshold) {
-      console.error('Max reconnection attempts reached');
+      console.warn('Max reconnection attempts reached - giving up');
       return;
     }
 

@@ -309,7 +309,8 @@ export function AudioPlaybackControls({
   );
   const allowButtonStyle = useMemo(() => {
     if (!theme?.colors?.buttonColor) return undefined;
-    const textColor = theme?.colors?.buttonTextColor || theme?.colors?.textColor || "#0F172A";
+    // Only use buttonTextColor if explicitly provided, otherwise default to white for contrast with colored buttons
+    const textColor = theme?.colors?.buttonTextColor || "#FFFFFF";
     return {
       backgroundColor: theme.colors.buttonColor,
       color: textColor,
@@ -503,28 +504,28 @@ export function AudioPlaybackControls({
       <Modal
         open={showAudioPermissionDialog}
         onClose={handleOptOutBackgroundAudio}
-        title="Background audio permission"
-        description="This experience tried to start audio automatically. Allow playback to hear the full mix."
+        title="Play background music?"
+        description="This experience includes background music. You can play it if you'd like, or not. If you change your mind, you can always toggle it later."
         footer={[
           <button
             key="cancel"
             type="button"
-            className={clsx(pillButtonClasses, "bg-surface/80")}
+            className={clsx(pillButtonClasses, "bg-surface/80 text-foreground border-border/60")}
             onClick={handleOptOutBackgroundAudio}
           >
-            Block audio
+            No music
           </button>,
           <button
             key="confirm"
             type="button"
             className={clsx(
               pillButtonClasses,
-              allowButtonStyle ? "border-transparent" : "bg-primary text-white border-primary/60"
+              "bg-surface/80 text-foreground border-border/60"
             )}
             style={allowButtonStyle}
             onClick={handleAllowBackgroundAudio}
           >
-            Allow
+            Play
           </button>,
         ]}
       />

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Processor-Oriented Mental Model
  * --------------------------------
  * The task server executes graph nodes the way a simple CPU executes instructions.
@@ -181,22 +181,166 @@ export class StateMachine {
         this.lastRecordGraphSnapshotSize = 0;
         this.lastRecordHistoryLoadInfo = { fullReload: true, delta: { newRecords: [], updatedRecords: [], deletedRecordIDs: [] } };
         this.aiPriorityNodeTypeSet = null;
+        this.plan = {
+            readyToProcess: [],
+            processing: [],
+            waitForUpdateBeforeReattempting: {},
+            blockedNodes: new Map(),
+        };
+        this.lastRecordStateLog = new Map();
     }
 
-    logNode(instanceName, data=null) {
-        console.error(this.debugID + ' ' + `#######################################`);
-        console.error(this.debugID + ' ' + `############## NODE: ${instanceName}`);
-        console.error(this.debugID + ' ' + `#######################################`);
+    logNode(instanceName, data = null) {
+        if (!instanceName) {
+            return;
+        }
+        this.logActivity(`**** PROCESSING: ${instanceName}`);
         if (data) {
-          console.error(JSON.stringify(data, null, 2));
+            this.logActivity(JSON.stringify(data, null, 2));
         }
     }
 
     debugLog(flag, ...args) {
         const { Constants } = Config;
-        if (Constants?.debug?.[flag]) {
-            console.error(this.debugID + ' ', ...args);
+        if (!Constants?.debug?.[flag]) {
+            return;
         }
+        const prefix = this.debugID ? `${this.debugID} ` : '';
+        if (args.length === 0) {
+            console.error(prefix);
+            return;
+        }
+        if (typeof args[0] === 'string') {
+            console.error(prefix + args[0], ...args.slice(1));
+        } else {
+            console.error(prefix, ...args);
+        }
+    }
+
+    logActivity(message, ...args) {
+        this.debugLog('stateMachine', message, ...args);
+    }
+
+    logDependencies(message, ...args) {
+        this.debugLog('stateMachineDependencies', message, ...args);
+    }
+
+    logQueueDetail(message, ...args) {
+        this.debugLog('stateMachineQueue', message, ...args);
+    }
+
+    logPlanning(message, ...args) {
+        this.debugLog('stateMachinePlanning', message, ...args);
+    }
+
+    logInputs(message, ...args) {
+        this.debugLog('stateMachineInputs', message, ...args);
+    }
+
+    logTriggers(message, ...args) {
+        this.debugLog('stateMachineTriggers', message, ...args);
+    }
+
+    logRecords(message, ...args) {
+        this.debugLog('stateMachineRecords', message, ...args);
+    }
+
+    logGraph(message, ...args) {
+        this.debugLog('stateMachineGraph', message, ...args);
+    }
+
+    logCursor(message, ...args) {
+        this.debugLog('stateMachineCursors', message, ...args);
+    }
+
+    logHistoryCache(message, ...args) {
+        this.debugLog('stateMachineHistoryCache', message, ...args);
+    }
+
+    formatNodeTypeForLog(nodeType) {
+        if (!nodeType) {
+            return 'UNKNOWN';
+        }
+        const lookup = {
+            llm: 'LLM',
+            llmData: 'LLM DATA',
+            stt: 'STT',
+            tts: 'TTS',
+            ifThenElse: 'IF/THEN',
+            externalTextInput: 'USER INPUT',
+            externalMultiInput: 'USER INPUT',
+            audioPlayback: 'AUDIO PLAYBACK',
+            fileStore: 'FILE STORE',
+            codeBlock: 'CODE BLOCK',
+            whileLoop: 'WHILE LOOP',
+            forLoop: 'FOR LOOP',
+            arrayIterator: 'ARRAY ITERATOR',
+            arrayIndex: 'ARRAY INDEX',
+            randomNumber: 'RANDOM NUMBER',
+            imageGenerator: 'IMAGE GENERATOR',
+            scenario: 'SCENARIO',
+            start: 'START',
+            delay: 'DELAY',
+        };
+        if (lookup[nodeType]) {
+            return lookup[nodeType];
+        }
+        const spaced = nodeType
+            .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+            .replace(/[_-]/g, ' ')
+            .trim();
+        return spaced.length > 0 ? spaced.toUpperCase() : nodeType.toUpperCase();
+    }
+
+    formatNodeLabel(nodeDescription) {
+        if (!nodeDescription) {
+            return 'UNKNOWN NODE';
+        }
+        const typeLabel = this.formatNodeTypeForLog(nodeDescription.nodeType);
+        const instanceName = nodeDescription.instanceName;
+        return instanceName ? `${typeLabel} (${instanceName})` : typeLabel;
+    }
+
+    formatNodeLabelByInstanceID(instanceID) {
+        const instance = this.nodeInstances?.[instanceID];
+        return this.formatNodeLabel(instance?.fullNodeDescription);
+    }
+
+    formatWaitingToken(token) {
+        if (!token || typeof token !== 'string') {
+            return 'input';
+        }
+        const mapping = {
+            text: 'text input',
+            audio: 'audio',
+            image: 'image',
+            video: 'video',
+            file: 'file',
+            confirmation: 'confirmation',
+        };
+        const lower = token.toLowerCase();
+        if (mapping[lower]) {
+            return mapping[lower];
+        }
+        return token.replace(/[_-]/g, ' ');
+    }
+
+    describePendingReason(record) {
+        if (!record) {
+            return 'waiting for external input';
+        }
+        if (Array.isArray(record.waitingFor) && record.waitingFor.length > 0) {
+            const formatted = record.waitingFor.map(token => this.formatWaitingToken(token));
+            return `waiting for ${formatted.join(', ')}`;
+        }
+        if (typeof record.waitingFor === 'string' && record.waitingFor.length > 0) {
+            return `waiting for ${this.formatWaitingToken(record.waitingFor)}`;
+        }
+        if (record.state === 'failed') {
+            const errorMessage = record.error?.message || record.error?.toString();
+            return errorMessage ? `failed: ${errorMessage}` : 'failed, awaiting retry';
+        }
+        return 'waiting for external input';
     }
 
     getStateMachineConfig() {
@@ -213,6 +357,135 @@ export class StateMachine {
         const configured = Array.isArray(config.aiPriorityNodeTypes) ? config.aiPriorityNodeTypes : defaults;
         this.aiPriorityNodeTypeSet = new Set(configured);
         return this.aiPriorityNodeTypeSet;
+    }
+
+    noteBlockedNode(instanceID, reason, { hasPartialInputs = false } = {}) {
+        if (!instanceID || !reason || !this.plan?.blockedNodes) {
+            return;
+        }
+        const info = this.plan.blockedNodes.get(instanceID) || { reasons: [], hasPartialInputs: false };
+        if (!info.reasons.includes(reason)) {
+            info.reasons.push(reason);
+        }
+        info.hasPartialInputs = info.hasPartialInputs || hasPartialInputs;
+        this.plan.blockedNodes.set(instanceID, info);
+    }
+
+    clearBlockedNode(instanceID) {
+        if (!instanceID || !this.plan?.blockedNodes) {
+            return;
+        }
+        this.plan.blockedNodes.delete(instanceID);
+    }
+
+    logRecordStateOnce(recordID, state, messageFactory) {
+        if (!recordID || typeof state !== 'string') {
+            return;
+        }
+        const lastState = this.lastRecordStateLog.get(recordID);
+        if (lastState === state) {
+            return;
+        }
+        const message = typeof messageFactory === 'function' ? messageFactory() : messageFactory;
+        if (message) {
+            this.logActivity(message);
+        }
+        this.lastRecordStateLog.set(recordID, state);
+    }
+
+    reportDependencySnapshot() {
+        const pendingSummaries = [];
+        const seenPendingNodes = new Set();
+        const waitMap = this.plan?.waitForUpdateBeforeReattempting || {};
+        Object.values(waitMap).forEach(record => {
+            if (!record || seenPendingNodes.has(record.nodeInstanceID)) {
+                return;
+            }
+            seenPendingNodes.add(record.nodeInstanceID);
+            const nodeLabel = this.formatNodeLabelByInstanceID(record.nodeInstanceID) || this.formatNodeTypeForLog(record.nodeType);
+            const reason = this.describePendingReason(record);
+            pendingSummaries.push(`PENDING: ${nodeLabel} (${reason})`);
+        });
+
+        const blockedSummaries = [];
+        if (this.plan?.blockedNodes instanceof Map) {
+            for (const [instanceID, info] of this.plan.blockedNodes.entries()) {
+                if (!info || !Array.isArray(info.reasons) || info.reasons.length === 0) {
+                    continue;
+                }
+                if (!info.hasPartialInputs) {
+                    continue;
+                }
+                const nodeLabel = this.formatNodeLabelByInstanceID(instanceID);
+                const reasonText = info.reasons.join('; ');
+                blockedSummaries.push(`INCOMPLETE: ${nodeLabel} (${reasonText})`);
+            }
+        }
+
+        if (pendingSummaries.length === 0 && blockedSummaries.length === 0) {
+            this.logDependencies('IDLE: no runnable nodes; state machine is waiting for new events.');
+            return;
+        }
+
+        pendingSummaries.forEach(summary => this.logDependencies(summary));
+        blockedSummaries.forEach(summary => this.logDependencies(summary));
+    }
+
+    reconcileWaitMap(records) {
+        if (!this.plan?.waitForUpdateBeforeReattempting) {
+            return;
+        }
+        if (!Array.isArray(records) || records.length === 0) {
+            this.plan.waitForUpdateBeforeReattempting = { ...this.plan.waitForUpdateBeforeReattempting };
+            return;
+        }
+        const latestByID = new Map();
+        for (const record of records) {
+            if (record?.recordID) {
+                latestByID.set(record.recordID, record);
+            }
+        }
+        const waitMap = this.plan.waitForUpdateBeforeReattempting;
+        Object.keys(waitMap).forEach(recordID => {
+            const latest = latestByID.get(recordID);
+            if (!latest || (latest.state !== 'waitingForExternalInput' && latest.state !== 'failed')) {
+                delete waitMap[recordID];
+                this.lastRecordStateLog.delete(recordID);
+            } else {
+                waitMap[recordID] = latest;
+            }
+        });
+    }
+
+    collectBlockedReasonsForNode(node, unconsumedInputs) {
+        if (!node || !this.plan?.blockedNodes) {
+            return;
+        }
+        const inputs = Array.isArray(node.inputs) ? node.inputs : [];
+        const hasPartialInputs = inputs.some(input => {
+            const available = unconsumedInputs?.[input.producerInstanceID] || [];
+            return available.length > 0;
+        });
+        if (!hasPartialInputs) {
+            this.plan.blockedNodes.delete(node.instanceID);
+            return;
+        }
+        inputs.forEach(input => {
+            const available = unconsumedInputs?.[input.producerInstanceID] || [];
+            if (available.length > 0) {
+                return;
+            }
+            const producerLabel = this.formatNodeLabelByInstanceID(input.producerInstanceID);
+            if (input.triggers && input.triggers.length > 0) {
+                const triggerNames = input.triggers.map(trigger => trigger.producerEvent).join(', ');
+                this.noteBlockedNode(node.instanceID, `waiting for event ${triggerNames} from ${producerLabel}`, { hasPartialInputs });
+            } else if (input.variables && input.variables.length > 0) {
+                const variableNames = input.variables.map(variable => variable.consumerVariable || variable.producerOutput).join(', ');
+                this.noteBlockedNode(node.instanceID, `waiting for ${variableNames} from ${producerLabel}`, { hasPartialInputs });
+            } else {
+                this.noteBlockedNode(node.instanceID, `waiting for ${producerLabel}`, { hasPartialInputs });
+            }
+        });
     }
 
     getHistoryCacheLimit() {
@@ -292,7 +565,7 @@ export class StateMachine {
     }
 
     updateConsumerCursorWithRecord(record) {
-        if (!record || record.state !== "completed" || nullUndefinedOrEmpty(record.inputs)) {
+        if (!record || record.deleted || record.state !== "completed" || nullUndefinedOrEmpty(record.inputs)) {
             return;
         }
         const consumerInstanceID = record.nodeInstanceID;
@@ -312,6 +585,38 @@ export class StateMachine {
         records.forEach(record => this.updateConsumerCursorWithRecord(record));
     }
 
+    hasRecordInProgressWithInputs(nodeInstanceID, candidateInputs = []) {
+        if (!nodeInstanceID || !Array.isArray(candidateInputs) || candidateInputs.length === 0) {
+            return false;
+        }
+        const candidateIDs = candidateInputs
+            .map(input => (input && input.recordID != null ? String(input.recordID) : null))
+            .filter(id => id !== null);
+        if (candidateIDs.length === 0) {
+            return false;
+        }
+        return this.recordsInProgress.some(record => {
+            if (!record || record.nodeInstanceID !== nodeInstanceID || !Array.isArray(record.inputs)) {
+                return false;
+            }
+            const inFlightIDs = record.inputs
+                .map(input => (input && input.recordID != null ? String(input.recordID) : null))
+                .filter(id => id !== null);
+            if (inFlightIDs.length !== candidateIDs.length) {
+                return false;
+            }
+            const remaining = new Set(inFlightIDs);
+            for (let i = 0; i < candidateIDs.length; i++) {
+                const id = candidateIDs[i];
+                if (!remaining.has(id)) {
+                    return false;
+                }
+                remaining.delete(id);
+            }
+            return remaining.size === 0;
+        });
+    }
+
     rebuildCursorForEdge(consumerInstanceID, producerInstanceID) {
         if (!this.recordHistory || !Array.isArray(this.recordHistory.records)) {
             return;
@@ -321,7 +626,7 @@ export class StateMachine {
             if (record.nodeInstanceID !== consumerInstanceID) {
                 continue;
             }
-            if (record.state !== "completed" || nullUndefinedOrEmpty(record.inputs)) {
+            if (record.deleted || record.state !== "completed" || nullUndefinedOrEmpty(record.inputs)) {
                 continue;
             }
             const matchingInput = record.inputs.find(input => input.producerInstanceID === producerInstanceID);
@@ -355,6 +660,20 @@ export class StateMachine {
                     }
                 });
             });
+
+            const deletedRecord = typeof this.recordHistory?.getRecord === 'function'
+                ? this.recordHistory.getRecord(deletedRecordID)
+                : null;
+            if (deletedRecord && Array.isArray(deletedRecord.inputs) && deletedRecord.inputs.length > 0) {
+                const consumerInstanceID = deletedRecord.nodeInstanceID;
+                deletedRecord.inputs.forEach(input => {
+                    const producerInstanceID = input?.producerInstanceID;
+                    if (!producerInstanceID) {
+                        return;
+                    }
+                    this.rebuildCursorForEdge(consumerInstanceID, producerInstanceID);
+                });
+            }
         });
     }
 
@@ -567,61 +886,47 @@ export class StateMachine {
         return allUnconsumed;
     }
 
-    applyUnconsumedVariableInputsToRunInfo({runInfo, unconsumedInputs, node}) {
-        const { Constants } = Config;
-        const nodeMetadata = getMetadataForNodeType(node.nodeType)
+    applyUnconsumedVariableInputsToRunInfo({ runInfo, unconsumedInputs, node }) {
+        const nodeMetadata = getMetadataForNodeType(node.nodeType);
         for (let k = 0; k < node.inputs.length; k++) {
-            let inputType = node.inputs[k];
-            
+            const inputType = node.inputs[k];
+
             if (!inputType.variables || inputType.variables.length === 0) {
-                // No variables, so we're done
                 continue;
             }
 
-            // If we already have an instance of this node type in the inputs that was ALSO a trigger,
-            // skip to the next input
-            let recordFound = null
+            let recordFound = null;
             let inputRecord = runInfo.inputs.find(input => input.producerInstanceID === inputType.producerInstanceID);
             let foundExistingInputRecord = false;
             if (inputRecord) {
-
-                //
-                // We've arleady included an input record of this type which provided a trigger; find the record so we can grab data from it
-                //
-
                 foundExistingInputRecord = true;
-
                 recordFound = this.recordHistory.getRecord(inputRecord.recordID);
-
                 if (!recordFound) {
                     throw new Error(`Could not find record ${inputRecord.recordID} for node ${node.instanceName} in unconsumed inputs`);
                 }
-
             } else {
-
-                //
-                // We didn't have a trigger for this input type, so this is a variable-only input.  
-                // We need to try and find an unconsumed record of this type
-                //
-                let unconsumedInputsForType = unconsumedInputs[inputType.producerInstanceID];
-                if (unconsumedInputsForType.length == 0) {
-                    Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ For node ${node.instanceName} did not an instance of ${inputType.producerInstanceID} producing variables ${inputType.variables.join(',')} @@@@@@@@@@`)
+                const unconsumedInputsForType = unconsumedInputs[inputType.producerInstanceID] || [];
+                if (unconsumedInputsForType.length === 0) {
+                    const producerLabel = this.formatNodeLabelByInstanceID(inputType.producerInstanceID);
+                    const variableNames = (inputType.variables || []).map(variable => variable.consumerVariable || variable.producerOutput).join(', ');
+                    const reason = variableNames
+                        ? `waiting for ${variableNames} from ${producerLabel}`
+                        : `waiting for output from ${producerLabel}`;
                     if (node.requireAllVariables) {
-                        Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `    ...can't run this node`);
-                        return false;
+                        this.logPlanning(`${this.formatNodeLabel(node)} is ${reason}; cannot run until data arrives.`);
+                        return { success: false, reason };
                     } else {
-                        Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `    ...missing a variable, but requireAllVariables is not set; on to the next variable`);
+                        this.logPlanning(`${this.formatNodeLabel(node)} is ${reason}, but the variable is optional; continuing.`);
                         continue;
                     }
                 }
-
                 recordFound = unconsumedInputsForType[0];
             }
 
             if (!recordFound) {
                 throw new Error(`Got to a point in applyUnconsumedVariableInputsToRunInfo where we should have a record, but we don't!`);
             }
-            
+
             if (!inputRecord) {
                 inputRecord = {
                     producerInstanceID: inputType.producerInstanceID,
@@ -629,12 +934,11 @@ export class StateMachine {
                 };
             }
 
-            // Add all variable values to the input record
             for (let j = 0; j < inputType.variables.length; j++) {
                 const producerOutput = inputType.variables[j].producerOutput;
                 const consumerVariable = inputType.variables[j].consumerVariable;
                 const isCompositeVariable = nodeMetadata.AllowedVariableOverrides?.[consumerVariable]?.mediaType === "composite";
-                let variableValue = recordFound.output[producerOutput];
+                const variableValue = recordFound.output[producerOutput];
                 if (!inputRecord.values) {
                     inputRecord.values = {};
                 }
@@ -653,16 +957,27 @@ export class StateMachine {
             }
         }
 
-        return true;
+        return { success: true };
     }
 
-    generateRunInfoForNode({node, unconsumedInputs}) {
-        const { Constants } = Config;
+    generateRunInfoForNode({ node, unconsumedInputs }) {
+        const consumerLabel = this.formatNodeLabel(node);
 
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `@@@ [${node.instanceName}] - Checking inputs for unconsumed records`);
-        
+        const waitEntries = this.plan?.waitForUpdateBeforeReattempting;
+        if (waitEntries) {
+            const hasPendingExternalInput = Object.values(waitEntries).some(record =>
+                record && record.nodeInstanceID === node.instanceID && record.state === "waitingForExternalInput"
+            );
+            if (hasPendingExternalInput) {
+                this.logPlanning(`${consumerLabel} already waiting on external input; skipping new run.`);
+                return;
+            }
+        }
+
+        this.logPlanning(`Evaluating ${consumerLabel} dependencies.`);
         let ranOutOfInputs = false;
-        let count=0;
+        let producedRuns = 0;
+        let count = 0;
         do {
             let runInfo = {
                 nodeInstance: this.nodeInstances[node.instanceID],
@@ -674,142 +989,87 @@ export class StateMachine {
                 throw new Error(`Node instance not found for node ${node.instanceID}`);
             }
 
-            //
-            // Go through all inputs, see if we have one unconsumed input of each type
-            //
-
-            const nodeInputArry = node.inputs;
-
+            const nodeInputArray = node.inputs;
             let foundAllRequiredTriggers = true;
             let foundAnyTriggers = false;
-            // If we require all event triggers, we need to find the next unconsumed input for each type
-            for (let k = 0; k < nodeInputArry.length; k++) {
-                let inputType = nodeInputArry[k];
-                
-                //
-                // First check for triggers. Two possible cases:
-                //   1) requireAllEventTriggers -- all must be present
-                //   2) !requireAllEventTriggers -- any one of the triggers is sufficient and we only consume one
-                //
-                
-               if (inputType.triggers) {
-                    // find an unconsumed input of this node type that has all the required triggers
-                    let unconsumedInputsForType = unconsumedInputs[inputType.producerInstanceID];
+
+            for (let k = 0; k < nodeInputArray.length; k++) {
+                const inputType = nodeInputArray[k];
+                const producerLabel = this.formatNodeLabelByInstanceID(inputType.producerInstanceID);
+
+                if (inputType.triggers) {
+                    const triggerNames = inputType.triggers.map(trigger => trigger.producerEvent).join(', ');
+                    const unconsumedInputsForType = unconsumedInputs[inputType.producerInstanceID] || [];
                     let inputRecordFound = null;
                     let eventsApplied = [];
 
-                    //
-                    // Case 1: requireAllEventTriggers -- all must be present
-                    //
-                    
                     if (node.requireAllEventTriggers || node.requireAllInputs) {
-                        Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ For node ${node.instanceName} requireAllEventTriggers @@@@@@@@@@`)
-
-                        //
-                        // Usually we'll only need one trigger from a parent node but IN THEORY we could need more than one.
-                        // So we'll loop through all the triggers and see if any of the unconsumed inputs have all the triggers
-                        //
-                        for (let i=0; i<unconsumedInputsForType.length; i++) {
-                            let inputRecord = unconsumedInputsForType[i];
+                        this.logTriggers(`${consumerLabel} requires all events [${triggerNames}] from ${producerLabel}.`);
+                        for (let i = 0; i < unconsumedInputsForType.length; i++) {
+                            const inputRecord = unconsumedInputsForType[i];
                             eventsApplied = [];
-
-                            //
-                            // Loop through all the triggers we require for this input type
-                            // 
                             let allTriggersFound = true;
-                            for (let k=0; k<inputType.triggers.length; k++) {
-                                const trigger = inputType.triggers[k];
-                                const producerEventName = trigger.producerEvent;
-
+                            for (let t = 0; t < inputType.triggers.length; t++) {
+                                const producerEventName = inputType.triggers[t].producerEvent;
                                 if (!inputRecord.eventsEmitted.includes(producerEventName)) {
-                                    Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ For record ${inputRecord.recordID} did not all the required triggers for ${producerEventName} @@@@@@@@@@`)
+                                    this.logTriggers(`Record ${inputRecord.recordID} from ${producerLabel} is missing event ${producerEventName}.`);
                                     allTriggersFound = false;
                                     break;
-                                } else {
-                                    eventsApplied.push(producerEventName);
                                 }
-                                 
+                                eventsApplied.push(producerEventName);
                             }
-
                             if (allTriggersFound) {
-                                Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ For record ${inputRecord.recordID} found all required triggers @@@@@@@@@@`)
+                                this.logTriggers(`Record ${inputRecord.recordID} from ${producerLabel} supplies events ${eventsApplied.join(', ')}.`);
                                 inputRecordFound = inputRecord;
                                 break;
                             }
                         }
 
                         if (!inputRecordFound) {
-                            Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ Could not find all triggers for node ${node.instanceName} @@@@@@@@@@`)
+                            const reason = triggerNames ? `waiting for event ${triggerNames} from ${producerLabel}` : `waiting for an event from ${producerLabel}`;
+                            this.logTriggers(`${consumerLabel} is ${reason}.`);
+                            this.noteBlockedNode(node.instanceID, reason, { hasPartialInputs: true });
                             foundAllRequiredTriggers = false;
                             break;
                         }
                     } else {
-
-                        //
-                        // Case 2: !requireAllEventTriggers -- any one of the triggers is sufficient
-                        //
-
                         eventsApplied = [];
-                        for (let i=0; i<unconsumedInputsForType.length; i++) {
-                            let inputRecord = unconsumedInputsForType[i];
-
-                            for (let k=0; k<inputType.triggers.length; k++) {
-                                const trigger = inputType.triggers[k];
-                                const producerEventName = trigger.producerEvent;
+                        for (let i = 0; i < unconsumedInputsForType.length; i++) {
+                            const inputRecord = unconsumedInputsForType[i];
+                            for (let t = 0; t < inputType.triggers.length; t++) {
+                                const producerEventName = inputType.triggers[t].producerEvent;
                                 if (inputRecord.eventsEmitted.includes(producerEventName)) {
-                                    Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ For node ${node.instanceName} FOUND needed 1 trigger and found ${producerEventName} @@@@@@@@@@`)
+                                    this.logTriggers(`${consumerLabel} found event ${producerEventName} from ${producerLabel}.`);
                                     inputRecordFound = inputRecord;
                                     eventsApplied.push(producerEventName);
                                     break;
                                 }
                             }
-
                             if (inputRecordFound) {
                                 break;
                             }
                         }
-                    }
-                   
-
-                    if (!inputRecordFound) {
-
-                        //
-                        // Couldn't find a record with all the triggers we need for this input type
-                        //
-
-                        if (node.requireAllEventTriggers || node.requireAllInputs) {
-
-                            //
-                            // If we needed all the triggers, we can't run this node yet. Otherwise, keep looping through other
-                            // triggers trying to find one
-                            // 
-
-                            foundAllRequiredTriggers = false;
-                            ranOutOfInputs = true;
-                            break;
+                        if (!inputRecordFound) {
+                            const reason = triggerNames ? `waiting for event ${triggerNames} from ${producerLabel}` : `waiting for a trigger from ${producerLabel}`;
+                            this.logTriggers(`${consumerLabel} is ${reason}.`);
+                            this.noteBlockedNode(node.instanceID, reason, { hasPartialInputs: true });
+                            if (node.requireAllEventTriggers || node.requireAllInputs) {
+                                foundAllRequiredTriggers = false;
+                                ranOutOfInputs = true;
+                                break;
+                            }
+                            continue;
                         }
-
-                        Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ Could not find all triggers for node ${node.instanceName} so can't run it yet @@@@@@@@@@`)
-
-                    } else {
-                        
-                        //
-                        // Found an input record... continue looking for triggers from 
-                        //
-
-                        runInfo.inputs.push({
-                            producerInstanceID: inputType.producerInstanceID,
-                            recordID: inputRecordFound.recordID,
-                            includeHistory: true, // should this be nodeMetadata.nodeAttributes.contextAware ??
-                            events: eventsApplied,
-                        });
-                        foundAnyTriggers = true;
                     }
-               }
 
-               //
-               // End of triggers for() loop
-               //
+                    runInfo.inputs.push({
+                        producerInstanceID: inputType.producerInstanceID,
+                        recordID: inputRecordFound.recordID,
+                        includeHistory: true,
+                        events: eventsApplied,
+                    });
+                    foundAnyTriggers = true;
+                }
             }
 
             if (!foundAllRequiredTriggers || !foundAnyTriggers) {
@@ -817,49 +1077,59 @@ export class StateMachine {
                 break;
             }
 
-            //
-            // We have trigger(s)... now find the rest of the inputs
-            //
+            const variableInputsResult = this.applyUnconsumedVariableInputsToRunInfo({ runInfo, unconsumedInputs, node });
+            if (!variableInputsResult.success) {
+                if (variableInputsResult.reason) {
+                    this.noteBlockedNode(node.instanceID, variableInputsResult.reason, { hasPartialInputs: true });
+                }
+                ranOutOfInputs = true;
+                break;
+            }
 
-            const haveMoreInputs = this.applyUnconsumedVariableInputsToRunInfo({runInfo, unconsumedInputs, node})
-            if (!haveMoreInputs) {
+            const candidateIDs = runInfo.inputs
+                .map(input => (input && input.recordID != null ? String(input.recordID) : null))
+                .filter(id => id !== null);
+            if (this.hasRecordInProgressWithInputs(node.instanceID, runInfo.inputs)) {
+                const reason = candidateIDs.length
+                    ? `waiting for in-flight run consuming ${candidateIDs.join(', ')}`
+                    : 'waiting for an in-flight run to finish';
+                this.logPlanning(`${consumerLabel} is ${reason}.`);
+                this.noteBlockedNode(node.instanceID, reason, { hasPartialInputs: true });
                 ranOutOfInputs = true;
                 break;
             }
 
             if (!ranOutOfInputs) {
-
                 this.applyMessageHistoryToRunInfo(runInfo);
-                
-                //
-                // Push the new run onto the readyToProcess list
-                //
                 this.plan.readyToProcess.push(runInfo);
-                
-                // remove all the consumed inputs from the arrays
+                this.clearBlockedNode(node.instanceID);
+                producedRuns += 1;
+
                 for (let k = 0; k < runInfo.inputs.length; k++) {
                     const input = runInfo.inputs[k];
                     const before = unconsumedInputs[input.producerInstanceID].length;
                     unconsumedInputs[input.producerInstanceID] = unconsumedInputs[input.producerInstanceID].filter(record => record.recordID !== input.recordID);
-                    Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `                unconsumedInputs[${input.producerInstanceID} ${before} -> ${unconsumedInputs[input.producerInstanceID].length}`);
+                    const remaining = unconsumedInputs[input.producerInstanceID].length;
+                    this.logPlanning(`${consumerLabel}: consumed record ${input.recordID} from ${this.formatNodeLabelByInstanceID(input.producerInstanceID)} (remaining ${before} -> ${remaining}).`);
                 }
+                this.logPlanning(`${consumerLabel}: ready with ${runInfo.inputs.length} input(s).`);
 
-                Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ FOUND ALL ${runInfo.inputs.length} inputs for node ${node.instanceName} @@@@@@@@@@`)
-
-                // If this node only needs the first available trigger, stop after generating one run.
                 if (!node.requireAllEventTriggers && !node.requireAllInputs) {
                     ranOutOfInputs = true;
                 }
             } else {
-                Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ Could not find all inputs for ${node.instanceName} @@@@@@@@@@`)
+                this.logPlanning(`${consumerLabel} is waiting for required inputs.`);
             }
 
             count++;
             if (count > 1000) {
                 return;
             }
-
         } while (!ranOutOfInputs);
+
+        if (producedRuns === 0) {
+            this.collectBlockedReasonsForNode(node, unconsumedInputs);
+        }
     }
 
     generateUnconsumedInputsForNode(node, recordsByNodeInstanceID) {
@@ -919,147 +1189,87 @@ export class StateMachine {
     
 
     async findReadyToProcess(records, recordsByNodeInstanceID) {
-        const { Constants } = Config;
+        this.logPlanning('Recomputing nodes that are ready to run.');
 
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + "@@@@@@@@ RECALC INPUTS ");
-        
         if (records.length === 0) {
-
-            //
-            // Special case -- the very first record will be the "Start Node"
-            //
-
             const startNode = this.versionInfo.stateMachineDescription.nodes[0];
             if (startNode.nodeType !== "start") {
                 throw new Error("STATE MACHINE: First record is not a start node!");
             }
 
-            Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@ PROCESSING START NODE`);
-
+            this.logPlanning('Seeding plan with the start node.');
             const runInfo = {
                 nodeInstance: this.nodeInstances[startNode.instanceID],
                 readyTime: new Date(0),
                 inputs: [],
             };
-
-            // No history to apply to the start node
-            
             this.plan.readyToProcess.push(runInfo);
+            return;
+        }
 
-        } else {
-
-            //
-            // Algorithm:
-            //   1. Loop by each node description
-            //      - Skip source nodes and nodes with no inputs
-            //   2. Find the most recent record produced by this node -- we'll want to
-            //      ignore all input records older than this one since we consume
-            //      inputs in chronological order
-            //   3. Find the oldest unconsumed record in the "completed" state for each input,
-            //      processed meaning it has been completed, but its subtree has not yet been
-            //      processed
-            //   4. Loop forward through all the unconsumed inputs as long as there is
-            //      a complete set of inputs to satisfy the input requirements
-            //      
-            //
-
-
-            //
-            // First, replay ALL pending records, ensuring they are still valid
-            //
-            for (let i=0; i<records.length; i++) {
-                const record = records[i];
-
-                // If this record is pending and we haven't already attempted it, add it to the plan
-                if ((record.state == "failed" || record.state == "waitingForExternalInput") && !this.plan.waitForUpdateBeforeReattempting[record.recordID]) {
-                    
-                    // Ensure the the nodeInstance still exists, and the record's inputs are correct for this nodeInstance, 
-                    // including whether the nodeInstance requires all inputs to be present
-                    const nodeInstance = this.nodeInstances[record.nodeInstanceID];
-
-
-                    if (nodeInstance) {
-
-                        let inputsAreValid = true;
-                        const allInputs = nodeInstance.fullNodeDescription.inputs;
-                        const recordInputs = record.inputs;
-                        // node.requireAllInputs deprecated as of May 2024
-                        if (nodeInstance.requireAllEventTriggers || nodeInstance.requireAllInputs) {
-                            // Check if all inputs are present, and no inputs that shouldn't be present
-                            if (allInputs.length == recordInputs.length) {
-                                for (let j=0; j<allInputs.length; j++) {
-                                    if (allInputs[j].producerInstanceID !== recordInputs[j].producerInstanceID) {
-                                        inputsAreValid = false;
-                                        break;
-                                    }
-                                }
-                            } else {
-                                inputsAreValid = false;
-                            }
-                        } else {
-                            // Check that any input is present
-                            let found = false;
-                            for (let j=0; j<allInputs.length; j++) {
-                                if (allInputs[j].producerInstanceID === recordInputs[0].producerInstanceID) {
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            inputsAreValid = found;
-                        }
-
-
-                        if (inputsAreValid) {
-
-                            const inputs = record.inputs;
-                            const runInfo = {
-                                nodeInstance: nodeInstance,
-                                readyTime: new Date(0),
-                                inputs: inputs,
-                                existingRecord: record,
-                            };
-
-                            Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@ PUSHING PENDING RECORD FOR NODE ${nodeInstance.fullNodeDescription.instanceName} TO READY QUEUE`);
-                            
-                            // Reapply the history to the record
-                            this.applyMessageHistoryToRunInfo(runInfo);
-
-                            this.plan.readyToProcess.push(runInfo);
-
-                        } else {
-                            // Mark record deleted. If the node shows back up, it'll get replayed nayway
-                            Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@ DELETING RECORD FOR NODE ${nodeInstance.fullNodeDescription.instanceName} WITH INCOMPATIBLE INPUTS`);
-                            this.recordHistory.deleteRecord(record.recordID);
-                        }
-
-                    } else {
-                        // Didn't find this node instance! Most likely this record was from a node that is now deleted. m
-                        // Mark record deleted. If the node shows back up, it'll get replayed nayway
-                        Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@ DELETING RECORD FOR NODE ${record.nodeInstanceID} THAT NO LONGER EXISTS`);
-                        this.recordHistory.deleteRecord(record.recordID);
-                    }
+        for (let i = 0; i < records.length; i++) {
+            const record = records[i];
+            const isTracked = !!this.plan.waitForUpdateBeforeReattempting[record.recordID];
+            if (record.state === "waitingForExternalInput") {
+                this.plan.waitForUpdateBeforeReattempting[record.recordID] = record;
+                const nodeInstance = this.nodeInstances[record.nodeInstanceID];
+                if (nodeInstance) {
+                    const reason = this.describePendingReason(record);
+                    this.logPlanning(`Waiting for external input before retrying ${this.formatNodeLabel(nodeInstance.fullNodeDescription)}.`);
+                    this.noteBlockedNode(nodeInstance.fullNodeDescription.instanceID, reason, { hasPartialInputs: false });
                 }
+                continue;
             }
 
-            //
-            // We will now find the most recent record for each node type.
-            // Then, for each input, any record newer than the most recent
-            // consumed record must be unconsumed.
-            //
+            if (record.state === "failed" && !isTracked) {
+                const nodeInstance = this.nodeInstances[record.nodeInstanceID];
+                if (!nodeInstance) {
+                    this.logPlanning(`Removing stale record for deleted node instance ${record.nodeInstanceID}.`);
+                    this.recordHistory.deleteRecord(record.recordID);
+                    continue;
+                }
 
-            
+                let inputsAreValid = true;
+                const allInputs = nodeInstance.fullNodeDescription.inputs;
+                const recordInputs = record.inputs;
+                if (nodeInstance.requireAllEventTriggers || nodeInstance.requireAllInputs) {
+                    if (allInputs.length === recordInputs.length) {
+                        for (let j = 0; j < allInputs.length; j++) {
+                            if (allInputs[j].producerInstanceID !== recordInputs[j].producerInstanceID) {
+                                inputsAreValid = false;
+                                break;
+                            }
+                        }
+                    } else {
+                        inputsAreValid = false;
+                    }
+                } else if (!allInputs.some(input => input.producerInstanceID === recordInputs[0].producerInstanceID)) {
+                    inputsAreValid = false;
+                }
 
-            for (let n=0; n<this.versionInfo.stateMachineDescription.nodes.length; n++) {
-                
-                const node = this.versionInfo.stateMachineDescription.nodes[n];
-
-                await this.processNode(node, recordsByNodeInstanceID); // will push to readyToProcess
+                if (inputsAreValid) {
+                    const runInfo = {
+                        nodeInstance: nodeInstance,
+                        readyTime: new Date(0),
+                        inputs: record.inputs,
+                        existingRecord: record,
+                    };
+                    this.logPlanning(`Re-queueing pending record for ${this.formatNodeLabel(nodeInstance.fullNodeDescription)}.`);
+                    this.applyMessageHistoryToRunInfo(runInfo);
+                    this.plan.readyToProcess.push(runInfo);
+                } else {
+                    this.logPlanning(`Discarding stale record for ${this.formatNodeLabel(nodeInstance.fullNodeDescription)} due to incompatible inputs.`);
+                    this.recordHistory.deleteRecord(record.recordID);
+                }
             }
         }
 
+        for (let n = 0; n < this.versionInfo.stateMachineDescription.nodes.length; n++) {
+            const node = this.versionInfo.stateMachineDescription.nodes[n];
+            await this.processNode(node, recordsByNodeInstanceID);
+        }
 
-
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + "@@@@@@@@@@@@ END RECALC INPUTS")
+        this.logPlanning('Finished dependency recompute.');
     }
 
 
@@ -1178,7 +1388,10 @@ export class StateMachine {
             
             const unconsumedInputs = this.generateUnconsumedInputsForNode(nodeInstance.fullNodeDescription, recordsByNodeInstanceID);
 
-            this.applyUnconsumedVariableInputsToRunInfo({runInfo, unconsumedInputs, node: nodeInstance.fullNodeDescription })
+            const variableSyncResult = this.applyUnconsumedVariableInputsToRunInfo({ runInfo, unconsumedInputs, node: nodeInstance.fullNodeDescription });
+            if (!variableSyncResult.success) {
+                return;
+            }
 
             // splice full record history rather than input-by-input which is required by context-aware nodes
             const fullHistoryForContextProcessing = this.getRecordHistoryForRecord(newRecord.recordID);
@@ -1314,47 +1527,39 @@ export class StateMachine {
     async createPlan() {
         const { Constants } = Config;
 
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: UPDATING PLAN');
+        this.logPlanning('Updating execution plan.');
 
         if (nullUndefinedOrEmpty(this.versionInfo.stateMachineDescription) || nullUndefinedOrEmpty(this.versionInfo.stateMachineDescription.nodes) |
             this.versionInfo.stateMachineDescription.nodes.length === 0) {
-            // Nothing to do -- brand new version, not edited yet
             return;
         }
-        
-        //
-        // Assumes record history is up to date
-        //
+
         if (!this.recordHistory) {
             throw new Error('Tried to plan before record history was initialized!');
         }
-        
-        //
-        // This MUST happen prior to this.recordHistory.load() to prevent a real race condition
-        //
+
+        if (this.plan?.blockedNodes instanceof Map) {
+            this.plan.blockedNodes.clear();
+        }
+
         let records = [...this.recordsInProgress];
 
         const loadInfo = await this.recordHistory.load({ incremental: true });
         this.processRecordHistoryLoadResult(loadInfo);
-        
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `##### StateMachine: LOADED RECORD HISTORY (${records.length} in progress)`);
 
-        if (records.length > 0) {
-            Constants.debug.logStateMachine && console.error("Records in progress: \n", records.map((r, index) => `[${index}]: ` + JSON.stringify(r, null, 2)).join('\n'));
+        this.logRecords(`Loaded record history (${records.length} in progress).`);
+        if (records.length > 0 && Constants.debug?.stateMachineRecords) {
+            this.logRecords('In-progress records:');
+            records.forEach((record, index) => {
+                this.logRecords(`  [${index}] ${record.nodeType || record.nodeInstanceID} ${record.recordID}`);
+            });
         }
 
-        const recordsFromDB = this.recordHistory.getFilteredRecords({includeDeleted: false, includeFailed: true, ignoreCompression: false, includeWaitingForExternalInput: true});
+        const recordsFromDB = this.recordHistory.getFilteredRecords({ includeDeleted: false, includeFailed: true, ignoreCompression: false, includeWaitingForExternalInput: true });
+        records = [...recordsFromDB, ...records];
 
-        records = [...recordsFromDB, ...records ];
-
-        // 
-        // Due to a REAL race condition where a record is inserted WHILE we wait for the query to come back, we
-        // could wind up with a record in the list twice.  So, we'll dedupe the list
-        //
         records = records.filter((record, index, self) =>
-            index === self.findIndex((t) => (
-                t.recordID === record.recordID
-            ))
+            index === self.findIndex((t) => t.recordID === record.recordID)
         );
 
         records.sort((a, b) => {
@@ -1365,53 +1570,26 @@ export class StateMachine {
             return aTime - bTime;
         });
 
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + "Record count: ", records.length);
+        this.reconcileWaitMap(records);
 
-        //
-        // Records are sorted chronologically by execution time, so we can walk the records
-        // from oldest to newest
-        //
+        this.logRecords(`Working set contains ${records.length} record${records.length === 1 ? '' : 's'}.`);
 
-        //
-        // Partition the records by nodeInstanceID, which will avoid an O(n) 
-        // search of all records to find records produced by a specific
-        // nodeInstanceID
-        //
-
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: PARTITIONING RECORDS BY NODE INSTANCE ID');
-
-        let recordsByNodeInstanceID = {};
-        if (records.length > 0) {
-
-            // ordering will remain oldest-first
-            for (let i=0; i<records.length; i++) {
-                const record = records[i];
-                if (record.deleted) {
-                    continue;
-                }
-
-                if (!recordsByNodeInstanceID[record.nodeInstanceID]) {
-                    recordsByNodeInstanceID[record.nodeInstanceID] = [];
-                }
-                    
-                recordsByNodeInstanceID[record.nodeInstanceID].push(record);
+        const recordsByNodeInstanceID = {};
+        for (let i = 0; i < records.length; i++) {
+            const record = records[i];
+            if (record.deleted) {
+                continue;
             }
+            if (!recordsByNodeInstanceID[record.nodeInstanceID]) {
+                recordsByNodeInstanceID[record.nodeInstanceID] = [];
+            }
+            recordsByNodeInstanceID[record.nodeInstanceID].push(record);
         }
 
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: FIND READY TO PROCESS NODES');
-
-
-        //
-        // Fill "readyToProcess" with nodes that have all inputs ready
-        //
+        this.logPlanning('Identifying nodes that are ready to run.');
         await this.findReadyToProcess(records, recordsByNodeInstanceID);
 
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: APPLYING MESSAGE HISTORY INPUTS');
-
-        //
-        // Post-process nodes after doing "ready to process", so as input we
-        // know which nodes still have work to do
-        //
+        this.logPlanning('Applying message history to candidate nodes.');
         await this.performPostProcessAndFlowControl(records, recordsByNodeInstanceID);
     }
 
@@ -1419,11 +1597,15 @@ export class StateMachine {
         const existingWaitMap = preserveWaitMap && this.plan?.waitForUpdateBeforeReattempting
             ? { ...this.plan.waitForUpdateBeforeReattempting }
             : {};
+        const existingBlocked = preserveWaitMap && this.plan?.blockedNodes instanceof Map
+            ? new Map(this.plan.blockedNodes)
+            : new Map();
 
         this.plan = { 
             readyToProcess: [],
             processing: [],
-            waitForUpdateBeforeReattempting: existingWaitMap
+            waitForUpdateBeforeReattempting: existingWaitMap,
+            blockedNodes: existingBlocked,
         };
         this.recordsInProgress = [];
     }
@@ -1496,38 +1678,31 @@ export class StateMachine {
     async postProcessProcessing({ runInfo, record, results, channel, seed, debuggingTurnedOn, onPostNode }) {
         const { Constants } = Config;
 
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `##### StateMachine: ${runInfo.nodeInstance.fullNodeDescription.nodeType} POST-RUN PROCESSING`);
-
         const nodeInstance = runInfo.nodeInstance;
+        const nodeLabel = this.formatNodeLabel(nodeInstance.fullNodeDescription);
+        this.logActivity(`Post-processing ${nodeLabel}.`);
 
         if (!Constants.validRecordStates.includes(results.state)) {
             throw new Error(`Node ${nodeInstance.fullNodeDescription.instanceName} returned an invalid state: ${results.state}`);
         }
 
-        let finalResults = {...results}
+        let finalResults = { ...results };
         finalResults.error = EnsureCorrectErrorType(finalResults.error);
 
         let finalRecord = {
-            ...record, 
+            ...record,
             ...finalResults,
             state: finalResults.state
         };
-       
-        if (finalRecord.state != "completed") {
-            Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `Node of ${nodeInstance.fullNodeDescription.instanceName} didn't complete -- adding to waitForUpdateBeforeReattempting`);
+
+        if (finalRecord.state !== "completed") {
             this.plan.waitForUpdateBeforeReattempting[finalRecord.recordID] = finalRecord;
         } else if (this.plan.waitForUpdateBeforeReattempting[finalRecord.recordID]) {
             delete this.plan.waitForUpdateBeforeReattempting[finalRecord.recordID];
         }
-        
-        //
-        // Allow the node to do stuff like report messages to the client
-        //
-        await nodeInstance.postProcess({channel, results: finalResults, stateMachine: this, record: finalRecord, debuggingTurnedOn});
 
-        //
-        // RECORD THE RESULTS
-        //
+        await nodeInstance.postProcess({ channel, results: finalResults, stateMachine: this, record: finalRecord, debuggingTurnedOn });
+
         await this.recordHistory.insertOrUpdateRecord(finalRecord);
         if (finalRecord.state === "completed") {
             this.updateConsumerCursorWithRecord(finalRecord);
@@ -1554,46 +1729,46 @@ export class StateMachine {
             this.updateRecordGraphWithDelta(graphDeltaForRecord, this.recordHistory.records, this.versionInfo?.stateMachineDescription?.nodes || [], { fullReload: false });
         }
 
-        //
-        // Remove the record from the in-progress list
-        //
         this.recordsInProgress = this.recordsInProgress.filter(r => r.recordID !== finalRecord.recordID);
 
-        //
-        // Report back to the calling function
-        //
         await onPostNode({ runInfo, record: finalRecord, results: finalResults });
-        
-        Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `##### StateMachine: ${runInfo.nodeInstance.fullNodeDescription.nodeType} POST-RUN COMPLETE`);
+
+        const stateSummary = finalRecord.state?.toUpperCase() || 'UNKNOWN';
+        this.logRecordStateOnce(finalRecord.recordID, finalRecord.state, () => {
+            if (finalRecord.state === 'completed') {
+                return `Finished ${nodeLabel} -> ${stateSummary}.`;
+            }
+            return `${nodeLabel} state updated: ${stateSummary}.`;
+        });
+        if (finalRecord.state === 'completed') {
+            this.lastRecordStateLog.delete(finalRecord.recordID);
+        }
     }
 
     async drainQueue({ stepLimit, channel, seed, debuggingTurnedOn, account, wasCancelled, onPreNode, onPostNode, onStateMachineError, debugID }) {
         const { Constants } = Config;
 
         this.debugID = debugID;
-
         let pendingPromises = [];
-
-        const keySource = this.versionInfo.alwaysUseBuiltInKeys ? {source: 'builtin'} : { source: 'account', account: account };
+        const keySource = this.versionInfo.alwaysUseBuiltInKeys ? { source: 'builtin' } : { source: 'account', account: account };
 
         try {
-
-            Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: ENTERING DRAIN QUEUE LOOP');
-
+            this.logActivity('Scheduler loop started');
             this.clearPlan({ preserveWaitMap: true });
 
             let iterations = 0;
-            while ((stepLimit == 0 || iterations < stepLimit) && (!wasCancelled || !wasCancelled())) {
-                
+            while ((!wasCancelled || !wasCancelled()) && (stepLimit === 0 || iterations < stepLimit || this.plan.processing.length > 0)) {
                 await this.createPlan();
 
-                if (this.plan.processing == 0 && this.plan.readyToProcess.length === 0) {
-                    Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: NOTHING TO DO RIGHT NOW - QUEUE DRAINED');
+                if (this.plan.processing.length === 0 && this.plan.readyToProcess.length === 0) {
+                    this.logActivity('No nodes are ready to run; scheduler is idle.');
+                    this.reportDependencySnapshot();
                     break;
                 }
 
                 if (this.plan.readyToProcess.length > 0) {
-                    Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: PLAN HAS ', this.plan.readyToProcess.length, ' NODES READY TO PROCESS');
+                    const readyCount = this.plan.readyToProcess.length;
+                    this.logActivity(`Ready to process ${readyCount} node${readyCount === 1 ? '' : 's'}.`);
 
                     const priorityNodeTypes = this.getPriorityNodeTypeSet();
                     this.plan.readyToProcess.sort((a, b) => {
@@ -1614,117 +1789,94 @@ export class StateMachine {
                         return aName.localeCompare(bName);
                     });
 
-                    if (Constants.debug.logStateMachineScheduling) {
+                    if (Constants.debug?.stateMachineQueue) {
                         const queueDescription = this.plan.readyToProcess.map(runInfo => {
                             const nodeType = runInfo.nodeInstance?.fullNodeDescription?.nodeType;
-                            const instanceName = runInfo.nodeInstance?.fullNodeDescription?.instanceName || 'unknown';
+                            const instanceName = runInfo.nodeInstance?.fullNodeDescription?.instanceName || 'unnamed';
                             const ready = runInfo.readyTime instanceof Date && !Number.isNaN(runInfo.readyTime.getTime()) ? runInfo.readyTime.toISOString() : 'immediate';
                             const priorityTag = priorityNodeTypes.has(nodeType) ? 'AI' : 'GEN';
                             return `${instanceName}(${nodeType}|${priorityTag}|ready:${ready})`;
                         }).join(', ');
-                        this.debugLog('logStateMachineScheduling', `Ready queue sequence: ${queueDescription}`);
+                        this.logQueueDetail(`Ready queue sequence: ${queueDescription}`);
                     }
-                    
+
                     if (stepLimit > 0) {
-                        const remainingSteps = stepLimit - iterations;
-                        if (this.plan.readyToProcess.length > remainingSteps) {
-                            // We have more nodes ready to process than we have steps left, remove items from the plan
+                        const remainingSteps = Math.max(stepLimit - iterations, 0);
+                        if (remainingSteps === 0) {
+                            if (this.plan.readyToProcess.length > 0) {
+                                this.logActivity('Step limit reached; deferring additional nodes until the next drain cycle.');
+                            }
+                            this.plan.readyToProcess = [];
+                        } else if (this.plan.readyToProcess.length > remainingSteps) {
                             this.plan.readyToProcess = this.plan.readyToProcess.slice(0, remainingSteps);
-                            Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: REDUCED READY TO PROCESS TO ', this.plan.readyToProcess.length, ' NODES DUE TO STEP LIMIT');
+                            this.logActivity(`Trimmed ready queue to ${this.plan.readyToProcess.length} node${this.plan.readyToProcess.length === 1 ? '' : 's'} to respect the step limit.`);
                         }
                     }
 
                     iterations += this.plan.readyToProcess.length;
 
-                    this.plan.readyToProcess.map(runInfo => {
+                    for (const runInfo of this.plan.readyToProcess) {
                         const promise = new Promise((resolve, reject) => {
-                        
-                            this.plan.processing.push(runInfo); // Move to processing list
-
-                            const nodeInfo = runInfo.nodeInstance.fullNodeDescription;
-                            const logLabel = `${nodeInfo.instanceName} (${nodeInfo.instanceID})`;
-                            this.logNode(logLabel);
+                            this.plan.processing.push(runInfo);
+                            const nodeLabel = this.formatNodeLabel(runInfo.nodeInstance.fullNodeDescription);
+                            this.logNode(nodeLabel);
 
                             this.preRunProcessing({ runInfo, channel, seed, debuggingTurnedOn, wasCancelled, onPreNode })
-                                .then(record => {                               
-
-                                        runInfo.nodeInstance.run({
-                                            inputs: runInfo.inputs, 
-                                            stateMachine: this, 
-                                            channel, 
-                                            seed,
-                                            debuggingTurnedOn,
-                                            wasCancelled,
-                                            record,
-                                            keySource,
-                                        })
-                                        .then(results => {
-                                            
-                                            this.postProcessProcessing({ runInfo, results, record, channel, seed, debuggingTurnedOn, wasCancelled, onPostNode })
-                                            .then(() => 
-                                            {
-                                                //
-                                                // SUCCESSFUL RESOLUTION HERE
-                                                //
-                                                this.plan.processing = this.plan.processing.filter(item => item !== runInfo); // Remove from processing
+                                .then(record => {
+                                    runInfo.nodeInstance.run({
+                                        inputs: runInfo.inputs,
+                                        stateMachine: this,
+                                        channel,
+                                        seed,
+                                        debuggingTurnedOn,
+                                        wasCancelled,
+                                        record,
+                                        keySource,
+                                    })
+                                    .then(results => {
+                                        this.postProcessProcessing({ runInfo, results, record, channel, seed, debuggingTurnedOn, wasCancelled, onPostNode })
+                                            .then(() => {
+                                                this.plan.processing = this.plan.processing.filter(item => item !== runInfo);
                                                 pendingPromises = pendingPromises.filter(p => p !== promise);
-
-                                                resolve(results)
-                                            
+                                                resolve(results);
                                             })
-                                            //this.postProcessProcessing
                                             .catch(error => {
                                                 onStateMachineError(error);
                                                 reject(error);
                                             });
-                                        })
-                                        //this.preRunProcessing
-                                        .catch(error => {
-
-                                            this.plan.processing = this.plan.processing.filter(item => item !== runInfo); // Remove from processing
-                                            pendingPromises = pendingPromises.filter(p => p !== promise);    
-
-                                            onStateMachineError(error);
-                                            const result = { record: null, error: error };
-                                            reject(error);
-                                        })
+                                    })
+                                    .catch(error => {
+                                        this.plan.processing = this.plan.processing.filter(item => item !== runInfo);
+                                        pendingPromises = pendingPromises.filter(p => p !== promise);
+                                        onStateMachineError(error);
+                                        reject(error);
+                                    });
                                 })
-                                //this.preRunProcessing
                                 .catch(error => {
-                                    this.plan.processing = this.plan.processing.filter(item => item !== runInfo); // Remove from processing
+                                    this.plan.processing = this.plan.processing.filter(item => item !== runInfo);
                                     pendingPromises = pendingPromises.filter(p => p !== promise);
                                     onStateMachineError(error);
-                                    const result = { record: null, error: error };
                                     reject(error);
                                 });
                         });
-
                         pendingPromises.push(promise);
-                    });
+                    }
 
-                    this.plan.readyToProcess = []; // Clear the readyToProcess list
+                    this.plan.readyToProcess = [];
                 }
 
-                //
-                // Use Promise.race() to wait for the first task to complete including its handling
-                // Alt:  
-                //     await Promise.all(taskPromises); 
-                // would wait for all tasks to complete
-                //
                 if (pendingPromises.length > 0) {
                     await Promise.race(pendingPromises);
-
-                    // All tasks completed, you can now proceed with replanning
-                    Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: AT LEAST ONE TASK HAS COMPLETED.');
+                    this.logActivity('At least one node finished; replanning.');
                 }
-                Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `##### StateMachine: finished ${iterations} iterations, stepLimit ${stepLimit}   wasCancelled? ${wasCancelled() ? 'true' : 'false'}`);
             }
-        } catch (e) {
 
+            const cancelled = wasCancelled && wasCancelled();
+            this.logActivity(`Scheduler loop finished after ${iterations} dispatch${iterations === 1 ? '' : 'es'}${cancelled ? ' (cancelled)' : ''}.`);
+        } catch (e) {
             onStateMachineError(e);
         }
 
-        // Fully drain the queue before returning flow control to the caller
         await Promise.all(pendingPromises);
     }
 

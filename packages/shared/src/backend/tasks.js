@@ -1,6 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Config } from "@src/backend/config";
-import { RabbitMQPubSubChannel } from '@src/common/pubsub/rabbitmqpubsub';
 
 export class Task {
     constructor(db, { taskID, queueTime, startTime, completeTime, expirationTime, executionTime, status, sessionID, threadID, machineID, accountID, params }) {
@@ -150,21 +149,8 @@ export async function claimTask(db, sessionID, machineID, threadID) {
 }
 
 export async function notifyServerOnTaskQueued() {
-    try {
-        //
-        // Signal the work queue to process the task; OK to do async
-        //
-        console.log("Notifying server that there's a new task")
-
-        const taskChannel = new RabbitMQPubSubChannel('taskQueue', 'taskQueue');
-        await taskChannel.connect();
-  
-        taskChannel.sendCommand("newTask", "ready");
-
-    } catch (error) {
-        console.error('Error notifying server on task queued: ', error);
-        throw error;
-    } 
+    // No-op: The task server polls the database for queued work.
+    return true;
 }
 
 export async function deleteTasksForThreadID(db, threadID) {

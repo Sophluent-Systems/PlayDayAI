@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import ChatBotView from './chatbotview';
 import { useRouter } from 'next/router';
-import { callGetMostRecentSave } from '@src/client/gameplay';
+import { callGetMostRecentSave, callStateMachineContinuationRequest } from '@src/client/gameplay';
 import { callRetryRecord } from '@src/client/editor';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
 import { buildWebsocketUrl } from '@src/client/utils/wsUrl';
@@ -13,7 +13,6 @@ import { useAlert } from './standard/useAlert';
 import { normalizeTheme } from '@src/common/theme';
 import { stateManager } from '@src/client/statemanager';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
-import { callStateMachineContinuationRequest } from '@src/client/gameplay';
 import { useMessagesClient } from '../messagesClient';
 import { callSendInputData, callStateMachineHaltRequest } from '@src/client/gameplay';
 import { FilteredMessageList } from './filteredmessagelist';
@@ -48,6 +47,7 @@ function ChatBot(props) {
   const [inputNodeInstanceID, setInputNodeInstanceID] = useState(null);
   const [scrollingMode, setScrollingMode] = useState(Constants.defaultScrollingMode);
   const stateMachineWebsocket = useRef(null);
+  const preferredWsOptionsRef = useRef(null);
   const [editorSaveRequest, setEditorSaveRequest] = useAtom(editorSaveRequestState);
   const [dirtyEditor, setDirtyEditor] = useAtom(dirtyEditorState);
   const [supportedMediaTypes, setSupportedMediaTypes] = useState([]);
@@ -77,7 +77,7 @@ function ChatBot(props) {
           }
       },
  };
- const { messages, subscribeMessageClient, clearMessageHistory } = useMessagesClient({handlers: messageUpdateHandlers, sessionID, autoConnect: false});
+ const { messages, subscribeMessageClient, clearMessageHistory, removeMessagesByRecordIDs } = useMessagesClient({handlers: messageUpdateHandlers, sessionID, autoConnect: false});
  const reconnectAttemptsRef = useRef(0);
  const reconnectUnderwayRef = useRef(false);
  const [supportsSuggestions, setSupportsSuggestions] = useState(false);
@@ -286,20 +286,43 @@ function ChatBot(props) {
     }
     const singleStep = ignoreSingleStepSetting ? false : (account.preferences?.debugSettings?.singleStep ? account.preferences.debugSettings.singleStep : false);
     console.log("sendContinuationRequest SingleStep: ", singleStep);
-    const taskCreationResult = await callStateMachineContinuationRequest(sessionID, {
-      continuation: true,
-      singleStep: singleStep,
-    });
+    if (!stateMachineWebsocket.current) {
+      throw new Error("sendContinuationRequest: websocket connection not established");
+    }
+    try {
+      await stateMachineWebsocket.current.sendCommand("command", {
+        type: "continuation",
+        accessToken,
+        payload: {
+          sessionID,
+          singleStep,
+        },
+      });
+    } catch (error) {
+      console.error("Error sending continuation request over WebSocket: ", error);
+      try {
+        const fallbackResult = await callStateMachineContinuationRequest(sessionID, {
+          continuation: true,
+          singleStep,
+          forceReassign: true,
+        });
 
-    if (taskCreationResult.error) {
-      console.log("Error sending continuation request: ", taskCreationResult);
-      if (taskCreationResult.statusCode == 403) {
-        refreshAccessToken();
-      } else {
-        throw new Error("Error sending continuation request: " +  taskCreationResult.error?.message);
+        const websocketInfo = fallbackResult?.websocket;
+        if (websocketInfo?.host) {
+          preferredWsOptionsRef.current = {
+            wsHost: websocketInfo.host,
+            wsPort: websocketInfo.port ?? undefined,
+            protocol: websocketInfo.protocol,
+            path: websocketInfo.path,
+          };
+          attemptWebsocketReconnect();
+        }
+
+        return fallbackResult;
+      } catch (fallbackError) {
+        console.error("Fallback REST continuation request failed: ", fallbackError);
+        throw fallbackError;
       }
-    } else {
-      Constants.debug.logTaskSystem && console.log("Continuation successful new taskID=", taskCreationResult.taskID);
     }
   }
 
@@ -336,7 +359,7 @@ function ChatBot(props) {
           reconnectUnderwayRef.current = false;
           reconnectAttemptsRef.current = 0;
         }).catch(err => {
-          console.error('Reconnection attempt failed:', err);
+          console.log('Reconnection attempt failed, will retry:', err);
           reconnectUnderwayRef.current = false;
           attemptWebsocketReconnect();
         });
@@ -391,19 +414,25 @@ function ChatBot(props) {
           console.log("Auth error: ", data, " ... refreshing access token.");
           refreshAccessToken();
         },
+        "continuationAccepted": (command, data) => {
+          Constants.debug.logTaskSystem && console.log("Continuation accepted", data);
+        },
         "statemachinestatusupdate": (command, data) => {
+          Constants.debug.logTaskSystem && console.log("statemachinestatusupdate received", data);
           if (typeof data?.state != 'string') {
             throw new Error("statemachinestatusupdate: data is not a string: " + JSON.stringify(data));
           }
           if (sessionID != data.sessionID) {
-            console.log("Ignoring state machine status update for sessionID ", data.sessionID, " - expected ", sessionID);
+            Constants.debug.logTaskSystem && console.log("Ignoring state machine status update for sessionID ", data.sessionID, " - expected ", sessionID);
             return;
           }
           switch(data.state) {
             case "started":
+              Constants.debug.logTaskSystem && console.log("State machine started: entering processing state");
               setProcessingUnderway(true);
             break;
             case "waitingForExternalInput":
+              Constants.debug.logTaskSystem && console.log("State machine waiting for input", data);
               if (data.nodeInstanceID) {
                 setSupportedMediaTypes(data.waitingFor);
                 setInputNodeInstanceID(data.nodeInstanceID);
@@ -411,16 +440,20 @@ function ChatBot(props) {
               } else {
                 setInputNodeInstanceID(null);
               }
+              Constants.debug.logTaskSystem && console.log("waitingForInput flag set to true for media types", data.waitingFor);
               if (data.waitingFor.includes("text")) {
                 if (data.maximumInputLength) {
+                  Constants.debug.logTaskSystem && console.log("Setting maximumInputLength", data.maximumInputLength);
                   setMaximumInputLength(data.maximumInputLength);
                 }
               }
               if (data.waitingFor.includes("audio")) {
+                Constants.debug.logTaskSystem && console.log("Setting conversational flag to", data.conversational === true);
                 setConversational(data.conversational === true);
               }
               break;
             case "stopped":
+              Constants.debug.logTaskSystem && console.log("State machine stopped; clearing processing flag");
               setProcessingUnderway(false);
               if (scrollingMode == 'lineByLine' || scrollingMode == 'messageComplete') {
                 scrollToBottom();
@@ -479,7 +512,14 @@ function ChatBot(props) {
       stateMachineWebsocket.current.setConnectionCallbacks(connectionCallbacks);
 
       if (newConnection) {
-        const url = buildWebsocketUrl();
+        const wsOptions = preferredWsOptionsRef.current ? {
+          wsHost: preferredWsOptionsRef.current.wsHost,
+          wsPort: preferredWsOptionsRef.current.wsPort,
+          protocol: preferredWsOptionsRef.current.protocol,
+          path: preferredWsOptionsRef.current.path,
+        } : {};
+
+        const url = buildWebsocketUrl(wsOptions);
         await stateMachineWebsocket.current.connect({url});
         console.log("Connected to: ", url)
       }
@@ -513,11 +553,26 @@ const handleAudioStateChange = (audioType, newState) => {
   const sendMessage = async (mediaTypes) => {
     
     setWaitingForInput(false);
-    await callSendInputData(
+    const response = await callSendInputData(
       sessionID, 
       inputNodeInstanceID, 
       mediaTypes,
       { singleStep: account.preferences?.debugSettings?.singleStep ? account.preferences.debugSettings.singleStep : false });
+
+    const websocketInfo = response?.websocket;
+    if (websocketInfo?.host) {
+      preferredWsOptionsRef.current = {
+        wsHost: websocketInfo.host,
+        wsPort: websocketInfo.port ?? undefined,
+        protocol: websocketInfo.protocol,
+        path: websocketInfo.path,
+      };
+      if (!stateMachineWebsocket.current || stateMachineWebsocket.current.connectionStatus !== 'connected') {
+        attemptWebsocketReconnect();
+      }
+    }
+
+    await sendContinuationRequest();
   }
 
   async function handleResponseFeedback(params) {
@@ -579,8 +634,36 @@ const handleAudioStateChange = (audioType, newState) => {
       try {
 
         const message = messages[index];
-        await callRetryRecord(sessionID, message.recordID, account.preferences?.debugSettings?.singleStep ? account.preferences.debugSettings.singleStep : false);
-        // this sends a continuation request, preserving the original seed
+        if (!message?.recordID) {
+          console.warn("handleMessageDelete: unable to determine recordID for message at index", index);
+          return;
+        }
+        const retryResponse = await callRetryRecord(sessionID, message.recordID, account.preferences?.debugSettings?.singleStep ? account.preferences.debugSettings.singleStep : false);
+
+        const deletedRecordIDs = Array.isArray(retryResponse?.recordIDsDeleted)
+          ? retryResponse.recordIDsDeleted.filter((recordID) => recordID !== null && recordID !== undefined)
+          : [];
+        if (deletedRecordIDs.length && typeof removeMessagesByRecordIDs === 'function') {
+          const { changed } = removeMessagesByRecordIDs(deletedRecordIDs);
+          if (changed) {
+            scrollToBottom();
+          }
+        }
+
+        const retryWsInfo = retryResponse?.websocket;
+        if (retryWsInfo?.host) {
+          preferredWsOptionsRef.current = {
+            wsHost: retryWsInfo.host,
+            wsPort: retryWsInfo.port ?? undefined,
+            protocol: retryWsInfo.protocol,
+            path: retryWsInfo.path,
+          };
+          if (!stateMachineWebsocket.current || stateMachineWebsocket.current.connectionStatus !== 'connected') {
+            attemptWebsocketReconnect();
+          }
+        }
+
+        await sendContinuationRequest();
 
       } catch (err) {
 
@@ -760,11 +843,3 @@ const handleAudioStateChange = (audioType, newState) => {
 
 
 export default memo(ChatBot);
-
-
-
-
-
-
-
-

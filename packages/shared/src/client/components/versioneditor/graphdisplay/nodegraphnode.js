@@ -96,7 +96,7 @@ const normalizeOption = (option, index, prefix) => {
   const value = `${prefix}-${index}`;
   return { value, label: `${prefix} ${index + 1}` };
 };
-const indicatorPillClasses = 'custom-drag-handle pointer-events-auto absolute left-1/2 top-0 z-20 flex h-9 w-28 -translate-x-1/2 -translate-y-[calc(100%+6px)] items-center justify-center rounded-full border border-white/30 bg-slate-950/80 text-white/80 shadow-lg backdrop-blur cursor-grab active:cursor-grabbing transition-colors duration-150';
+const indicatorPillClasses = 'custom-drag-handle pointer-events-auto absolute left-1/2 top-0 z-20 flex h-9 w-28 -translate-x-1/2 -translate-y-[calc(100%+6px)] items-center justify-center rounded-full border border-white/30 bg-slate-950/80 text-white/80 shadow-lg  cursor-grab active:cursor-grabbing transition-colors duration-150';
 
 
 
@@ -226,7 +226,14 @@ const NodeGraphNode = memo((props) => {
 
   return (
 
-    <NodeContainer styling={styling} height={height} width={defaultWidth} draggable={false}>
+    <NodeContainer
+      styling={styling}
+      height={height}
+      width={defaultWidth}
+      draggable={false}
+      className="graph-node-shell"
+    >
+
       <div className="custom-drag-handle absolute inset-x-0 top-0 h-6 cursor-grab active:cursor-grabbing" />
 
 
@@ -398,5 +405,8 @@ const NodeGraphNode = memo((props) => {
 
 
 export default NodeGraphNode;
+
+
+
 
 

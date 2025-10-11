@@ -31,7 +31,7 @@ export function FloatingPanel({
   const containerClasses = useMemo(() => {
     const widthClass = SIZE_CONFIG[size] ?? SIZE_CONFIG.md;
     const base =
-      "pointer-events-auto flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70 text-slate-100 shadow-[0_45px_120px_-60px_rgba(56,189,248,0.65)] backdrop-blur transition";
+      "dark pointer-events-auto flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70 text-slate-100 shadow-[0_45px_120px_-60px_rgba(56,189,248,0.65)] backdrop-blur transition";
     return `${base} ${resolvedOpen ? `${widthClass} px-5 py-4` : "px-2 py-2"} ${className}`.trim();
   }, [className, resolvedOpen, size]);
 

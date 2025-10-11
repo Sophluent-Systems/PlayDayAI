@@ -192,7 +192,7 @@ export async function runStateMachine(db, acl, account, channel, task, threadID)
           maximumInputLength: nodeInstance.fullNodeDescription.params?.tokenLimit,
           conversational: nodeInstance.fullNodeDescription.params?.conversational === true,
         };
-        console.error("[runStateMachine] notifying pending external input", payload);
+        console.error("[runStateMachine] pending external input");
         await channel.sendCommand("statemachinestatusupdate", payload);
         if (record.recordID) {
           tracker.add(record.recordID);

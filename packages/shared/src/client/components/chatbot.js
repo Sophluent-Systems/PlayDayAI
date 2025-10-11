@@ -551,7 +551,15 @@ const handleAudioStateChange = (audioType, newState) => {
 }
 
   const sendMessage = async (mediaTypes) => {
-    
+    if (!waitingForInput) {
+      console.warn("sendMessage called while not waiting for input; ignoring request.");
+      return;
+    }
+    if (!inputNodeInstanceID) {
+      console.warn("sendMessage called without a pending nodeInstanceID; ignoring request.");
+      return;
+    }
+
     setWaitingForInput(false);
     const response = await callSendInputData(
       sessionID, 

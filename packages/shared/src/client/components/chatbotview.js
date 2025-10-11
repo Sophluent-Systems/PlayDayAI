@@ -108,7 +108,8 @@ export default function ChatBotView(props) {
                       suggestion,
                     })
                   }
-                  className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-left text-sm font-medium text-white/90 transition hover:border-white/30 hover:bg-white/15"
+                  className={`w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-left text-sm font-medium text-white/90 transition ${waitingForInput ? 'hover:border-white/30 hover:bg-white/15' : 'opacity-60 cursor-not-allowed'}`}
+                  disabled={!waitingForInput}
                 >
                   {suggestion}
                 </button>

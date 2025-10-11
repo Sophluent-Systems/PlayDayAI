@@ -229,9 +229,18 @@ export function AudioPlaybackControls({
 
     switch (type) {
       case "loadSourceAndPlay": {
+        if (
+          (audioType === "backgroundMusic" && bgMusicMuted) ||
+          (audioType === "soundEffect" && soundEffectMuted)
+        ) {
+          return Promise.resolve(false);
+        }
         const immediateSource =
           data?.source ?? data?.payload?.source ?? payload?.source;
-        return controller.loadSourceAndPlay?.({ source: immediateSource });
+        return (
+          controller.loadSourceAndPlay?.({ source: immediateSource }) ??
+          Promise.resolve(false)
+        );
       }
       case "play":
         if ((audioType === "backgroundMusic" && bgMusicMuted) || (audioType === "soundEffect" && soundEffectMuted)) return;

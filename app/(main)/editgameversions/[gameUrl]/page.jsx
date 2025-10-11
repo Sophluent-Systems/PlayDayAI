@@ -133,7 +133,7 @@ export default function Home() {
                     : 'bg-white/10 text-slate-200 hover:bg-white/20'
                 }`}
               >
-                {playViewOpen ? 'Hide Play' : 'Show Play'}
+                Preview
               </button>
             </div>
           </div>

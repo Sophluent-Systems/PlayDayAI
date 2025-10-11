@@ -28,8 +28,138 @@ export class RecordGraph {
         }
     }
 
+    reset(records = [], nodes = []) {
+        this.inputRecords = records;
+        if (Array.isArray(nodes) && nodes.length > 0) {
+            this.nodes = nodes;
+        }
+        this.initialize();
+    }
+
+    connectRecord(record) {
+        const currentRecord = this.recordEntries[record.recordID];
+        if (!currentRecord) {
+            return;
+        }
+        if (nullUndefinedOrEmpty(record.inputs)) {
+            return;
+        }
+        for (let i = 0; i < record.inputs.length; i++) {
+            const input = record.inputs[i];
+            const inputRecord = this.recordEntries[input.recordID];
+            if (!inputRecord) {
+                const error = new Error(`RecordGraph.connectRecord: input record ${input.recordID} not found for ${record.recordID}`);
+                error.code = 'MISSING_PARENT_RECORD';
+                throw error;
+            }
+
+            if (!nullUndefinedOrEmpty(input.events)) {
+                input.events.forEach(event => {
+                    if (!inputRecord.childSubtrees[event]) {
+                        inputRecord.childSubtrees[event] = [];
+                    }
+                    if (!inputRecord.childSubtrees[event].includes(currentRecord)) {
+                        inputRecord.childSubtrees[event].push(currentRecord);
+                    }
+                });
+            }
+            if (!nullUndefinedOrEmpty(input.variables)) {
+                if (!inputRecord.childSubtrees[specialVariableSubtree]) {
+                    inputRecord.childSubtrees[specialVariableSubtree] = [];
+                }
+                if (!inputRecord.childSubtrees[specialVariableSubtree].includes(currentRecord)) {
+                    inputRecord.childSubtrees[specialVariableSubtree].push(currentRecord);
+                }
+            }
+
+            currentRecord.parents.push(inputRecord);
+        }
+    }
+
+    addCompletedRecord(record) {
+        if (!record || record.deleted || record.state !== "completed") {
+            return;
+        }
+        if (this.recordEntries[record.recordID]) {
+            return;
+        }
+        this.addRecord(record);
+        this.connectRecord(record);
+    }
+
+    removeRecord(recordID) {
+        const recordEntry = this.recordEntries[recordID];
+        if (!recordEntry) {
+            return;
+        }
+
+        if (recordEntry.parents && recordEntry.parents.length > 0) {
+            recordEntry.parents.forEach(parentEntry => {
+                Object.keys(parentEntry.childSubtrees).forEach(event => {
+                    parentEntry.childSubtrees[event] = parentEntry.childSubtrees[event].filter(child => child.record.recordID !== recordID);
+                    if (parentEntry.childSubtrees[event].length === 0) {
+                        delete parentEntry.childSubtrees[event];
+                    }
+                });
+            });
+        }
+
+        if (recordEntry.childSubtrees) {
+            Object.keys(recordEntry.childSubtrees).forEach(event => {
+                const childEntries = recordEntry.childSubtrees[event];
+                childEntries.forEach(childEntry => {
+                    childEntry.parents = childEntry.parents.filter(parent => parent.record.recordID !== recordID);
+                });
+            });
+        }
+
+        delete this.recordEntries[recordID];
+        if (this.startEntry && this.startEntry.record.recordID === recordID) {
+            this.startEntry = null;
+        }
+    }
+
+    applyDelta({ newRecords = [], updatedRecords = [], deletedRecordIDs = [], records = [] } = {}) {
+        let requiresFullRebuild = false;
+
+        try {
+            if (Array.isArray(newRecords)) {
+                newRecords.forEach(record => {
+                    if (!record || record.deleted || record.state !== "completed") {
+                        return;
+                    }
+                    if (this.recordEntries[record.recordID]) {
+                        // If the record already exists, treat it as an update
+                        requiresFullRebuild = true;
+                        return;
+                    }
+                    this.addCompletedRecord(record);
+                });
+            }
+        } catch (error) {
+            Constants.debug.logFlowControl && console.error("RecordGraph.applyDelta: error while adding new record, triggering rebuild", error);
+            requiresFullRebuild = true;
+        }
+
+        if ((updatedRecords && updatedRecords.length > 0) || (deletedRecordIDs && deletedRecordIDs.length > 0)) {
+            requiresFullRebuild = true;
+        }
+
+        if (requiresFullRebuild) {
+            this.reset(records, this.nodes);
+            return;
+        }
+
+        if (Array.isArray(records)) {
+            this.inputRecords = records;
+        }
+    }
+
     initialize() {
         this.recordEntries = {};
+        this.nodesByInstanceID = {};
+        this.consumersOfNode = {};
+        this.startEntry = null;
         // first add a graph entry for each record
         this.inputRecords.forEach(record => {
             if (record.deleted) {

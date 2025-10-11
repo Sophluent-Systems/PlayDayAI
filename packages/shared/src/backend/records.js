@@ -37,6 +37,7 @@ export async function insertOrUpdateRecord(
 
     const { Constants } = Config;
     const { inputs, error, recordID, context, state } = record;
+    const now = new Date();
 
     if (!Constants.validRecordStates.includes(state)) {
         throw new Error(`insertOrUpdateRecord: Invalid record state: ${state}`);
@@ -63,7 +64,14 @@ export async function insertOrUpdateRecord(
       error: finalError ? finalError.export() : null,
       context: context || {},
       engineVersion: Constants.engineVersion,
+      lastModifiedTime: now,
     };
+
+    if (recordToInsert.deleted) {
+      recordToInsert.deletedAt = recordToInsert.deletedAt ? new Date(recordToInsert.deletedAt) : now;
+    } else if (recordToInsert.deletedAt) {
+      delete recordToInsert.deletedAt;
+    }
 
     if (recordToInsert.params?.history) {
       delete recordToInsert.params.history;
@@ -78,8 +86,9 @@ export async function insertOrUpdateRecord(
       {upsert: true}
     );
 
-    if (deleteRecordIfInputsDeleted(db, recordToInsert)) {
+    if (await deleteRecordIfInputsDeleted(db, recordToInsert)) {
         recordToInsert.deleted = true;
+        recordToInsert.deletedAt = recordToInsert.deletedAt ? new Date(recordToInsert.deletedAt) : now;
     }
 
     return recordToInsert;
@@ -105,7 +114,8 @@ export async function updateRecord(db, recordID, update, expectedState=null) {
 
 
 async function markRecordDeleted(db, recordID) {
-  await updateRecord(db, recordID, {deleted: true});
+  const now = new Date();
+  await updateRecord(db, recordID, {deleted: true, deletedAt: now, lastModifiedTime: now});
 }
 
 
@@ -146,7 +156,7 @@ export async function getAllRecordsForSession(db, sessionID, sortNewestFirst=tru
     const coll = db.collection('records');
     let options = {};
     if (pruneFields) {
-      options.projection = { recordID: 1, inputs: 1, output: 1, startTime: 1, executionTime: 1, eventsEmitted: 1, completionTime: 1, nodeInstanceID: 1, nodeType: 1, params: 1, context: 1, state: 1, waitingFor: 1, error: 1, deleted: 1, properties: 1 };
+      options.projection = { recordID: 1, inputs: 1, output: 1, startTime: 1, executionTime: 1, eventsEmitted: 1, completionTime: 1, nodeInstanceID: 1, nodeType: 1, params: 1, context: 1, state: 1, waitingFor: 1, error: 1, deleted: 1, properties: 1, lastModifiedTime: 1, deletedAt: 1 };
     }
     let allRecords = await coll.find(
         {sessionID: sessionID},
@@ -160,6 +170,69 @@ export async function getAllRecordsForSession(db, sessionID, sortNewestFirst=tru
         }
     }
     return allRecords;
+}
+
+export async function getRecordsForSessionSince(db, sessionID, sinceStartTime, pruneFields = true) {
+    if (!sinceStartTime) {
+        return [];
+    }
+
+    const coll = db.collection('records');
+    let options = {};
+    if (pruneFields) {
+        options.projection = { recordID: 1, inputs: 1, output: 1, startTime: 1, executionTime: 1, eventsEmitted: 1, completionTime: 1, nodeInstanceID: 1, nodeType: 1, params: 1, context: 1, state: 1, waitingFor: 1, error: 1, deleted: 1, properties: 1, lastModifiedTime: 1, deletedAt: 1 };
+    }
+
+    const sinceDate = sinceStartTime instanceof Date ? sinceStartTime : new Date(sinceStartTime);
+
+    let records = await coll.find(
+        {
+            sessionID: sessionID,
+            $or: [
+                { lastModifiedTime: { $gt: sinceDate } },
+                { lastModifiedTime: { $exists: false }, startTime: { $gt: sinceDate } },
+                { deletedAt: { $gt: sinceDate } }
+            ]
+        },
+        options
+    ).sort({ lastModifiedTime: 1, startTime: 1 }).toArray();
+
+    records = await Promise.all(records.map(record => applyEngineVersionUpdates(db, record)));
+
+    if (records) {
+        for (let i = 0; i < records.length; i++) {
+            delete records[i]._id;
+        }
+    }
+
+    return records;
+}
+
+export async function getIncompleteRecordsForSession(db, sessionID, pruneFields = true) {
+    const coll = db.collection('records');
+    let options = {};
+    if (pruneFields) {
+        options.projection = { recordID: 1, inputs: 1, output: 1, startTime: 1, executionTime: 1, eventsEmitted: 1, completionTime: 1, nodeInstanceID: 1, nodeType: 1, params: 1, context: 1, state: 1, waitingFor: 1, error: 1, deleted: 1, properties: 1, lastModifiedTime: 1, deletedAt: 1 };
+    }
+
+    let records = await coll.find(
+        {
+            sessionID: sessionID,
+            deleted: { "$ne": true },
+            state: { "$ne": "completed" }
+        },
+        options
+    ).sort({ startTime: 1 }).toArray();
+
+    records = await Promise.all(records.map(record => applyEngineVersionUpdates(db, record)));
+
+    if (records) {
+        for (let i = 0; i < records.length; i++) {
+            delete records[i]._id;
+        }
+    }
+
+    return records;
 }
 
 export async function getRecord(db, recordID) {

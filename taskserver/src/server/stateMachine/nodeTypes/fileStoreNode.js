@@ -39,7 +39,6 @@ export class fileStoreNode extends nodeType {
             if (!nullUndefinedOrEmpty(files)) {
                 // Loop through all the outputDataFields and if we got one in the results, add it to the output
                 files.forEach(file => {
-                    console.error("File: ", file)
                     const fileName = file.fileName;
                     const mimeSections = file.file.mimeType.split('/');
 

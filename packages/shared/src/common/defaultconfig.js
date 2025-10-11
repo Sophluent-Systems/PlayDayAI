@@ -518,7 +518,12 @@ const defaultConstantsJSON = `
         "logRetryLogic": false,
         "logScenarios": false,
         "logSessionRestart": false,
-        "logStateMachine": false,
+        "logStateMachine": true,
+        "logStateMachineScheduling": true,
+        "logStateMachineRecordDelta": true,
+        "logStateMachineCursor": true,
+        "logStateMachineHistoryCache": true,
+        "logStateMachineFlowGraph": true,
         "logStateManager": false,
         "logStreamingMessages": false,
         "logSTT": false,
@@ -540,7 +545,19 @@ const defaultConstantsJSON = `
             "inactivityTimeout": 600000
         },
         "sandboxLLMBlockingUrl": "http://127.0.0.1:4000/v1/chat/completions",
-        "sandboxLLMStreamingUrl": "http://127.0.0.1:4000/v1/chat/completions"
+        "sandboxLLMStreamingUrl": "http://127.0.0.1:4000/v1/chat/completions",
+        "stateMachine": {
+            "aiPriorityNodeTypes": [
+                "llm",
+                "llmData",
+                "imageGenerator",
+                "tts",
+                "stt",
+                "audioPlayback"
+            ],
+            "maxIncrementalSyncsBeforeFullReload": 20,
+            "historyCacheLimit": 200
+        }
     }
 }
 `;

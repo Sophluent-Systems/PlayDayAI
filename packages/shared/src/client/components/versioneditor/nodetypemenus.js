@@ -751,6 +751,7 @@ export const nodeTypeMenus = {
           range: [0.25, 4.0],
           path: "params.speed",
           tooltip: "The requested playback speed.",
+          defaultValue: 1,
         },
         {
           label: "Voice",

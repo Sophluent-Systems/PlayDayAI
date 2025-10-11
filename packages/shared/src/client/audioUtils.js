@@ -35,25 +35,64 @@ export async function resolveAudioURL({ source, getBlobForStorageSource, fallbac
     }
   
     if (source.source === 'url') {
-      const tryHead = async (u) => {
+      const raw = source.data;
+      const primary = raw;
+      const isAbsolute = /^https?:\/\//i.test(raw);
+      const fallback = isAbsolute ? null : `${fallbackOrigin}${raw}`;
+
+      const toURL = (value) => {
+        if (!value) return null;
+        const base =
+          typeof window !== 'undefined' && window?.location?.origin
+            ? window.location.origin
+            : 'http://localhost';
         try {
-          const res = await fetch(u, { method: 'HEAD' });
+          return new URL(value, base);
+        } catch {
+          return null;
+        }
+      };
+
+      const isSameOrigin = (urlObj) => {
+        if (!urlObj) return false;
+        if (typeof window === 'undefined' || !window?.location?.origin) {
+          return false;
+        }
+        return urlObj.origin === window.location.origin;
+      };
+
+      const tryHead = async (urlObj) => {
+        if (!urlObj || !isSameOrigin(urlObj)) {
+          // Skip HEAD checks for cross-origin URLs to avoid noisy CORS errors.
+          return false;
+        }
+        try {
+          const res = await fetch(urlObj.href, { method: 'HEAD' });
           return res.ok;
         } catch {
           return false;
         }
       };
-  
-      const raw = source.data;
-      const primary = raw;
-      const isAbsolute = /^https?:\/\//i.test(raw);
-      const fallback = isAbsolute ? null : `${fallbackOrigin}${raw}`;
-  
-      if (await tryHead(primary)) return { url: primary };
-      if (fallback && (await tryHead(fallback))) return { url: fallback };
-  
-      // As a last resort, return the primary URL even if HEAD failed (some CDNs block HEAD).
-      if (debug) console.warn('Audio: HEAD checks failed; falling back to primary URL anyway.');
+
+      const primaryUrl = toURL(primary);
+      const fallbackUrl = toURL(fallback);
+
+      if (await tryHead(primaryUrl)) {
+        return { url: primaryUrl.href };
+      }
+      if (await tryHead(fallbackUrl)) {
+        return { url: fallbackUrl.href };
+      }
+
+      // Prefer the primary URL if nothing validated, otherwise fall back if available.
+      if (primaryUrl) {
+        return { url: primaryUrl.href };
+      }
+      if (fallbackUrl) {
+        return { url: fallbackUrl.href };
+      }
+
+      // As a last resort, return the raw string (may be relative).
       return { url: primary };
     }
   

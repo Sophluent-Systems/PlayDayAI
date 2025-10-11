@@ -34,7 +34,8 @@
  *    - `findReadyToProcess` walks every node description and, for each input edge,
  *      calls `generateUnconsumedInputsForNode`. That helper identifies the newest
  *      completed producer records that have not yet been consumed by this node,
- *      using `getMostRecentRecordConsumingNodeType` as the "last read" pointer.
+ *      consulting the scoreboard-style `consumerInputCursor` map as the "last read"
+ *      pointer and falling back to historical scans only when the cursor is empty.
  *    - `generateRunInfoForNode` assembles a run bundle when all data hazards are
  *      cleared. It enforces trigger semantics (`requireAllEventTriggers` and
  *      `requireAllInputs`) and variable availability. If any required trigger or
@@ -173,6 +174,13 @@ export class StateMachine {
         this.recordsInProgress = [];
         this.messageList = [];
         this.debugID = "";
+        this.consumerInputCursor = {};
+        this.historyCache = new Map();
+        this.historyCacheOrder = [];
+        this.cachedRecordGraph = null;
+        this.lastRecordGraphSnapshotSize = 0;
+        this.lastRecordHistoryLoadInfo = { fullReload: true, delta: { newRecords: [], updatedRecords: [], deletedRecordIDs: [] } };
+        this.aiPriorityNodeTypeSet = null;
     }
 
     logNode(instanceName, data=null) {
@@ -182,6 +190,243 @@ export class StateMachine {
         if (data) {
           console.error(JSON.stringify(data, null, 2));
         }
+    }
+
+    debugLog(flag, ...args) {
+        const { Constants } = Config;
+        if (Constants?.debug?.[flag]) {
+            console.error(this.debugID + ' ', ...args);
+        }
+    }
+
+    getStateMachineConfig() {
+        const { Constants } = Config;
+        return Constants?.config?.stateMachine || {};
+    }
+
+    getPriorityNodeTypeSet() {
+        if (this.aiPriorityNodeTypeSet) {
+            return this.aiPriorityNodeTypeSet;
+        }
+        const config = this.getStateMachineConfig();
+        const defaults = ["llm", "llmData", "imageGenerator", "tts", "stt", "audioPlayback"];
+        const configured = Array.isArray(config.aiPriorityNodeTypes) ? config.aiPriorityNodeTypes : defaults;
+        this.aiPriorityNodeTypeSet = new Set(configured);
+        return this.aiPriorityNodeTypeSet;
+    }
+
+    getHistoryCacheLimit() {
+        const config = this.getStateMachineConfig();
+        const limit = typeof config.historyCacheLimit === 'number' ? config.historyCacheLimit : 200;
+        return limit > 0 ? limit : 200;
+    }
+
+    clearHistoryCache() {
+        this.historyCache.clear();
+        this.historyCacheOrder = [];
+    }
+
+    makeHistoryCacheKey(recordID, historyParams) {
+        return `${recordID}::${JSON.stringify(historyParams || {})}`;
+    }
+
+    cloneHistorySnapshot(history) {
+        if (!history) {
+            return history;
+        }
+        if (typeof structuredClone === 'function') {
+            return structuredClone(history);
+        }
+        return JSON.parse(JSON.stringify(history));
+    }
+
+    getHistoryFromCache(recordID, historyParams) {
+        const key = this.makeHistoryCacheKey(recordID, historyParams);
+        if (!this.historyCache.has(key)) {
+            return null;
+        }
+        this.historyCacheOrder = this.historyCacheOrder.filter(item => item !== key);
+        this.historyCacheOrder.push(key);
+        return this.cloneHistorySnapshot(this.historyCache.get(key));
+    }
+
+    setHistoryInCache(recordID, historyParams, history) {
+        const key = this.makeHistoryCacheKey(recordID, historyParams);
+        const clonedHistory = this.cloneHistorySnapshot(history);
+        this.historyCache.set(key, clonedHistory);
+        this.historyCacheOrder = this.historyCacheOrder.filter(item => item !== key);
+        this.historyCacheOrder.push(key);
+
+        const limit = this.getHistoryCacheLimit();
+        while (this.historyCacheOrder.length > limit) {
+            const oldestKey = this.historyCacheOrder.shift();
+            if (oldestKey) {
+                this.historyCache.delete(oldestKey);
+            }
+        }
+    }
+
+    invalidateHistoryCacheForRecord(recordID) {
+        const prefix = `${recordID}::`;
+        const keysToDelete = [];
+        this.historyCache.forEach((_, key) => {
+            if (key.startsWith(prefix)) {
+                keysToDelete.push(key);
+            }
+        });
+        if (keysToDelete.length > 0) {
+            keysToDelete.forEach(key => this.historyCache.delete(key));
+            this.historyCacheOrder = this.historyCacheOrder.filter(key => !keysToDelete.includes(key));
+        }
+    }
+
+    invalidateHistoryCacheForRecords(recordIDs = []) {
+        if (!Array.isArray(recordIDs) || recordIDs.length === 0) {
+            return;
+        }
+        recordIDs.forEach(recordID => this.invalidateHistoryCacheForRecord(recordID));
+    }
+
+    getLastConsumedRecordID(consumerInstanceID, producerInstanceID) {
+        return this.consumerInputCursor?.[consumerInstanceID]?.[producerInstanceID];
+    }
+
+    updateConsumerCursorWithRecord(record) {
+        if (!record || record.state !== "completed" || nullUndefinedOrEmpty(record.inputs)) {
+            return;
+        }
+        const consumerInstanceID = record.nodeInstanceID;
+        if (!this.consumerInputCursor[consumerInstanceID]) {
+            this.consumerInputCursor[consumerInstanceID] = {};
+        }
+        record.inputs.forEach(input => {
+            if (input?.producerInstanceID && input?.recordID) {
+                this.consumerInputCursor[consumerInstanceID][input.producerInstanceID] = input.recordID;
+                this.debugLog('logStateMachineCursor', `Cursor update: ${consumerInstanceID} <= ${input.producerInstanceID} now ${input.recordID}`);
+            }
+        });
+    }
+
+    rebuildConsumerCursorFromRecords(records = []) {
+        this.consumerInputCursor = {};
+        records.forEach(record => this.updateConsumerCursorWithRecord(record));
+    }
+
+    rebuildCursorForEdge(consumerInstanceID, producerInstanceID) {
+        if (!this.recordHistory || !Array.isArray(this.recordHistory.records)) {
+            return;
+        }
+        for (let i = this.recordHistory.records.length - 1; i >= 0; i--) {
+            const record = this.recordHistory.records[i];
+            if (record.nodeInstanceID !== consumerInstanceID) {
+                continue;
+            }
+            if (record.state !== "completed" || nullUndefinedOrEmpty(record.inputs)) {
+                continue;
+            }
+            const matchingInput = record.inputs.find(input => input.producerInstanceID === producerInstanceID);
+            if (matchingInput) {
+                if (!this.consumerInputCursor[consumerInstanceID]) {
+                    this.consumerInputCursor[consumerInstanceID] = {};
+                }
+                this.consumerInputCursor[consumerInstanceID][producerInstanceID] = matchingInput.recordID;
+                this.debugLog('logStateMachineCursor', `Cursor rebuild: ${consumerInstanceID} <= ${producerInstanceID} -> ${matchingInput.recordID}`);
+                return;
+            }
+        }
+        if (this.consumerInputCursor[consumerInstanceID]) {
+            delete this.consumerInputCursor[consumerInstanceID][producerInstanceID];
+            if (Object.keys(this.consumerInputCursor[consumerInstanceID]).length === 0) {
+                delete this.consumerInputCursor[consumerInstanceID];
+            }
+        }
+        this.debugLog('logStateMachineCursor', `Cursor cleared: ${consumerInstanceID} <= ${producerInstanceID}`);
+    }
+
+    handleCursorDeletions(recordIDs = []) {
+        if (!Array.isArray(recordIDs) || recordIDs.length === 0) {
+            return;
+        }
+        recordIDs.forEach(deletedRecordID => {
+            Object.keys(this.consumerInputCursor).forEach(consumerInstanceID => {
+                Object.keys(this.consumerInputCursor[consumerInstanceID]).forEach(producerInstanceID => {
+                    if (this.consumerInputCursor[consumerInstanceID][producerInstanceID] === deletedRecordID) {
+                        this.rebuildCursorForEdge(consumerInstanceID, producerInstanceID);
+                    }
+                });
+            });
+        });
+    }
+
+    updateConsumerCursorWithDelta({ newRecords = [], updatedRecords = [], deletedRecordIDs = [] } = {}) {
+        newRecords.forEach(record => this.updateConsumerCursorWithRecord(record));
+        updatedRecords.forEach(record => this.updateConsumerCursorWithRecord(record));
+        this.handleCursorDeletions(deletedRecordIDs);
+    }
+
+    ensureRecordGraphInitialized(records, nodes, { forceRebuild = false } = {}) {
+        if (forceRebuild || !this.cachedRecordGraph) {
+            this.cachedRecordGraph = new RecordGraph(records, nodes);
+            this.lastRecordGraphSnapshotSize = Array.isArray(records) ? records.length : 0;
+            this.debugLog('logStateMachineFlowGraph', `RecordGraph rebuilt (size=${this.lastRecordGraphSnapshotSize})`);
+        }
+    }
+
+    updateRecordGraphWithDelta({ newRecords = [], updatedRecords = [], deletedRecordIDs = [] } = {}, records, nodes, { fullReload = false } = {}) {
+        if (fullReload || !this.cachedRecordGraph) {
+            this.ensureRecordGraphInitialized(records, nodes, { forceRebuild: true });
+            return;
+        }
+        if (typeof this.cachedRecordGraph.applyDelta === 'function') {
+            this.cachedRecordGraph.applyDelta({
+                newRecords,
+                updatedRecords,
+                deletedRecordIDs,
+                records
+            });
+            this.debugLog('logStateMachineFlowGraph', `RecordGraph delta applied (new=${newRecords.length}, updated=${updatedRecords.length}, deleted=${deletedRecordIDs.length})`);
+        } else {
+            this.ensureRecordGraphInitialized(records, nodes, { forceRebuild: true });
+        }
+    }
+
+    processRecordHistoryLoadResult(loadInfo) {
+        if (!loadInfo) {
+            return;
+        }
+        this.lastRecordHistoryLoadInfo = loadInfo;
+        const { delta = {}, fullReload } = loadInfo;
+        const newRecords = Array.isArray(delta.newRecords) ? delta.newRecords : [];
+        const updatedRecords = Array.isArray(delta.updatedRecords) ? delta.updatedRecords : [];
+        const deletedRecordIDs = Array.isArray(delta.deletedRecordIDs) ? delta.deletedRecordIDs : [];
+        const records = this.recordHistory?.records || [];
+        this.updateConsumerCursorWithDelta({ newRecords, updatedRecords, deletedRecordIDs });
+        const removedRecordIDs = [
+            ...deletedRecordIDs,
+            ...updatedRecords
+                .filter(record => record && (record.deleted || record.state !== "completed"))
+                .map(record => record.recordID)
+        ];
+        const affectedRecordIDs = [
+            ...newRecords.map(record => record.recordID),
+            ...updatedRecords.map(record => record.recordID),
+            ...removedRecordIDs
+        ];
+        this.invalidateHistoryCacheForRecords(affectedRecordIDs);
+        if (fullReload) {
+            this.rebuildConsumerCursorFromRecords(records);
+            this.clearHistoryCache();
+        }
+        const completedNewRecords = newRecords.filter(record => record && !record.deleted && record.state === "completed");
+        const completedUpdatedRecords = updatedRecords.filter(record => record && !record.deleted && record.state === "completed");
+        const graphDelta = {
+            newRecords: completedNewRecords,
+            updatedRecords: completedUpdatedRecords,
+            deletedRecordIDs: removedRecordIDs
+        };
+        this.invalidateHistoryCacheForRecords(removedRecordIDs);
+        this.updateRecordGraphWithDelta(graphDelta, records, this.versionInfo?.stateMachineDescription?.nodes || [], { fullReload });
+        this.debugLog('logStateMachineRecordDelta', `RecordHistory load: fullReload=${fullReload ? 'yes' : 'no'} new=${newRecords.length} updated=${updatedRecords.length} deleted=${deletedRecordIDs.length}`);
     }
 
     
@@ -199,8 +444,11 @@ export class StateMachine {
 
     async load() {
         this.recordHistory = new RecordHistory(this.db, this.session.sessionID);
+        this.aiPriorityNodeTypeSet = null;
+        this.clearPlan({ preserveWaitMap: false });
 
-        await this.recordHistory.load();
+        const loadInfo = await this.recordHistory.load({ incremental: false });
+        this.processRecordHistoryLoadResult(loadInfo);
 
         if (nullUndefinedOrEmpty(this.versionInfo.stateMachineDescription) || nullUndefinedOrEmpty(this.versionInfo.stateMachineDescription.nodes)) {
             // Nothing to do -- brand new version, not edited yet
@@ -597,6 +845,11 @@ export class StateMachine {
                 }
 
                 Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ FOUND ALL ${runInfo.inputs.length} inputs for node ${node.instanceName} @@@@@@@@@@`)
+
+                // If this node only needs the first available trigger, stop after generating one run.
+                if (!node.requireAllEventTriggers && !node.requireAllInputs) {
+                    ranOutOfInputs = true;
+                }
             } else {
                 Constants.debug.logStateMachine &&  console.error(this.debugID + ' ' + `@@@@@@@@@@@ Could not find all inputs for ${node.instanceName} @@@@@@@@@@`)
             }
@@ -620,17 +873,30 @@ export class StateMachine {
         
         for (let k = 0; k < inputsArray.length; k++) {
             let input = inputsArray[k];
-            const mostRecentConsumerRecord = recordsForNode ? this.getMostRecentRecordConsumingNodeType(recordsForNode, input.producerInstanceID) : null;
-    
+            const cursorConsumedRecordID = this.getLastConsumedRecordID(node.instanceID, input.producerInstanceID);
+            let mostRecentConsumedID = cursorConsumedRecordID;
+            let mostRecentConsumerRecord = null;
+
+            if (!cursorConsumedRecordID && recordsForNode) {
+                mostRecentConsumerRecord = this.getMostRecentRecordConsumingNodeType(recordsForNode, input.producerInstanceID);
+                mostRecentConsumedID = mostRecentConsumerRecord?.inputs?.find(consumerIn => consumerIn.producerInstanceID === input.producerInstanceID)?.recordID;
+            } else if (cursorConsumedRecordID && recordsForNode) {
+                mostRecentConsumerRecord = recordsForNode.find(candidate => {
+                    if (candidate.state !== "completed" || nullUndefinedOrEmpty(candidate.inputs)) {
+                        return false;
+                    }
+                    return candidate.inputs.some(candidateInput => candidateInput.producerInstanceID === input.producerInstanceID && candidateInput.recordID === cursorConsumedRecordID);
+                });
+            }
+
             if (mostRecentConsumerRecord) {
-                Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `@@@ [${node.instanceName}] - most recent time: ${mostRecentConsumerRecord.completionTime}`);
-                Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `@@@ [${node.instanceName}] - most recent inputs: ${mostRecentConsumerRecord?.inputs.map((input, dex) => `input[${dex}].producerInstanceID=${input.producerInstanceID} .recordID=${input.recordID}`).join(`,`)} `);
+                Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `@@@ [${node.instanceName}] - most recent consumer record ${mostRecentConsumerRecord.recordID} consumed ${input.producerInstanceID} -> ${mostRecentConsumedID}`);
+            } else if (cursorConsumedRecordID) {
+                this.debugLog('logStateMachineCursor', `[${node.instanceName}] cursor indicates consumption of ${cursorConsumedRecordID} from ${input.producerInstanceID}, but no record matched in history`);
             } else {
                 Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `@@@ [${node.instanceName}] - no consumer record found -- all inputs are unconsumed.`);
             }
 
-            let lastConsumedInputThisType = mostRecentConsumerRecord?.inputs?.find(consumerIn => consumerIn.producerInstanceID === input.producerInstanceID);
-            const mostRecentConsumedID = lastConsumedInputThisType?.recordID;
             const unconsumedInputsForType = this.getUnconsumedInputsForType(recordsByNodeInstanceID, mostRecentConsumedID, input);
             Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `   unconsumedInputsForType for node ${node.instanceName} of type ${input.producerInstanceID}: `, unconsumedInputsForType.length);
             unconsumedInputs[input.producerInstanceID] = unconsumedInputsForType;
@@ -809,9 +1075,17 @@ export class StateMachine {
             fromAncestorID: recordID,
         };
 
-        const history = this.recordHistory.getFilteredRecords(historyParams);
+        const cachedHistory = this.getHistoryFromCache(recordID, historyParams);
+        if (cachedHistory) {
+            this.debugLog('logStateMachineHistoryCache', `History cache hit for record ${recordID}`);
+            return cachedHistory;
+        }
 
-        return history;
+        const history = this.recordHistory.getFilteredRecords(historyParams);
+        this.setHistoryInCache(recordID, historyParams, history);
+        this.debugLog('logStateMachineHistoryCache', `History cache miss for record ${recordID}, cached new snapshot (size=${history?.length || 0})`);
+
+        return this.cloneHistorySnapshot(history);
     }
 
     async processFlowControlSubtree(recordGraph, flowControlGraphNode, recordsByNodeInstanceID) {
@@ -919,6 +1193,7 @@ export class StateMachine {
                 Constants.debug.logFlowControl && console.error(this.debugID + ' ' + `%%%%%%%     PREVIOUS RECORD: `, record);
 
                 this.recordHistory.addRecordWithoutWritingToDB(newRecord);
+                this.updateRecordGraphWithDelta({ newRecords: [newRecord], updatedRecords: [], deletedRecordIDs: [] }, this.recordHistory.records, this.versionInfo?.stateMachineDescription?.nodes || [], { fullReload: false });
 
                 Constants.debug.logFlowControl && console.error(this.debugID + ' ' + `  %%%% PUSHING PENDING RECORD ${newRecord.recordID} FOR NODE ${nodeInstance.fullNodeDescription.instanceName} TO READY QUEUE`);
 
@@ -946,7 +1221,15 @@ export class StateMachine {
         Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%`);
 
 
-        const recordGraph = new RecordGraph(records, this.versionInfo.stateMachineDescription.nodes);
+        this.ensureRecordGraphInitialized(this.recordHistory.records, this.versionInfo.stateMachineDescription.nodes);
+        if (this.cachedRecordGraph) {
+            this.cachedRecordGraph.inputRecords = this.recordHistory.records;
+        }
+
+        const recordGraph = this.cachedRecordGraph;
+        if (!recordGraph) {
+            return;
+        }
 
         const flowControlTree =  recordGraph.findFlowControlNodesWithFullTreesAndUnconsumedInputs();
 
@@ -1051,7 +1334,8 @@ export class StateMachine {
         //
         let records = [...this.recordsInProgress];
 
-        await this.recordHistory.load();
+        const loadInfo = await this.recordHistory.load({ incremental: true });
+        this.processRecordHistoryLoadResult(loadInfo);
         
         Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `##### StateMachine: LOADED RECORD HISTORY (${records.length} in progress)`);
 
@@ -1072,6 +1356,14 @@ export class StateMachine {
                 t.recordID === record.recordID
             ))
         );
+
+        records.sort((a, b) => {
+            const aDate = a?.startTime instanceof Date ? a.startTime : new Date(a.startTime);
+            const bDate = b?.startTime instanceof Date ? b.startTime : new Date(b.startTime);
+            const aTime = aDate instanceof Date && !Number.isNaN(aDate.getTime()) ? aDate.getTime() : 0;
+            const bTime = bDate instanceof Date && !Number.isNaN(bDate.getTime()) ? bDate.getTime() : 0;
+            return aTime - bTime;
+        });
 
         Constants.debug.logStateMachine && console.error(this.debugID + ' ' + "Record count: ", records.length);
 
@@ -1123,11 +1415,15 @@ export class StateMachine {
         await this.performPostProcessAndFlowControl(records, recordsByNodeInstanceID);
     }
 
-    clearPlan() {
+    clearPlan({ preserveWaitMap = false } = {}) {
+        const existingWaitMap = preserveWaitMap && this.plan?.waitForUpdateBeforeReattempting
+            ? { ...this.plan.waitForUpdateBeforeReattempting }
+            : {};
+
         this.plan = { 
             readyToProcess: [],
             processing: [],
-            waitForUpdateBeforeReattempting: {}
+            waitForUpdateBeforeReattempting: existingWaitMap
         };
         this.recordsInProgress = [];
     }
@@ -1233,6 +1529,30 @@ export class StateMachine {
         // RECORD THE RESULTS
         //
         await this.recordHistory.insertOrUpdateRecord(finalRecord);
+        if (finalRecord.state === "completed") {
+            this.updateConsumerCursorWithRecord(finalRecord);
+        }
+        this.invalidateHistoryCacheForRecord(finalRecord.recordID);
+        if (!nullUndefinedOrEmpty(finalRecord.inputs)) {
+            finalRecord.inputs.forEach(input => {
+                if (input?.recordID) {
+                    this.invalidateHistoryCacheForRecord(input.recordID);
+                }
+            });
+        }
+        const graphDeltaForRecord = { newRecords: [], updatedRecords: [], deletedRecordIDs: [] };
+        if (runInfo.existingRecord) {
+            if (finalRecord.deleted || finalRecord.state !== "completed") {
+                graphDeltaForRecord.deletedRecordIDs.push(finalRecord.recordID);
+            } else {
+                graphDeltaForRecord.updatedRecords.push(finalRecord);
+            }
+        } else if (finalRecord.state === "completed" && !finalRecord.deleted) {
+            graphDeltaForRecord.newRecords.push(finalRecord);
+        }
+        if (graphDeltaForRecord.newRecords.length || graphDeltaForRecord.updatedRecords.length || graphDeltaForRecord.deletedRecordIDs.length) {
+            this.updateRecordGraphWithDelta(graphDeltaForRecord, this.recordHistory.records, this.versionInfo?.stateMachineDescription?.nodes || [], { fullReload: false });
+        }
 
         //
         // Remove the record from the in-progress list
@@ -1260,7 +1580,7 @@ export class StateMachine {
 
             Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: ENTERING DRAIN QUEUE LOOP');
 
-            this.clearPlan();
+            this.clearPlan({ preserveWaitMap: true });
 
             let iterations = 0;
             while ((stepLimit == 0 || iterations < stepLimit) && (!wasCancelled || !wasCancelled())) {
@@ -1274,6 +1594,36 @@ export class StateMachine {
 
                 if (this.plan.readyToProcess.length > 0) {
                     Constants.debug.logStateMachine && console.error(this.debugID + ' ' + '##### StateMachine: PLAN HAS ', this.plan.readyToProcess.length, ' NODES READY TO PROCESS');
+
+                    const priorityNodeTypes = this.getPriorityNodeTypeSet();
+                    this.plan.readyToProcess.sort((a, b) => {
+                        const aType = a.nodeInstance?.fullNodeDescription?.nodeType;
+                        const bType = b.nodeInstance?.fullNodeDescription?.nodeType;
+                        const aPriority = priorityNodeTypes.has(aType) ? 0 : 1;
+                        const bPriority = priorityNodeTypes.has(bType) ? 0 : 1;
+                        if (aPriority !== bPriority) {
+                            return aPriority - bPriority;
+                        }
+                        const aReady = a.readyTime instanceof Date ? a.readyTime.getTime() : 0;
+                        const bReady = b.readyTime instanceof Date ? b.readyTime.getTime() : 0;
+                        if (aReady !== bReady) {
+                            return aReady - bReady;
+                        }
+                        const aName = a.nodeInstance?.fullNodeDescription?.instanceName || '';
+                        const bName = b.nodeInstance?.fullNodeDescription?.instanceName || '';
+                        return aName.localeCompare(bName);
+                    });
+
+                    if (Constants.debug.logStateMachineScheduling) {
+                        const queueDescription = this.plan.readyToProcess.map(runInfo => {
+                            const nodeType = runInfo.nodeInstance?.fullNodeDescription?.nodeType;
+                            const instanceName = runInfo.nodeInstance?.fullNodeDescription?.instanceName || 'unknown';
+                            const ready = runInfo.readyTime instanceof Date && !Number.isNaN(runInfo.readyTime.getTime()) ? runInfo.readyTime.toISOString() : 'immediate';
+                            const priorityTag = priorityNodeTypes.has(nodeType) ? 'AI' : 'GEN';
+                            return `${instanceName}(${nodeType}|${priorityTag}|ready:${ready})`;
+                        }).join(', ');
+                        this.debugLog('logStateMachineScheduling', `Ready queue sequence: ${queueDescription}`);
+                    }
                     
                     if (stepLimit > 0) {
                         const remainingSteps = stepLimit - iterations;
@@ -1291,7 +1641,9 @@ export class StateMachine {
                         
                             this.plan.processing.push(runInfo); // Move to processing list
 
-                            this.logNode(runInfo.nodeInstance.fullNodeDescription.instanceName);
+                            const nodeInfo = runInfo.nodeInstance.fullNodeDescription;
+                            const logLabel = `${nodeInfo.instanceName} (${nodeInfo.instanceID})`;
+                            this.logNode(logLabel);
 
                             this.preRunProcessing({ runInfo, channel, seed, debuggingTurnedOn, wasCancelled, onPreNode })
                                 .then(record => {                               

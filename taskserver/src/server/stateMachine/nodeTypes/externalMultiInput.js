@@ -13,12 +13,25 @@ export class externalMultiInput extends nodeType {
     //
     async runImpl({params, stateMachine, record, inputs, channel}) {
 
-        const supportedTypes = params.supportedTypes;
-        
+        const supportedTypes = Array.isArray(params.supportedTypes) ? params.supportedTypes : [];
+        const supportedModes = Array.isArray(params.supportedModes) ? params.supportedModes : [];
+        const waitingFor = new Set(supportedTypes);
+
+        if (supportedModes.includes('stt') || supportedModes.includes('audio')) {
+            waitingFor.add('audio');
+        }
+        if (supportedModes.includes('text')) {
+            waitingFor.add('text');
+        }
+
+        if (waitingFor.size === 0) {
+            waitingFor.add('text');
+        }
+
         return {
             output: null,
             state: "waitingForExternalInput",
-            waitingFor: supportedTypes,
+            waitingFor: Array.from(waitingFor),
             eventsEmitted: [],
         };
     }

@@ -14,7 +14,7 @@ import { normalizeTheme } from '@src/common/theme';
 import { stateManager } from '@src/client/statemanager';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { useMessagesClient } from '../messagesClient';
-import { callSendInputData, callStateMachineHaltRequest } from '@src/client/gameplay';
+import { callStateMachineHaltRequest } from '@src/client/gameplay';
 import { FilteredMessageList } from './filteredmessagelist';
 import { analyticsReportEvent} from "@src/client/analytics";
 import { useAtom } from 'jotai';
@@ -51,6 +51,7 @@ function ChatBot(props) {
   const [editorSaveRequest, setEditorSaveRequest] = useAtom(editorSaveRequestState);
   const [dirtyEditor, setDirtyEditor] = useAtom(dirtyEditorState);
   const [supportedMediaTypes, setSupportedMediaTypes] = useState([]);
+  const [supportedInputModes, setSupportedInputModes] = useState([]);
   const autoSendAudioOnSpeechEnd = Constants.audioRecordingDefaults?.autoSendOnSpeechEnd !== false;
   const scrollRef = useRef(null);
   const showAlert = useAlert();
@@ -417,6 +418,26 @@ function ChatBot(props) {
         "continuationAccepted": (command, data) => {
           Constants.debug.logTaskSystem && console.log("Continuation accepted", data);
         },
+        "userInputAccepted": (command, data) => {
+          if (data?.sessionID !== sessionID) {
+            return;
+          }
+          Constants.debug.logTaskSystem && console.log("User input accepted", data);
+        },
+        "userInputError": (command, data) => {
+          if (data?.sessionID !== sessionID) {
+            return;
+          }
+          console.error("User input error", data);
+          setWaitingForInput(true);
+          showAlert(
+            "Problem receiving input",
+            data?.message || "The server was unable to accept your input. Please try again.",
+            [
+              { text: "OK", onPress: () => {} },
+            ]
+          );
+        },
         "statemachinestatusupdate": (command, data) => {
           Constants.debug.logTaskSystem && console.log("statemachinestatusupdate received", data);
           if (typeof data?.state != 'string') {
@@ -430,15 +451,18 @@ function ChatBot(props) {
             case "started":
               Constants.debug.logTaskSystem && console.log("State machine started: entering processing state");
               setProcessingUnderway(true);
+              setSupportedInputModes([]);
             break;
             case "waitingForExternalInput":
               Constants.debug.logTaskSystem && console.log("State machine waiting for input", data);
               if (data.nodeInstanceID) {
                 setSupportedMediaTypes(data.waitingFor);
+                setSupportedInputModes(Array.isArray(data.supportedModes) ? data.supportedModes : []);
                 setInputNodeInstanceID(data.nodeInstanceID);
                 setWaitingForInput(true);
               } else {
                 setInputNodeInstanceID(null);
+                setSupportedInputModes([]);
               }
               Constants.debug.logTaskSystem && console.log("waitingForInput flag set to true for media types", data.waitingFor);
               if (data.waitingFor.includes("text")) {
@@ -455,12 +479,14 @@ function ChatBot(props) {
             case "stopped":
               Constants.debug.logTaskSystem && console.log("State machine stopped; clearing processing flag");
               setProcessingUnderway(false);
+              setSupportedInputModes([]);
               if (scrollingMode == 'lineByLine' || scrollingMode == 'messageComplete') {
                 scrollToBottom();
               }
               break;
             case "error":
               console.error("statemachinestatusupdate errordetails:", data)
+              setSupportedInputModes([]);
               showAlert(
                     "Error playing turn",
                     data?.errorDetails ? `Error: ${data.errorDetails.message}${ account.preferences?.editMode ? "\n\n" + data.errorDetails.stack : ''}` : "Unknown error",
@@ -550,7 +576,67 @@ const handleAudioStateChange = (audioType, newState) => {
   audioManagerRef.current.handleAudioStateChange(audioType, newState);
 }
 
-  const sendMessage = async (mediaTypes) => {
+  const useWebsocketInputTransport = Constants.config?.inputTransport?.websocketEnabled === true;
+
+  const blobToBase64 = async (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const commaIndex = result.indexOf(',');
+      resolve(commaIndex >= 0 ? result.substring(commaIndex + 1) : result);
+    };
+    reader.onerror = (event) => reject(event?.target?.error ?? new Error('Failed to read blob'));
+    reader.readAsDataURL(blob);
+  });
+
+  const serializeMediaTypesForWebsocket = async (mediaTypes) => {
+    const entries = Object.entries(mediaTypes ?? {});
+    const result = {};
+
+    for (const [type, info] of entries) {
+      if (!info) {
+        continue;
+      }
+
+      if (info.source === 'blob' && info.data instanceof Blob) {
+        const base64Data = await blobToBase64(info.data);
+        result[type] = {
+          mimeType: info.mimeType,
+          data: base64Data,
+          source: 'base64',
+        };
+      } else {
+        result[type] = { ...info };
+      }
+    }
+
+    return result;
+  };
+
+  const sendUserInputOverWebsocket = async (mediaTypes, mode) => {
+    if (!stateMachineWebsocket.current) {
+      throw new Error('WebSocket connection not established');
+    }
+
+    const serialized = await serializeMediaTypesForWebsocket(mediaTypes);
+    const payload = {
+      sessionID,
+      nodeInstanceID: inputNodeInstanceID,
+      mediaTypes: serialized,
+    };
+
+    if (mode) {
+      payload.inputMode = mode;
+    }
+
+    await stateMachineWebsocket.current.sendCommand("command", {
+      type: "userInput",
+      accessToken,
+      payload,
+    });
+  };
+
+  const sendMessage = async (mediaTypes, options = {}) => {
     if (!waitingForInput) {
       console.warn("sendMessage called while not waiting for input; ignoring request.");
       return;
@@ -561,23 +647,37 @@ const handleAudioStateChange = (audioType, newState) => {
     }
 
     setWaitingForInput(false);
-    const response = await callSendInputData(
-      sessionID, 
-      inputNodeInstanceID, 
-      mediaTypes,
-      { singleStep: account.preferences?.debugSettings?.singleStep ? account.preferences.debugSettings.singleStep : false });
-
-    const websocketInfo = response?.websocket;
-    if (websocketInfo?.host) {
-      preferredWsOptionsRef.current = {
-        wsHost: websocketInfo.host,
-        wsPort: websocketInfo.port ?? undefined,
-        protocol: websocketInfo.protocol,
-        path: websocketInfo.path,
-      };
-      if (!stateMachineWebsocket.current || stateMachineWebsocket.current.connectionStatus !== 'connected') {
-        attemptWebsocketReconnect();
+    let inputMode = options.mode;
+    if (!inputMode) {
+      if (mediaTypes?.audio) {
+        inputMode = supportedInputModes.includes('stt') ? 'stt' : 'audio';
+      } else if (supportedInputModes.includes('text')) {
+        inputMode = 'text';
+      } else {
+        inputMode = null;
       }
+    }
+
+    if (!useWebsocketInputTransport) {
+      console.error("WebSocket input transport is disabled; unable to send user input.");
+      setWaitingForInput(true);
+      showAlert(
+        "Unable to send input",
+        "Realtime input transport is disabled for this session. Please enable WebSocket input support."
+      );
+      return;
+    }
+
+    try {
+      await sendUserInputOverWebsocket(mediaTypes, inputMode);
+    } catch (error) {
+      console.error("Failed to send user input over websocket", error);
+      setWaitingForInput(true);
+      showAlert(
+        "Unable to send input",
+        error?.message || "The server could not accept this input. Please try again."
+      );
+      return;
     }
 
     await sendContinuationRequest();
@@ -797,6 +897,7 @@ const handleAudioStateChange = (audioType, newState) => {
               editMode={editMode && gamePermissions && gamePermissions.includes('game_edit')}
               supportsSuggestions={supportsSuggestions}
               supportedMediaTypes={supportedMediaTypes}
+              supportedInputModes={supportedInputModes}
               audioState={audioState}
               processingUnderway={processingUnderway}
               onRequestStateChange={handleRequestStateChange}
@@ -851,3 +952,4 @@ const handleAudioStateChange = (audioType, newState) => {
 
 
 export default memo(ChatBot);
+

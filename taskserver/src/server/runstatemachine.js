@@ -8,6 +8,25 @@ import { StateMachine } from './stateMachine/stateMachine';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { threadHeartbeat } from './threads';
 
+function deriveSupportedModesForNode(nodeInstance) {
+  if (!nodeInstance) {
+    return [];
+  }
+  const params = nodeInstance.fullNodeDescription?.params ?? nodeInstance.params ?? {};
+  if (Array.isArray(params.supportedModes) && params.supportedModes.length > 0) {
+    return params.supportedModes;
+  }
+  const modes = new Set();
+  const supportedTypes = Array.isArray(params.supportedTypes) ? params.supportedTypes : [];
+  if (supportedTypes.includes('text')) {
+    modes.add('text');
+  }
+  if (supportedTypes.includes('audio')) {
+    modes.add('audio');
+  }
+  return Array.from(modes);
+}
+
 // This function is called from taskWorker.js
 
 export async function runStateMachine(db, acl, account, channel, task, threadID) {
@@ -122,8 +141,9 @@ export async function runStateMachine(db, acl, account, channel, task, threadID)
                   nodeInstanceID: runInfo.nodeInstance.fullNodeDescription.instanceID,
                   maximumInputLength: runInfo.nodeInstance.fullNodeDescription.params.tokenLimit,
                   conversational: runInfo.nodeInstance.fullNodeDescription.params.conversational || false,
+                  supportedModes: deriveSupportedModesForNode(runInfo.nodeInstance),
               };
-              console.error(`[runStateMachine] sending waitingForExternalInput update`, payload);
+              console.error(`[runStateMachine] sending waitingForExternalInput`);
               await channel.sendCommand("statemachinestatusupdate", payload);
               if (recordID) {
                   tracker.add(recordID);
@@ -191,6 +211,7 @@ export async function runStateMachine(db, acl, account, channel, task, threadID)
           nodeInstanceID: nodeInstance.fullNodeDescription.instanceID,
           maximumInputLength: nodeInstance.fullNodeDescription.params?.tokenLimit,
           conversational: nodeInstance.fullNodeDescription.params?.conversational === true,
+          supportedModes: deriveSupportedModesForNode(nodeInstance),
         };
         console.error("[runStateMachine] pending external input");
         await channel.sendCommand("statemachinestatusupdate", payload);

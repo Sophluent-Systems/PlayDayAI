@@ -194,44 +194,6 @@ export async function callDeleteGameSession(sessionID) {
   };
 
 
-export async function callSendInputData(sessionID, instanceID, mediaTypes, params={}) {
-
-  const formData = new FormData();
-
-  // Append the session and instance IDs, and any additional parameters
-  formData.append('sessionID', sessionID);
-  formData.append('requestType', 'input');
-  formData.append('nodeInstanceID', instanceID);
-
-  // Loop through additional params and append them to formData
-  Object.entries(params).forEach(([key, value]) => {
-      formData.append(key, value);
-  });
-
-   // Check for media types and append them if present
-   Object.entries(mediaTypes).forEach(([type, { mimeType, data, source }]) => {
-        if (source === 'blob' && (data instanceof Blob)) {
-            formData.append(type, data, `${type}.${mimeType.split('/')[1]}`); // Creating filename based on type and mimeType
-        } else {
-            formData.append(type, data); // Directly append text data
-        }
-    });
-  
-  try {
-       
-        const response = await fetch("/api/inputrequest", {
-            method: "POST",
-            body: formData,
-        });
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error("callSendInputData: ", error);
-        throw error;
-    };
-};
-
-
 export async function callStateMachineContinuationRequest(sessionID, params={}) {
     
     let paramsToSend = {

@@ -555,6 +555,12 @@ const defaultConstantsJSON = `
         },
         "sandboxLLMBlockingUrl": "http://127.0.0.1:4000/v1/chat/completions",
         "sandboxLLMStreamingUrl": "http://127.0.0.1:4000/v1/chat/completions",
+        "inputTransport": {
+            "websocketEnabled": true,
+            "maxBufferedBytesPerInput": 10485760,
+            "maxPendingInputsPerSession": 4,
+            "inputChunkTimeoutMS": 15000
+        },
         "stateMachine": {
             "aiPriorityNodeTypes": [
                 "llm",

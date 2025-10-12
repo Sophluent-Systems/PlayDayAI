@@ -131,6 +131,26 @@ export function AudioPlaybackControls({
   // muted flags
   const [bgMusicMuted, setBgMusicMuted] = useState(false);
   const [soundEffectMuted, setSoundEffectMuted] = useState(false);
+  const bgMusicMutedRef = useRef(bgMusicMuted);
+  const soundEffectMutedRef = useRef(soundEffectMuted);
+
+  const updateBgMusicMuted = useCallback((value) => {
+    bgMusicMutedRef.current = value;
+    setBgMusicMuted(value);
+  }, [setBgMusicMuted]);
+
+  const updateSoundEffectMuted = useCallback((value) => {
+    soundEffectMutedRef.current = value;
+    setSoundEffectMuted(value);
+  }, [setSoundEffectMuted]);
+
+  useEffect(() => {
+    bgMusicMutedRef.current = bgMusicMuted;
+  }, [bgMusicMuted]);
+
+  useEffect(() => {
+    soundEffectMutedRef.current = soundEffectMuted;
+  }, [soundEffectMuted]);
 
   // browser blocked auto-play handling
   const [blockedAudioTypes, setBlockedAudioTypes] = useState([]);
@@ -187,31 +207,31 @@ export function AudioPlaybackControls({
   // Muting helpers
   const muteAudio = useCallback((audioType) => {
     if (audioType === "backgroundMusic" && bgMusicControllerRef.current) {
+      updateBgMusicMuted(true);
       bgMusicControllerRef.current.pause();
-      setBgMusicMuted(true);
     }
     if (audioType === "soundEffect" && soundEffectControllerRef.current) {
+      updateSoundEffectMuted(true);
       soundEffectControllerRef.current.pause();
-      setSoundEffectMuted(true);
     }
     if (audioType === "speech" && speechControllerRef.current) {
       speechControllerRef.current.pause();
     }
-  }, []);
+  }, [updateBgMusicMuted, updateSoundEffectMuted]);
 
   const unMuteAudio = useCallback((audioType) => {
     if (audioType === "backgroundMusic" && bgMusicControllerRef.current) {
+      updateBgMusicMuted(false);
       bgMusicControllerRef.current.play();
-      setBgMusicMuted(false);
     }
     if (audioType === "soundEffect" && soundEffectControllerRef.current) {
+      updateSoundEffectMuted(false);
       soundEffectControllerRef.current.play();
-      setSoundEffectMuted(false);
     }
     if (audioType === "speech" && speechControllerRef.current) {
       speechControllerRef.current.play();
     }
-  }, []);
+  }, [updateBgMusicMuted, updateSoundEffectMuted]);
 
   // External dispatch that parent can use to control any audio type
   const dispatchRef = useRef(null);
@@ -226,12 +246,14 @@ export function AudioPlaybackControls({
 
     const type = typeof action === "string" ? action : action?.type;
     const data = typeof action === "string" ? payload : action;
+    const isBackgroundMuted = bgMusicMutedRef.current;
+    const isSoundEffectMuted = soundEffectMutedRef.current;
 
     switch (type) {
       case "loadSourceAndPlay": {
         if (
-          (audioType === "backgroundMusic" && bgMusicMuted) ||
-          (audioType === "soundEffect" && soundEffectMuted)
+          (audioType === "backgroundMusic" && isBackgroundMuted) ||
+          (audioType === "soundEffect" && isSoundEffectMuted)
         ) {
           return Promise.resolve(false);
         }
@@ -243,7 +265,10 @@ export function AudioPlaybackControls({
         );
       }
       case "play":
-        if ((audioType === "backgroundMusic" && bgMusicMuted) || (audioType === "soundEffect" && soundEffectMuted)) return;
+        if (
+          (audioType === "backgroundMusic" && isBackgroundMuted) ||
+          (audioType === "soundEffect" && isSoundEffectMuted)
+        ) return;
         controller.play?.();
         break;
       case "pause":
@@ -270,7 +295,7 @@ export function AudioPlaybackControls({
       default:
         break;
     }
-  }, [bgMusicMuted, soundEffectMuted]);
+  }, []);
 
   useEffect(() => {
     // keep a stable function instance for parents

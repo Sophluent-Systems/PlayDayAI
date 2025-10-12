@@ -7,14 +7,14 @@ import { UploadCloud, SendHorizonal, Trash2 } from "lucide-react";
 import { SpeechRecorder } from "./speechrecorder";
 import { nullUndefinedOrEmpty } from "@src/common/objects";
 
-const emptyMedia = {
+const createEmptyMedia = () => ({
   text: {
     data: "",
     source: "blob",
     type: "text",
     mimeType: "text",
   },
-};
+});
 
 function useObjectURLs(media) {
   const [urls, setUrls] = useState({ audio: null, image: null, video: null });
@@ -50,16 +50,22 @@ export function MultimediaInput({
   waitingForInput,
   sendAudioOnSpeechEnd,
   supportedMediaTypes,
+  supportedInputModes = [],
   handleSendMessage,
   debug,
 }) {
-  const [media, setMedia] = useState(emptyMedia);
+  const [media, setMedia] = useState(() => createEmptyMedia());
 
   const supportsText = nullUndefinedOrEmpty(supportedMediaTypes) || supportedMediaTypes.includes("text");
   const supportsAudio = supportedMediaTypes?.includes("audio");
   const supportsImage = supportedMediaTypes?.includes("image");
   const supportsVideo = supportedMediaTypes?.includes("video");
   const dropEnabled = supportsImage || supportsVideo;
+
+  const allowText = supportsText || supportedInputModes.includes("text");
+  const allowStt = supportedInputModes.includes("stt");
+  const allowAudioClip = supportedInputModes.includes("audio") || supportsAudio;
+  const allowAudio = allowStt || allowAudioClip;
 
   const MIN_TEXTAREA_HEIGHT = 44;
   const MAX_TEXTAREA_HEIGHT = 200;
@@ -68,8 +74,32 @@ export function MultimediaInput({
 
   const previews = useObjectURLs(media);
 
+  const computeInputMode = (payload) => {
+    if (payload?.audio) {
+      if (allowStt) {
+        return "stt";
+      }
+      if (allowAudioClip) {
+        return "audio";
+      }
+    }
+    if (allowText) {
+      return "text";
+    }
+    return null;
+  };
+
   useEffect(() => {
-    if (!supportsText) {
+    if (!allowText && media.text?.data) {
+      setMedia((prev) => ({
+        ...prev,
+        text: { ...prev.text, data: "" },
+      }));
+    }
+  }, [allowText, media.text?.data]);
+
+  useEffect(() => {
+    if (!allowText) {
       return;
     }
 
@@ -84,27 +114,34 @@ export function MultimediaInput({
       MAX_TEXTAREA_HEIGHT,
     );
     element.style.height = `${nextHeight}px`;
-  }, [media.text?.data, supportsText]);
+  }, [media.text?.data, allowText]);
+
+  const resetMedia = () => setMedia(createEmptyMedia());
 
   const handleAudioSave = (blob) => {
-    if (sendAudioOnSpeechEnd) {
-      handleSendMessage({
-        audio: {
-          data: blob,
-          mimeType: blob?.type || "audio/mpeg",
-          source: "blob",
-        },
-      });
+    if (!blob) {
       return;
     }
 
-    setMedia((prev) => ({
-      ...prev,
+    const audioPayload = {
       audio: {
         data: blob,
         mimeType: blob?.type || "audio/mpeg",
         source: "blob",
       },
+    };
+
+    if (sendAudioOnSpeechEnd) {
+      const mode = computeInputMode(audioPayload);
+      const options = mode ? { mode } : {};
+      handleSendMessage(audioPayload, options);
+      resetMedia();
+      return;
+    }
+
+    setMedia((prev) => ({
+      ...prev,
+      audio: audioPayload.audio,
     }));
   };
 
@@ -121,6 +158,9 @@ export function MultimediaInput({
   };
 
   const updateText = (text) => {
+    if (!allowText) {
+      return;
+    }
     setMedia((prev) => ({
       ...prev,
       text: {
@@ -133,18 +173,24 @@ export function MultimediaInput({
 
   const doSendMessage = () => {
     const payload = { ...media };
-    if (!payload.text?.data?.trim()) {
+    if (!allowText || !payload.text?.data?.trim()) {
       delete payload.text;
     }
-    handleSendMessage(payload);
-    setMedia(emptyMedia);
+    if (!payload.text && !payload.audio && !payload.image && !payload.video) {
+      return;
+    }
+    const mode = computeInputMode(payload);
+    const options = mode ? { mode } : {};
+    handleSendMessage(payload, options);
+    resetMedia();
   };
 
   const messageHasContent = useMemo(() => {
-    const hasText = Boolean(media.text?.data?.trim());
-    const hasMedia = Boolean(media.audio || media.image || media.video);
-    return hasText || hasMedia;
-  }, [media]);
+    const hasText = allowText && Boolean(media.text?.data?.trim());
+    const hasAudio = Boolean(media.audio);
+    const hasAttachments = Boolean(media.image || media.video);
+    return hasText || hasAudio || hasAttachments;
+  }, [media, allowText]);
 
   const onKeyDown = (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -233,7 +279,7 @@ export function MultimediaInput({
       ) : null}
 
       <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
-        {supportsText ? (
+        {allowText ? (
           <label className="relative block w-full cursor-text md:flex-1" style={{ minHeight: `${MIN_TEXTAREA_HEIGHT}px` }}>
             <textarea
               ref={textAreaRef}
@@ -262,10 +308,10 @@ export function MultimediaInput({
         ) : null}
 
         <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-3 md:w-auto md:flex-nowrap" style={{ pointerEvents: 'auto' }}>
-          {supportsAudio && !media.audio ? (
+          {allowAudio && !media.audio ? (
             <SpeechRecorder
               onRecordingComplete={handleAudioSave}
-              disableListening={!waitingForInput}
+              disableListening={!waitingForInput || !allowAudio}
               debug={debug}
             />
           ) : null}
@@ -318,4 +364,8 @@ export function MultimediaInput({
 }
 
 export default MultimediaInput;
+
+
+
+
 

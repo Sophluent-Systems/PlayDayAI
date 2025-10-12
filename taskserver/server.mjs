@@ -17,6 +17,7 @@ import { hasRight } from '@src/backend/accesscontrol.js';
 import { getGameSession } from '@src/backend/gamesessions.js';
 import { sendSessionCommandIfActive } from '@src/backend/sessionCommands';
 import { resolveWebsocketInfo } from '@src/backend/websocket';
+import { applyUserInputToPendingRecord } from '@src/backend/userinput';
 
 console.log("INIT: environment");
 
@@ -182,6 +183,67 @@ async function handleContinuation(params) {
   return { success: true };
 }
 
+async function handleUserInput(params) {
+  const { db, channel, payload, account, acl } = params;
+  const { sessionID, nodeInstanceID, mediaTypes, inputMode } = payload || {};
+
+  if (!sessionID) {
+    await channel.sendCommand("userInputError", { status: 'error', message: 'User input request missing sessionID' });
+    return { success: false };
+  }
+
+  if (!nodeInstanceID) {
+    await channel.sendCommand("userInputError", { status: 'error', message: 'User input request missing nodeInstanceID', sessionID });
+    return { success: false };
+  }
+
+  try {
+    const session = await getGameSession(db, account.accountID, sessionID, false);
+
+    if (!session) {
+      await channel.sendCommand("userInputError", { status: 'error', message: `Session ${sessionID} could not be found.`, sessionID });
+      return { success: false };
+    }
+
+    const { permissionsError } = await validateRequiredPermissions(acl, account,
+      [
+        { resourceType: "game", resource: session.gameInfo.gameID, access: "game_play" }
+      ]);
+
+    if (permissionsError) {
+      await channel.sendCommand("userInputError", { status: 'error', message: permissionsError.message, sessionID });
+      return { success: false };
+    }
+
+    if (!session.versionInfo.published) {
+      const isAllowedAccessToUnpublishedVersions = await hasRight(acl, account.accountID, { resourceType: "game", resource: session.gameInfo.gameID, access: ["game_viewSource"] });
+
+      if (!isAllowedAccessToUnpublishedVersions) {
+        await channel.sendCommand("userInputError", { status: 'error', message: 'You do not have permission to access this game version.', sessionID });
+        return { success: false };
+      }
+    }
+
+    await applyUserInputToPendingRecord({
+      db,
+      session,
+      account,
+      nodeInstanceID,
+      mediaTypes,
+      Constants,
+      inputMode,
+    });
+
+    await channel.sendCommand("userInputAccepted", { status: 'ok', sessionID, nodeInstanceID, inputMode });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[ws userInput] failed to process user input', error);
+    await channel.sendCommand("userInputError", { status: 'error', message: error.message, sessionID, nodeInstanceID });
+    return { success: false };
+  }
+}
+
 export async function startServer() {
 
     Constants.debug.logInit && console.error("INIT: startServer");
@@ -191,6 +253,7 @@ export async function startServer() {
     const wsHandlers = {
       "halt": handleHalt,
       "continuation": handleContinuation,
+      "userInput": handleUserInput,
     };
   
     Constants.debug.logInit && console.error("CLEARING STALE ENTRIES");

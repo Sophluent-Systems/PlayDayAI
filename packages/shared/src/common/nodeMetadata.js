@@ -29,6 +29,11 @@ export class nodeMetadata {
         "historyParams": {},
     }
 
+    getEvents() {
+        const { constructor } = this;
+        return Array.isArray(constructor.events) ? constructor.events : [];
+    }
+
     getOutputs() {
         if (!this.fullNodeDescription) {
             throw new Error("No fullNodeDescription in nodeMetadata");
@@ -37,6 +42,10 @@ export class nodeMetadata {
         return [
             "result",
         ];
+    }
+
+    getVariableOverrides() {
+        return this.constructor.AllowedVariableOverrides || {};
     }
 
     static initMenu = [];
@@ -60,9 +69,9 @@ export class externalTextInputMetadata extends nodeMetadata {
     static {
         this.nodeAttributes = {
             ...super.nodeAttributes,
-            addable: true,
-            label: "External Text Input",
-            tooltip: "Get input from an external source",
+            addable: false,
+            label: "External Text Input (legacy)",
+            tooltip: "Legacy text input node. Use Multimedia Input instead.",
             mediaTypes: ["text"],
             userInput: true,
         };
@@ -96,12 +105,19 @@ export class externalTextInputMetadata extends nodeMetadata {
 
 export class externalMultiInputMetadata extends nodeMetadata {
 
+    static AllowedVariableOverrides = {
+        text: { label: "Text", mediaType: "text" },
+        audio: { label: "Audio", mediaType: "audio" },
+        image: { label: "Image", mediaType: "image" },
+        video: { label: "Video", mediaType: "video" },
+    };
+
     static {
         this.nodeAttributes = {
             ...super.nodeAttributes,
             addable: true,
-            label: "External Multi Input",
-            tooltip: "Get input from an external source",
+            label: "Multimedia Input",
+            tooltip: "Collect text or audio input from the player",
             mediaTypes: ["text", "audio", "image", "video"],
             userInput: true,
         };
@@ -125,16 +141,26 @@ export class externalMultiInputMetadata extends nodeMetadata {
           multiline: false,
           defaultValue: "User Input Node",
         },
-      ];
+    ];
 
     static newNodeTemplate = {
         nodeType: "externalMultiInput",
-        instanceName: "User Input",
+        instanceName: "Multimedia Input",
         requireAllEventTriggers: false,
         requireAllVariables: false,
         params: {
+            supportedModes: ["text", "stt", "audio"],
             supportedTypes: ["text", "audio"],
-            "tokenLimit": 400,
+            tokenLimit: 400,
+            conversational: true,
+            stt: {
+                enabled: true,
+                serverUrl: "https://api.openai.com/v1/audio/transcriptions",
+                model: "gpt-4o-transcribe",
+                apiKey: 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
+                useAccountKey: true,
+                accountKeyName: "openAIkey",
+            },
         }
     };
     
@@ -143,9 +169,73 @@ export class externalMultiInputMetadata extends nodeMetadata {
             throw new Error("No fullNodeDescription in nodeMetadata");
         }
 
-        let outputs = !nullUndefinedOrEmpty(this.fullNodeDescription.params.supportedTypes) ? this.fullNodeDescription.params.supportedTypes : ["text"];
+        const params = this.fullNodeDescription.params ?? {};
+        const outputs = new Set(Array.isArray(params.supportedTypes) ? params.supportedTypes : []);
+        const modes = Array.isArray(params.supportedModes) ? params.supportedModes : [];
 
-        return outputs;
+        if (modes.includes("text") || modes.includes("stt")) {
+            outputs.add("text");
+        }
+        if (outputs.size === 0) {
+            outputs.add("text");
+        }
+
+        return Array.from(outputs);
+    }
+
+    getEvents() {
+        if (!this.fullNodeDescription) {
+            throw new Error("No fullNodeDescription in nodeMetadata");
+        }
+
+        const params = this.fullNodeDescription.params ?? {};
+        const events = new Set(["completed"]);
+
+        const supportedTypes = Array.isArray(params.supportedTypes) ? params.supportedTypes : [];
+        supportedTypes.forEach((type) => {
+            events.add(`on_${type}`);
+        });
+
+        const modes = Array.isArray(params.supportedModes) ? params.supportedModes : [];
+        if (modes.includes("text") || modes.includes("stt")) {
+            events.add("on_text");
+        }
+        if (modes.includes("audio")) {
+            events.add("on_audio");
+        }
+
+        return Array.from(events);
+    }
+
+    getVariableOverrides() {
+        if (!this.fullNodeDescription) {
+            throw new Error("No fullNodeDescription in nodeMetadata");
+        }
+
+        const params = this.fullNodeDescription.params ?? {};
+        const supportedTypes = Array.isArray(params.supportedTypes) ? params.supportedTypes : [];
+        const modes = Array.isArray(params.supportedModes) ? params.supportedModes : [];
+        const base = this.constructor.AllowedVariableOverrides || {};
+        const overrides = {};
+
+        if (supportedTypes.includes("text") || modes.includes("text") || modes.includes("stt")) {
+            if (base.text) {
+                overrides.text = base.text;
+            }
+        }
+        if (supportedTypes.includes("audio") || modes.includes("audio") || modes.includes("stt")) {
+            if (base.audio) {
+                overrides.audio = base.audio;
+            }
+        }
+        if (supportedTypes.includes("image") && base.image) {
+            overrides.image = base.image;
+        }
+        if (supportedTypes.includes("video") && base.video) {
+            overrides.video = base.video;
+        }
+
+        return overrides;
     }
 
     static defaultPersona = "builtInUserInput";
@@ -1153,9 +1243,9 @@ export class sttMetadata extends nodeMetadata {
     static {
         this.nodeAttributes = {
             ...super.nodeAttributes,
-            addable: true,
-            label: "Speech to Text",
-            tooltip: "Convert speech to text",
+            addable: false,
+            label: "Speech to Text (legacy)",
+            tooltip: "Legacy speech-to-text node. Use Multimedia Input for automatic transcription.",
             mediaTypes: ["text"],
             isAIResponse: true,
         };
@@ -1537,10 +1627,16 @@ export function getMetadataForNodeType(nodeType) {
 export function getInputsAndOutputsForNode(fullNodeDescription) {
     const metadataClass = getMetadataForNodeType(fullNodeDescription.nodeType);
     const metadata = new metadataClass({ fullNodeDescription });
+    const variableOverrides = metadata.getVariableOverrides
+        ? metadata.getVariableOverrides()
+        : metadataClass.AllowedVariableOverrides;
 
     return {
-        events: metadataClass.events || [],
-        inputs: Object.keys(metadataClass.AllowedVariableOverrides).map(variableName => {return {value: variableName, label: metadataClass.AllowedVariableOverrides[variableName].label}}),
+        events: metadata.getEvents() || [],
+        inputs: Object.keys(variableOverrides || {}).map(variableName => ({
+            value: variableName,
+            label: variableOverrides[variableName].label,
+        })),
         outputs: metadata.getOutputs() || [],
     };
 }

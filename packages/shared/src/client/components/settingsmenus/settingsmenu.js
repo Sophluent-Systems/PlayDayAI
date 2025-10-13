@@ -20,6 +20,14 @@ import { nullUndefinedOrEmpty } from "@src/common/objects";
 import { stateManager } from "@src/client/statemanager.js";
 import { ImageGenParamsMenu } from "../versioneditor/imagegenparamsmenu.js";
 import { AudioGenParamsMenu } from "../versioneditor/audiogenparamsmenu.js";
+import { VideoGenerationSettingsEditor } from "../versioneditor/videogenerationsettingseditor.js";
+import { AgentBlueprintEditor } from "../versioneditor/agentblueprinteditor.js";
+import { ConnectorRefsEditor } from "../versioneditor/connectorrefseditor.js";
+import { AzureResourceProfileEditor } from "../versioneditor/azureresourceprofileeditor.js";
+import { SearchConfigEditor } from "../versioneditor/searchconfigeditor.js";
+import { CustomerContextEditor } from "../versioneditor/customercontexteditor.js";
+import { TrainingConfigEditor } from "../versioneditor/trainingconfigeditor.js";
+import { ViewportEditor } from "../versioneditor/viewporteditor.js";
 
 export function SettingsMenu({ menu, rootObject, onChange, readOnly }) {
   const { account } = React.useContext(stateManager);
@@ -222,6 +230,102 @@ export function SettingsMenu({ menu, rootObject, onChange, readOnly }) {
     );
   }
 
+  const renderVideoGenerationSettingsMenu = (field, rootObject, path) => (
+    <VideoGenerationSettingsEditor
+      key={path}
+      field={field}
+      rootObject={rootObject}
+      onChange={(object, relativePath, newValue) =>
+        updateVariableValue(object, relativePath, newValue)
+      }
+      readOnly={readOnly}
+    />
+  );
+
+  const renderAgentBlueprintEditor = (field, rootObject, path) => (
+    <AgentBlueprintEditor
+      key={path}
+      field={field}
+      rootObject={rootObject}
+      onChange={(object, relativePath, newValue) =>
+        updateVariableValue(object, relativePath, newValue)
+      }
+      readOnly={readOnly}
+    />
+  );
+
+  const renderConnectorRefsEditor = (field, rootObject, path) => (
+    <ConnectorRefsEditor
+      key={path}
+      field={field}
+      rootObject={rootObject}
+      onChange={(object, relativePath, newValue) =>
+        updateVariableValue(object, relativePath, newValue)
+      }
+      readOnly={readOnly}
+    />
+  );
+
+  const renderAzureResourceProfileEditor = (field, rootObject, path) => (
+    <AzureResourceProfileEditor
+      key={path}
+      field={field}
+      rootObject={rootObject}
+      onChange={(object, relativePath, newValue) =>
+        updateVariableValue(object, relativePath, newValue)
+      }
+      readOnly={readOnly}
+    />
+  );
+
+  const renderSearchConfigEditor = (field, rootObject, path) => (
+    <SearchConfigEditor
+      key={path}
+      field={field}
+      rootObject={rootObject}
+      onChange={(object, relativePath, newValue) =>
+        updateVariableValue(object, relativePath, newValue)
+      }
+      readOnly={readOnly}
+    />
+  );
+
+  const renderCustomerContextEditor = (field, rootObject, path) => (
+    <CustomerContextEditor
+      key={path}
+      field={field}
+      rootObject={rootObject}
+      onChange={(object, relativePath, newValue) =>
+        updateVariableValue(object, relativePath, newValue)
+      }
+      readOnly={readOnly}
+    />
+  );
+
+  const renderTrainingConfigEditor = (field, rootObject, path) => (
+    <TrainingConfigEditor
+      key={path}
+      field={field}
+      rootObject={rootObject}
+      onChange={(object, relativePath, newValue) =>
+        updateVariableValue(object, relativePath, newValue)
+      }
+      readOnly={readOnly}
+    />
+  );
+
+  const renderViewportEditor = (field, rootObject, path) => (
+    <ViewportEditor
+      key={path}
+      field={field}
+      rootObject={rootObject}
+      onChange={(object, relativePath, newValue) =>
+        updateVariableValue(object, relativePath, newValue)
+      }
+      readOnly={readOnly}
+    />
+  );
+
   const renderCodeEditor = (field, rootObject, path) => {
     let currentValue = getNestedObjectProperty(rootObject, field.path);
     let outputDataFields = getNestedObjectProperty(
@@ -333,6 +437,22 @@ export function SettingsMenu({ menu, rootObject, onChange, readOnly }) {
         return renderImageGenParamsMenu(field, rootObject, path);
       case "audiogenparams":
         return renderAudioGenParamsMenu(field, rootObject, path);
+      case "videoGenerationSettings":
+        return renderVideoGenerationSettingsMenu(field, rootObject, path);
+      case "agentBlueprint":
+        return renderAgentBlueprintEditor(field, rootObject, path);
+      case "connectorRefs":
+        return renderConnectorRefsEditor(field, rootObject, path);
+      case "azureResourceProfile":
+        return renderAzureResourceProfileEditor(field, rootObject, path);
+      case "searchConfig":
+        return renderSearchConfigEditor(field, rootObject, path);
+      case "customerContext":
+        return renderCustomerContextEditor(field, rootObject, path);
+      case "trainingConfig":
+        return renderTrainingConfigEditor(field, rootObject, path);
+      case "viewport":
+        return renderViewportEditor(field, rootObject, path);
     }
   }
 

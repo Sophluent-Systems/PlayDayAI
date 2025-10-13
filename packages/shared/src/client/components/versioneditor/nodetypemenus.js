@@ -1,6 +1,23 @@
 import { Constants } from '@src/common/defaultconfig';
 import { ifThenElseMetadata } from '@src/common/nodeMetadata';
 
+const FALLBACK_TRAINING_KEY = 'tinker';
+const FALLBACK_TRAINING_URL = 'https://api.tinker.ai/v1/jobs';
+
+const trainingEndpoints = Constants?.endpoints?.training ?? {};
+const trainingEndpointKeys = Object.keys(trainingEndpoints);
+const defaultTrainingKey = trainingEndpointKeys.includes(FALLBACK_TRAINING_KEY)
+  ? FALLBACK_TRAINING_KEY
+  : trainingEndpointKeys[0] ?? FALLBACK_TRAINING_KEY;
+const trainingEndpointOptions = trainingEndpointKeys.map((key) => ({
+  label: trainingEndpoints[key]?.label ?? key,
+  value: key,
+}));
+const defaultTrainingSubmitUrl =
+  trainingEndpoints[defaultTrainingKey]?.defaultUrl ?? FALLBACK_TRAINING_URL;
+const defaultTrainingStatusUrl =
+  trainingEndpoints[defaultTrainingKey]?.statusUrl ?? FALLBACK_TRAINING_URL;
+
 export const nodeTypeMenus = {
   start: [{
     /*  SUBSECTION */
@@ -527,6 +544,497 @@ export const nodeTypeMenus = {
         }
       ],
     }],
+    openAiAgent: [{
+      /*  SUBSECTION */
+      label: "OpenAI AgentKit Node",
+      type: "fieldlist",
+      fields: [
+        {
+          label: "Name (name referenced in input and output dropdowns)",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "agentKit",
+        },
+        {
+          label: "Agent blueprint",
+          type: "agentBlueprint",
+          path: "params.agentBlueprint",
+        },
+        {
+          label: "Connector registry references",
+          type: "connectorRefs",
+          path: "params.connectorRefs",
+        },
+        {
+          label: "App surface hints",
+          type: "text",
+          path: "params.appSurface",
+          tooltip: "Optional hints for ChatKit or custom UI surfaces.",
+          maxChar: 4000,
+          multiline: true,
+          lines: 4,
+          defaultValue: "{}",
+        },
+        {
+          label: "Observability metadata (JSON string)",
+          type: "text",
+          path: "params.observability",
+          tooltip: "Optional metadata to attach to agent traces.",
+          maxChar: 4000,
+          multiline: true,
+          lines: 4,
+          defaultValue: "{}",
+        },
+        {
+          label: "AI Parameters",
+          type: "fieldlist",
+          fields: [
+            {
+              label: "Endpoint",
+              type: "dropdown",
+              path: "params.endpoint",
+              tooltip: "Select which provider to use for agent execution.",
+              options: Object.keys(Constants.endpoints.agentKit).map((key) => ({
+                label: Constants.endpoints.agentKit[key].label,
+                value: key,
+              })),
+              defaultValue: "openai",
+            },
+            {
+              label: "Model",
+              type: "text",
+              path: "params.model",
+              tooltip: "Model identifier supplied to the provider.",
+              maxChar: 100,
+              multiline: false,
+              defaultValue: Constants.endpoints.agentKit.openai?.defaultModel ?? "gpt-4.1-mini",
+            },
+            {
+              label: "Server URL",
+              type: "text",
+              path: "params.serverUrl",
+              tooltip: "Endpoint URL for the selected provider.",
+              maxChar: 2048,
+              multiline: false,
+              defaultValue: Constants.endpoints.agentKit.openai?.defaultUrl ?? "https://api.openai.com/v1/responses",
+            },
+            {
+              label: "API Key",
+              path: "params.apiKey",
+              type: "text",
+              tooltip: "API key for requests to the server.",
+              maxChar: 512,
+              defaultValue: 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
+              multiline: false,
+            },
+          ],
+        },
+      ],
+    }],
+    microsoftAgentFramework: [{
+      /*  SUBSECTION */
+      label: "Microsoft Agent Framework Node",
+      type: "fieldlist",
+      fields: [
+        {
+          label: "Name (name referenced in input and output dropdowns)",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "agentFramework",
+        },
+        {
+          label: "Agent configuration (JSON)",
+          type: "codeEditor",
+          path: "params.agentConfig",
+          tooltip: "Agent Framework pipeline configuration.",
+          defaultValue: `{
+  "entryPoint": "main",
+  "graph": {
+    "nodes": []
+  }
+}`,
+        },
+        {
+          label: "Workflow variables (JSON)",
+          type: "codeEditor",
+          path: "params.workflowVariables",
+          tooltip: "Optional variables provided to the Agent Framework pipeline.",
+          defaultValue: "{}",
+        },
+        {
+          label: "Azure resource profile",
+          type: "azureResourceProfile",
+          path: "params.azureResourceProfile",
+        },
+        {
+          label: "Safety settings (JSON)",
+          type: "codeEditor",
+          path: "params.safetySettings",
+          tooltip: "Optional safety controls for tool usage and networking.",
+          defaultValue: `{
+  "toolUse": "allowlisted",
+  "network": "restricted"
+}`,
+        },
+        {
+          label: "Observability metadata (JSON string)",
+          type: "text",
+          path: "params.metadata",
+          tooltip: "Optional metadata attached to Agent Framework traces.",
+          maxChar: 4000,
+          multiline: true,
+          lines: 4,
+          defaultValue: "{}",
+        },
+        {
+          label: "AI Parameters",
+          type: "fieldlist",
+          fields: [
+            {
+              label: "Endpoint",
+              type: "dropdown",
+              path: "params.endpoint",
+              tooltip: "Select which Agent Framework endpoint to use.",
+              options: Object.keys(Constants.endpoints.agentFramework || {}).map((key) => ({
+                label: Constants.endpoints.agentFramework[key].label ?? key,
+                value: key,
+              })),
+              defaultValue: "microsoft",
+            },
+            {
+              label: "Model",
+              type: "text",
+              path: "params.model",
+              tooltip: "Agent Framework model identifier.",
+              maxChar: 150,
+              multiline: false,
+              defaultValue: Constants.endpoints.agentFramework?.microsoft?.defaultModel ?? "microsoft-agent-framework",
+            },
+            {
+              label: "Server URL",
+              type: "text",
+              path: "params.serverUrl",
+              tooltip: "Agent Framework invocation endpoint.",
+              maxChar: 2048,
+              multiline: false,
+              defaultValue: Constants.endpoints.agentFramework?.microsoft?.defaultUrl ?? "https://agentframework.microsoft.com/api/run",
+            },
+            {
+              label: "OAuth scope",
+              type: "text",
+              path: "params.scope",
+              tooltip: "Client credential scope supplied when requesting access tokens.",
+              maxChar: 2048,
+              multiline: false,
+              defaultValue: Constants.endpoints.agentFramework?.microsoft?.scope ?? "https://graph.microsoft.com/.default",
+            },
+            {
+              label: "Tenant ID override",
+              type: "text",
+              path: "params.tenantId",
+              tooltip: "Optional override if you need to target a different tenant.",
+              maxChar: 128,
+              multiline: false,
+              defaultValue: "",
+            },
+            {
+              label: "Client ID override",
+              type: "text",
+              path: "params.clientId",
+              tooltip: "Optional override for the registered app client ID.",
+              maxChar: 128,
+              multiline: false,
+              defaultValue: "",
+            },
+            {
+              label: "Client secret override",
+              type: "text",
+              path: "params.clientSecret",
+              tooltip: "Provide only if you need to override the stored client secret.",
+              maxChar: 512,
+              multiline: false,
+              defaultValue: "",
+            },
+            {
+              label: "Bearer token / API key",
+              type: "text",
+              path: "params.apiKey",
+              tooltip: "Optional bearer token override (leave blank to generate automatically).",
+              maxChar: 1024,
+              multiline: false,
+              defaultValue: "",
+            },
+          ],
+        },
+      ],
+    }],
+    uiAutomation: [{
+      /*  SUBSECTION */
+      label: "UI Automation Node",
+      type: "fieldlist",
+      fields: [
+        {
+          label: "Name (name referenced in input and output dropdowns)",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "uiAutomation",
+        },
+        {
+          label: "Task description",
+          type: "text",
+          path: "params.taskDescription",
+          tooltip: "Describe the user journey or workflow to automate.",
+          maxChar: 4000,
+          multiline: true,
+          lines: 6,
+          defaultValue: "Open the admin dashboard, review the latest incident ticket, and summarize the mitigation steps.",
+        },
+        {
+          label: "Viewport (screenshot or DOM snapshot)",
+          type: "viewport",
+          path: "params.viewport",
+        },
+        {
+          label: "Session state (JSON)",
+          type: "codeEditor",
+          path: "params.sessionState",
+          tooltip: "Optional session cookies or pointing device state.",
+          defaultValue: "{}",
+        },
+        {
+          label: "Safety settings (JSON)",
+          type: "codeEditor",
+          path: "params.safetySettings",
+          tooltip: "Override Gemini Computer Use safety defaults.",
+          defaultValue: `{
+  "level": "strict"
+}`,
+        },
+        {
+          label: "Additional metadata (JSON string)",
+          type: "text",
+          path: "params.metadata",
+          tooltip: "Optional metadata for instrumentation.",
+          maxChar: 4000,
+          multiline: true,
+          lines: 4,
+          defaultValue: "{}",
+        },
+        {
+          label: "Maximum actions",
+          type: "decimal",
+          range: [1, 60],
+          path: "params.maxSteps",
+          tooltip: "Upper bound on the number of UI actions the model may emit.",
+          defaultValue: 20,
+        },
+        {
+          label: "Delay between actions (ms)",
+          type: "decimal",
+          range: [200, 5000],
+          path: "params.stepDelayMs",
+          tooltip: "Minimum delay inserted between actions (in milliseconds).",
+          defaultValue: 500,
+        },
+        {
+          label: "AI Parameters",
+          type: "fieldlist",
+          fields: [
+            {
+              label: "Endpoint",
+              type: "dropdown",
+              path: "params.endpoint",
+              tooltip: "Select which provider endpoint to call.",
+              options: Object.keys(Constants.endpoints.computerUse || {}).map((key) => ({
+                label: Constants.endpoints.computerUse[key].label ?? key,
+                value: key,
+              })),
+              defaultValue: "google",
+            },
+            {
+              label: "Model",
+              type: "text",
+              path: "params.model",
+              tooltip: "Model identifier for Gemini Computer Use.",
+              maxChar: 128,
+              multiline: false,
+              defaultValue: Constants.endpoints.computerUse?.google?.defaultModel ?? "gemini-2.5-computer-use",
+            },
+            {
+              label: "Server URL",
+              type: "text",
+              path: "params.serverUrl",
+              tooltip: "Override the default Computer Use endpoint.",
+              maxChar: 2048,
+              multiline: false,
+              defaultValue: Constants.endpoints.computerUse?.google?.defaultUrl ?? "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-user:computerUse",
+            },
+            {
+              label: "API key override",
+              type: "text",
+              path: "params.apiKey",
+              tooltip: "Optional Google API key override (leave blank to use account preference).",
+              maxChar: 256,
+              multiline: false,
+              defaultValue: "",
+            },
+          ],
+        },
+      ],
+    }],
+    perplexitySearch: [{  
+      /*  SUBSECTION */
+      label: "Perplexity Search Node",
+      type: "fieldlist",
+      fields: [
+        {
+          label: "Name (name referenced in input and output dropdowns)",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "perplexitySearch",
+        },
+        {
+          label: "Search query",
+          type: "text",
+          path: "params.query",
+          tooltip: "Query passed to Perplexity.",
+          maxChar: 2000,
+          multiline: true,
+          lines: 3,
+          defaultValue: "Latest Multi-Agent coordination techniques",
+        },
+        {
+          label: "Search configuration",
+          type: "searchConfig",
+          path: "params.searchConfig",
+        },
+        {
+          label: "API parameters",
+          type: "fieldlist",
+          fields: [
+            {
+              label: "Endpoint",
+              type: "dropdown",
+              path: "params.endpoint",
+              tooltip: "Select the search provider endpoint.",
+              options: Object.keys(Constants.endpoints.search).map((key) => ({
+                label: Constants.endpoints.search[key].label,
+                value: key,
+              })),
+              defaultValue: "perplexity",
+            },
+            {
+              label: "Server URL",
+              type: "text",
+              path: "params.serverUrl",
+              tooltip: "Override the Perplexity API endpoint if needed.",
+              maxChar: 2048,
+              multiline: false,
+              defaultValue: Constants.endpoints.search.perplexity?.defaultUrl ?? "https://api.perplexity.ai/search",
+            },
+            {
+              label: "API Key",
+              path: "params.apiKey",
+              type: "text",
+              tooltip: "API key for requests to Perplexity.",
+              maxChar: 512,
+              defaultValue: 'setting:perplexityApiKey;px-xxxxxxxxxxxxxxxx',
+              multiline: false,
+            },
+          ],
+        },
+      ],
+    }],
+    modelTraining: [{
+      /*  SUBSECTION */
+      label: "Model Training Node",
+      type: "fieldlist",
+      fields: [
+        {
+          label: "Name (name referenced in input and output dropdowns)",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "modelTraining",
+        },
+        {
+          label: "Base model identifier",
+          type: "text",
+          path: "params.baseModel",
+          tooltip: "The base model that Tinker should fine-tune.",
+          maxChar: 200,
+          multiline: false,
+          defaultValue: "tinker/base-qwen-7b",
+        },
+        {
+          label: "Training dataset (files to upload)",
+          type: "fileStoreEditor",
+          path: "params.trainingDataset",
+          tooltip: "Upload one or more JSONL files containing training examples.",
+          defaultValue: [],
+        },
+        {
+          label: "Training configuration",
+          type: "trainingConfig",
+          path: "params.trainingConfig",
+        },
+        {
+          label: "API parameters",
+          type: "fieldlist",
+          fields: [
+            {
+              label: "Endpoint",
+              type: "dropdown",
+              path: "params.endpoint",
+              tooltip: "Select the training provider endpoint.",
+              options: trainingEndpointOptions,
+              defaultValue: defaultTrainingKey,
+            },
+            {
+              label: "Training job URL",
+              type: "text",
+              path: "params.serverUrl",
+              tooltip: "Endpoint used to submit training jobs.",
+              maxChar: 2048,
+              multiline: false,
+              defaultValue: defaultTrainingSubmitUrl,
+            },
+            {
+              label: "Status polling URL",
+              type: "text",
+              path: "params.statusUrl",
+              tooltip: "Endpoint used to poll job status (defaults to the submit URL).",
+              maxChar: 2048,
+              multiline: false,
+              defaultValue: defaultTrainingStatusUrl,
+            },
+            {
+              label: "API Key",
+              path: "params.apiKey",
+              type: "text",
+              tooltip: "Tinker API key.",
+              maxChar: 512,
+              defaultValue: 'setting:tinkerApiKey;tk-xxxxxxxxxxxxxxxx',
+              multiline: false,
+            },
+          ],
+        },
+      ],
+    }],
     fileStore: [{  
       /*  SUBSECTION */
       label: "File Store",
@@ -695,6 +1203,29 @@ export const nodeTypeMenus = {
           tooltip: "Code to run",
           defaultValue: "",
         },
+        {
+          label: "Max execution time (ms)",
+          type: "decimal",
+          range: [250, 300000],
+          path: "params.maxExecutionTimeMs",
+          tooltip: "Abort execution if custom code runs longer than this duration.",
+          defaultValue: 30000,
+        },
+        {
+          label: "Sandbox retention (hours)",
+          type: "decimal",
+          range: [1, 24],
+          path: "params.sandboxTTLHours",
+          tooltip: "How long to retain sandbox state before automatically resetting.",
+          defaultValue: 6,
+        },
+        {
+          label: "Reset sandbox before each run",
+          type: "checkbox",
+          path: "params.resetSandbox",
+          tooltip: "Enable to discard stored state prior to running the code block.",
+          defaultValue: false,
+        },
       ],
     }],    
     scenario: [{  
@@ -781,6 +1312,81 @@ export const nodeTypeMenus = {
             },
           ]
         }
+      ],
+    }],
+    videoGenerator: [{
+      /*  SUBSECTION */
+      label: "Video Generator Node",
+      type: "fieldlist",
+      fields: [
+        {
+          label: "Name (name referenced in input and output dropdowns)",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "videoGenerator",
+        },
+        {
+          label: "Prompt (instructions used to generate the video)",
+          type: "text",
+          path: "params.prompt",
+          tooltip: "The instructions for generating the video (often overridden by input).",
+          maxChar: 4000,
+          multiline: true,
+          lines: 6,
+          defaultValue: "A cinematic drone shot over a futuristic city at sunset.",
+        },
+        {
+          label: "Video rendering settings",
+          type: "videoGenerationSettings",
+          path: "params.videoGenerationSettings",
+        },
+        {
+          label: "AI Parameters",
+          type: "fieldlist",
+          fields: [
+            {
+              label: "Endpoint",
+              type: "dropdown",
+              path: "params.endpoint",
+              tooltip: "Select which provider to use for video generation.",
+              options: Object.keys(Constants.endpoints.videoGeneration).map((key) => ({
+                label: Constants.endpoints.videoGeneration[key].label,
+                value: key,
+              })),
+              defaultValue: "openai",
+            },
+            {
+              label: "Model",
+              type: "text",
+              path: "params.model",
+              tooltip: "Model identifier supplied to the provider.",
+              maxChar: 100,
+              multiline: false,
+              defaultValue: Constants.endpoints.videoGeneration.openai?.defaultModel ?? "sora-1.0",
+            },
+            {
+              label: "Server URL",
+              type: "text",
+              path: "params.serverUrl",
+              tooltip: "Endpoint URL for the selected provider.",
+              maxChar: 2048,
+              multiline: false,
+              defaultValue: Constants.endpoints.videoGeneration.openai?.defaultUrl ?? "https://api.openai.com/v1/video/generations",
+            },
+            {
+              label: "API Key",
+              path: "params.apiKey",
+              type: "text",
+              tooltip: "API key for requests to the server.",
+              maxChar: 512,
+              defaultValue: 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
+              multiline: false,
+            },
+          ],
+        },
       ],
     }],
     tts: [{  

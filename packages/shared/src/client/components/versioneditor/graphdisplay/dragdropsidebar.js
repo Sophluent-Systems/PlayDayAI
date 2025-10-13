@@ -9,8 +9,8 @@ import { getAddableNodeTypes, getMetadataForNodeType } from "@src/common/nodeMet
 const addableNodeTypes = getAddableNodeTypes();
 
 const MEDIA_TYPES = new Set(["audio", "image", "video"]);
-const AI_NODE_TYPES = new Set(["llm", "llmData", "staticText", "imagePromptWriter", "suggestionsWriter", "scenario"]);
-const MEDIA_NODE_TYPES = new Set(["imageGenerator", "tts", "stt", "audioPlayback"]);
+const AI_NODE_TYPES = new Set(["llm", "llmData", "openAiAgent", "microsoftAgentFramework", "uiAutomation", "staticText", "imagePromptWriter", "suggestionsWriter", "scenario"]);
+const MEDIA_NODE_TYPES = new Set(["imageGenerator", "videoGenerator", "tts", "stt", "audioPlayback"]);
 const LOGIC_NODE_TYPES = new Set(["ifThenElse", "forLoop", "whileLoop", "delay", "randomNumber"]);
 const DATA_NODE_TYPES = new Set(["codeBlock", "fileStore", "arrayIterator", "arrayIndex"]);
 

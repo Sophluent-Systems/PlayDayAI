@@ -4,8 +4,7 @@ import { CollapsibleSection } from "@src/client/components/collapsiblesection";
 import { SettingsMenu } from '@src/client/components/settingsmenus/settingsmenu';
 import { replacePlaceholderSettingWithFinalValue } from "../settingsmenus/menudatamodel";
 import { stateManager } from "@src/client/statemanager";
-
-
+import { nullUndefinedOrEmpty } from "@src/common/objects";
 
 export function LLMParamsMenu(props) {
   const { Constants } = useConfig();
@@ -13,6 +12,7 @@ export function LLMParamsMenu(props) {
   const { account } = React.useContext(stateManager);
   const [modelSelectionMenu, setModelSelectionMenu] = useState(null);
   const currentEndpoint = useRef(null);
+  const shouldResetModel = useRef(false);
 
   const modelMetadata = Constants.models?.llm ?? {};
 
@@ -40,18 +40,58 @@ export function LLMParamsMenu(props) {
     if (currentEndpoint.current) {
       const endpoint = Constants.endpoints.llm[currentEndpoint.current];
       if (endpoint) {
-        const modelOptions = (endpoint.models ?? []).map(createModelOption);
-
-        const currentModelSelection = modelOptions.find((option) => option.value === rootObject.params.model);
-        if (!currentModelSelection) {
-          // set the first option
-          onVariableChanged(rootObject, "params.model", endpoint.defaultModel);
-          onVariableChanged(rootObject, "params.serverUrl", endpoint.defaultUrl);
-          onVariableChanged(rootObject, "params.inputFormat", endpoint.defaultInputFormat);
+        const modelOptions = Array.isArray(endpoint.models) ? endpoint.models.map(createModelOption) : [];
+        const selectionType = endpoint.modelSelectionType ?? (modelOptions.length > 0 ? "dropdown" : "text");
+        const needsReset = shouldResetModel.current;
+        const applyDefaultModel = () => {
+          if (!nullUndefinedOrEmpty(endpoint.defaultModel)) {
+            onVariableChanged(rootObject, "params.model", endpoint.defaultModel);
+          }
+          if (!nullUndefinedOrEmpty(endpoint.defaultUrl)) {
+            onVariableChanged(rootObject, "params.serverUrl", endpoint.defaultUrl);
+          }
+          if (!nullUndefinedOrEmpty(endpoint.defaultInputFormat)) {
+            onVariableChanged(rootObject, "params.inputFormat", endpoint.defaultInputFormat);
+          }
           if (endpoint.defaultAPIKey) {
             const finalValue = replacePlaceholderSettingWithFinalValue(endpoint.defaultAPIKey, account);
             onVariableChanged(rootObject, "params.apiKey", finalValue);
           }
+        };
+
+        if (selectionType === "text") {
+          const currentModel = rootObject?.params?.model;
+          if (needsReset || nullUndefinedOrEmpty(currentModel)) {
+            applyDefaultModel();
+          } else {
+            if (nullUndefinedOrEmpty(rootObject?.params?.serverUrl)) {
+              onVariableChanged(rootObject, "params.serverUrl", endpoint.defaultUrl);
+            }
+            if (nullUndefinedOrEmpty(rootObject?.params?.inputFormat)) {
+              onVariableChanged(rootObject, "params.inputFormat", endpoint.defaultInputFormat);
+            }
+            if (nullUndefinedOrEmpty(rootObject?.params?.apiKey) && endpoint.defaultAPIKey) {
+              const finalValue = replacePlaceholderSettingWithFinalValue(endpoint.defaultAPIKey, account);
+              onVariableChanged(rootObject, "params.apiKey", finalValue);
+            }
+          }
+
+          setModelSelectionMenu([
+            {
+              label: "Model",
+              path: "params.model",
+              type: "text",
+              tooltip: endpoint.modelTooltip ?? "Model to use for requests",
+              placeholder: endpoint.modelPlaceholder,
+            },
+          ]);
+          shouldResetModel.current = false;
+          return;
+        }
+
+        const currentModelSelection = modelOptions.find((option) => option.value === rootObject.params.model);
+        if (needsReset || !currentModelSelection) {
+          applyDefaultModel();
         }
 
         setModelSelectionMenu([
@@ -62,7 +102,9 @@ export function LLMParamsMenu(props) {
             tooltip: "Model to use for requests",
             options: modelOptions,
           }]);
-
+        shouldResetModel.current = false;
+      } else {
+        setModelSelectionMenu(null);
       }
     }
   }
@@ -75,6 +117,7 @@ export function LLMParamsMenu(props) {
     if (currentEndpoint.current != newValue) {
       onVariableChanged(object, relativePath, newValue);
       currentEndpoint.current = newValue;
+      shouldResetModel.current = true;
       updateModelSelectionMenu();
     }
   }

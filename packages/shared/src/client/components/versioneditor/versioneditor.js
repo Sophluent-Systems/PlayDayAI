@@ -1187,6 +1187,7 @@ const handleCancelDelete = () => {
                   firstOptionUnselectable
                   dropdown={true}
                   chooseMostRecent={true}
+                  showCreateButton={!readOnly}
                 />
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-200/80">

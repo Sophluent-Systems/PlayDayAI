@@ -32,9 +32,25 @@ function CustomSmartEdge(props) {
 		nodes
 	})
 
+	const hasInvalidPath = (pathString) => {
+		if (!pathString || typeof pathString !== 'string') {
+			return true;
+		}
+		return pathString.includes('NaN') || pathString.includes('Infinity') || pathString.includes('undefined');
+	};
+
 	// If the value returned is null, it means "getSmartEdge" was unable to find
 	// a valid path, and you should do something else instead
-	if (getSmartEdgeResponse === null) {
+	if (
+		getSmartEdgeResponse === null ||
+		!Number.isFinite(sourceX) ||
+		!Number.isFinite(sourceY) ||
+		!Number.isFinite(targetX) ||
+		!Number.isFinite(targetY) ||
+		!Number.isFinite(getSmartEdgeResponse?.edgeCenterX) ||
+		!Number.isFinite(getSmartEdgeResponse?.edgeCenterY) ||
+		hasInvalidPath(getSmartEdgeResponse?.svgPathString)
+	) {
 		return <BezierEdge {...props} />
 	}
 

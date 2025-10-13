@@ -3,10 +3,12 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import ElevenLabs from './audioGenEndpoints/elevenlabs.js';
 import OpenAI from './audioGenEndpoints/openai.js';
+import OpenRouter from './audioGenEndpoints/openrouter.js';
 
 const endpoints = {
     openai: OpenAI.doTxt2AudioRequest,
     elevenlabs: ElevenLabs.doTxt2AudioRequest,
+    openrouter: OpenRouter.doTxt2AudioRequest,
 }
 
 async function writeAudioFile(buffer, extension="mp3") {
@@ -48,7 +50,6 @@ async function writeAudioFile(buffer, extension="mp3") {
   return `/${subFolder}/${filename}`;
 }
 
-
 export async function doAudioGen(params) {
     
     if (!params.endpoint) {
@@ -56,6 +57,9 @@ export async function doAudioGen(params) {
     }
 
     const endpoint = endpoints[params.endpoint];
+    if (!endpoint) {
+      throw new Error(`doAudioGen: unsupported endpoint "${params.endpoint}"`);
+    }
 
     let endpointResult = await endpoint(params);
 
@@ -80,4 +84,3 @@ export async function doAudioGen(params) {
         throw new Error("doAudioGen: endpoint did not return a buffer or a URL");
     }
   }
-

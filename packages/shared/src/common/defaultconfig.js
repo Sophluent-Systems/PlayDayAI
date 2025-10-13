@@ -196,6 +196,12 @@ const defaultConstantsJSON = `
                 "defaultModel": "gpt-image-1",
                 "defaultWidth": 1024,
                 "defaultHeight": 1024
+            },
+            "imagen-4.0-pro": {
+                "label": "Imagen 4 Pro",
+                "defaultUrl": "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-pro:generateImage",
+                "defaultWidth": 1024,
+                "defaultHeight": 1024
             }
         },
         "audioGeneration": {
@@ -208,6 +214,52 @@ const defaultConstantsJSON = `
                 "label": "OpenAI",
                 "defaultUrl": "https://api.openai.com/v1/audio/speech",
                 "defaultModel": "gpt-4o-mini-tts"
+            },
+           "openrouter": {
+               "label": "OpenRouter",
+               "defaultUrl": "https://openrouter.ai/api/v1/audio/speech",
+               "defaultModel": "openrouter/gpt-4o-mini-tts"
+           }
+        },
+        "stt": {
+            "whisper-1": {
+                "label": "Whisper 1",
+                "defaultInputFormat": "audio",
+                "defaultOutputFormat": "text"
+            },
+            "openrouter/whisper-large-v3": {
+                "label": "OpenRouter Whisper Large v3",
+                "defaultInputFormat": "audio",
+                "defaultOutputFormat": "text"
+            }
+        },
+        "videoGeneration": {\n            "openai": {\n                "models": [\n                    "sora-1.0"\n                ],\n                "label": "OpenAI Sora",\n                "type": "openai",\n                "defaultModel": "sora-1.0",\n                "defaultUrl": "https://api.openai.com/v1/video/generations",\n                "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"\n            }\n        },
+        "agentFramework": {
+            "microsoft-agent-framework": {
+                "label": "Microsoft Agent Framework",
+                "defaultInputFormat": "json",
+                "defaultOutputFormat": "json"
+            }
+        },
+        "agentKit": {
+            "openai-agentkit-default": {
+                "label": "AgentKit Default",
+                "defaultUrl": "https://api.openai.com/v1/responses",
+                "defaultModel": "gpt-4.1-mini"
+            }
+        },
+        "computerUse": {
+            "gemini-2.5-computer-use": {
+                "label": "Gemini 2.5 Computer Use",
+                "defaultInputFormat": "json",
+                "defaultOutputFormat": "json"
+            }
+        },
+        "search": {
+            "perplexity-default": {
+                "label": "Perplexity Search",
+                "defaultUrl": "https://api.perplexity.ai/search",
+                "defaultSnippetLimit": 5
             }
         }
     },
@@ -267,6 +319,18 @@ const defaultConstantsJSON = `
                 "defaultInputFormat": "chatinstruct",
                 "defaultAPIKey": "setting:googleLLMKey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
             },
+            "openrouter": {
+                "models": [],
+                "label": "OpenRouter",
+                "type": "openrouter",
+                "defaultModel": "mistralai/mistral-large",
+                "defaultUrl": "https://openrouter.ai/api/v1/chat/completions",
+                "defaultInputFormat": "chatinstruct",
+                "defaultAPIKey": "setting:openRouterApiKey;sk-or-v1-xxxxxxxxxxxxxxxx",
+                "modelSelectionType": "text",
+                "modelPlaceholder": "e.g. mistralai/mistral-large",
+                "modelTooltip": "Specify any OpenRouter model id"
+            },
             "llm.playday.ai-webui": {
                 "models": [
                     "llama-2-13b-chat",
@@ -311,6 +375,18 @@ const defaultConstantsJSON = `
                 "defaultModel": "gpt-image-1",
                 "defaultWidth": 1024,
                 "defaultHeight": 1024
+            },
+            "google": {
+                "models": [
+                    "imagen-4.0-pro"
+                ],
+                "label": "Google Imagen 4",
+                "type": "google",
+                "defaultUrl": "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-pro:generateImage",
+                "defaultAPIKey": "setting:googleLLMKey;sk-xxxxxxxxxxxxxxxxxxxxxxxx",
+                "defaultModel": "imagen-4.0-pro",
+                "defaultWidth": 1024,
+                "defaultHeight": 1024
             }
         },
         "audioGeneration": {
@@ -342,6 +418,126 @@ const defaultConstantsJSON = `
                 "defaultVoice": "alloy",
                 "defaultUrl": "https://api.openai.com/v1/audio/speech",
                 "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            "openrouter": {
+                "models": [
+                    "openrouter/gpt-4o-mini-tts"
+                ],
+                "label": "OpenRouter",
+                "type": "openrouter",
+                "defaultModel": "openrouter/gpt-4o-mini-tts",
+                "defaultVoice": "alloy",
+                "defaultUrl": "https://openrouter.ai/api/v1/audio/speech",
+                "defaultAPIKey": "setting:openRouterApiKey;sk-or-v1-xxxxxxxxxxxxxxxx"
+            }
+        },
+        "stt": {
+            "openai": {
+                "models": [
+                    "whisper-1",
+                    "gpt-4o-transcribe"
+                ],
+                "label": "OpenAI Whisper",
+                "type": "openai",
+                "defaultModel": "whisper-1",
+                "defaultUrl": "https://api.openai.com/v1/audio/transcriptions",
+                "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            "openrouter": {
+                "models": [
+                    "openrouter/whisper-large-v3"
+                ],
+                "label": "OpenRouter Whisper",
+                "type": "openrouter",
+                "defaultModel": "openrouter/whisper-large-v3",
+                "defaultUrl": "https://openrouter.ai/api/v1/audio/transcriptions",
+                "defaultAPIKey": "setting:openRouterApiKey;sk-or-v1-xxxxxxxxxxxxxxxx"
+            }
+        },
+        "videoGeneration": {\n            "openai": {\n                "models": [\n                    "sora-1.0"\n                ],\n                "label": "OpenAI Sora",\n                "type": "openai",\n                "defaultModel": "sora-1.0",\n                "defaultUrl": "https://api.openai.com/v1/video/generations",\n                "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"\n            }\n        },
+        "training": {
+            "tinker-fine-tune": {
+                "label": "Tinker Fine-Tune",
+                "defaultInputFormat": "json",
+                "defaultOutputFormat": "json"
+            }
+        },
+        "agentKit": {
+            "openai": {
+                "models": [
+                    "gpt-4.1-mini",
+                    "gpt-4.1",
+                    "gpt-4.1-nano"
+                ],
+                "label": "OpenAI AgentKit",
+                "type": "openai",
+                "defaultModel": "gpt-4.1-mini",
+                "defaultUrl": "https://api.openai.com/v1/responses",
+                "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+        },
+        "agentFramework": {
+            "microsoft": {
+                "models": [
+                    "microsoft-agent-framework"
+                ],
+                "label": "Microsoft Agent Framework",
+                "type": "microsoft",
+                "defaultModel": "microsoft-agent-framework",
+                "defaultUrl": "https://agentframework.microsoft.com/api/run",
+                "scope": "https://graph.microsoft.com/.default",
+                "defaultAPIKey": "setting:microsoftAgentFrameworkClientSecret;xxxxxxxx-xxxxxxxx",
+                "defaultClientId": "setting:microsoftAgentFrameworkClientId;xxxxxxxx-xxxxxxxx",
+                "defaultTenantId": "setting:azureEntraTenantId;xxxxxxxx-xxxxxxxx"
+            }
+        },
+        "computerUse": {
+            "google": {
+                "models": [
+                    "gemini-2.5-computer-use"
+                ],
+                "label": "Gemini Computer Use",
+                "type": "google",
+                "defaultModel": "gemini-2.5-computer-use",
+                "defaultUrl": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-user:computerUse",
+                "defaultAPIKey": "setting:googleLLMKey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+        },
+        "training": {
+            "tinker": {
+                "models": [
+                    "tinker-fine-tune"
+                ],
+                "label": "Tinker Training",
+                "type": "tinker",
+                "defaultModel": "tinker-fine-tune",
+                "defaultUrl": "https://api.tinker.ai/v1/jobs",
+                "statusUrl": "https://api.tinker.ai/v1/jobs",
+                "defaultAPIKey": "setting:tinkerApiKey;tk-xxxxxxxxxxxxxxxx"
+            }
+        },
+        "search": {
+            "perplexity": {
+                "models": [
+                    "perplexity-default"
+                ],
+                "label": "Perplexity Search",
+                "type": "perplexity",
+                "defaultModel": "perplexity-default",
+                "defaultUrl": "https://api.perplexity.ai/search",
+                "defaultAPIKey": "setting:perplexityApiKey;px-xxxxxxxxxxxxxxxx"
+            }
+        },
+        "ads": {
+            "google": {
+                "models": [
+                    "google-ads-mcp"
+                ],
+                "label": "Google Ads MCP",
+                "type": "google-ads",
+                "defaultModel": "google-ads-mcp",
+                "defaultUrl": "https://ads-mcp.example.com/query",
+                "defaultAPIKey": "setting:googleAdsServiceAccountKey;{\\"provider\\":\\"google\\"}"
             }
         }
     },
@@ -386,7 +582,26 @@ const defaultConstantsJSON = `
     "defaultAccountInfo": {
         "profile": {},
         "preferences": {
-            "editMode": true
+            "editMode": true,
+            "openAIkey": "",
+            "anthropicKey": "",
+            "googleLLMKey": "",
+            "stabilityAIKey": "",
+            "elevenLabsKey": "",
+            "openaiAgentKitWebhookSecret": "",
+            "openaiConnectorRegistryKey": "",
+            "microsoftAgentFrameworkClientId": "",
+            "microsoftAgentFrameworkClientSecret": "",
+            "azureAiFoundryEndpoint": "",
+            "azureEntraTenantId": "",
+            "googleAdsServiceAccountKey": "",
+            "perplexityApiKey": "",
+            "ibmApiConnectKey": "",
+            "ibmApiConnectSecret": "",
+            "tinkerApiKey": "",
+            "tinkerWebhookSecret": "",
+            "openRouterApiKey": "",
+            "temporalCloudApiKey": ""
         }
     },
     "features": {

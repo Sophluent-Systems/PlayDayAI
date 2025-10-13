@@ -4,6 +4,7 @@ import chatGPTEndpoint from './aiEndpoints/chatGPT';
 import localLLMEndpoint from './aiEndpoints/localllm';
 import anthropicLLMEndpoint from './aiEndpoints/anthropic';
 import googleEndpoint from './aiEndpoints/google';
+import openRouterEndpoint from './aiEndpoints/openrouter';
 import chatGPTFormats from './aiInputFormats/chatgpt';
 import anthropicFormats from './aiInputFormats/anthropic';
 import instructFormats from './aiInputFormats/instruct';
@@ -21,6 +22,7 @@ let endpoints = {
   'anthropic': anthropicLLMEndpoint,
   'google': googleEndpoint,
   'llm.playday.ai-webui': localLLMEndpoint,
+  'openrouter': openRouterEndpoint,
   'llm.playday.ai-h' : null,
 };
 
@@ -36,6 +38,9 @@ async function loadEndpoint(endpoint) {
         break;
       case 'google':
         endpoints[endpoint] = await import('./aiEndpoints/google');
+        break;
+      case 'openrouter':
+        endpoints[endpoint] = await import('./aiEndpoints/openrouter');
         break;
       case 'llm.playday.ai-webui':
         endpoints[endpoint] = await import('./aiEndpoints/localllm');

@@ -66,12 +66,12 @@ const GROUP_RESOLUTION = [
   },
   {
     key: "ai-generation",
-    match: (nodeType) => ["llm", "llmData", "staticText", "imagePromptWriter", "suggestionsWriter", "scenario"].includes(nodeType),
+    match: (nodeType) => ["llm", "llmData", "openAiAgent", "microsoftAgentFramework", "uiAutomation", "staticText", "imagePromptWriter", "suggestionsWriter", "scenario"].includes(nodeType),
   },
   {
     key: "media",
     match: (nodeType, metadata) =>
-      ["imageGenerator", "tts", "stt", "audioPlayback"].includes(nodeType) ||
+      ["imageGenerator", "videoGenerator", "tts", "stt", "audioPlayback"].includes(nodeType) ||
       (metadata?.nodeAttributes?.mediaTypes || []).length > 0,
   },
   {
@@ -80,7 +80,7 @@ const GROUP_RESOLUTION = [
   },
   {
     key: "data",
-    match: (nodeType) => ["codeBlock", "fileStore", "arrayIterator", "arrayIndex"].includes(nodeType),
+    match: (nodeType) => ["codeBlock", "fileStore", "arrayIterator", "arrayIndex", "perplexitySearch"].includes(nodeType),
   },
 ];
 

@@ -72,7 +72,14 @@ function VersionListOption({ version, onSelect, isSelected }) {
 }
 
 export function VersionSelector(props) {
-  const { allowNewGameOption, firstOptionUnselectable, dropdown, chooseMostRecent, sx } = props;
+  const {
+    allowNewGameOption,
+    firstOptionUnselectable,
+    dropdown,
+    chooseMostRecent,
+    sx,
+    showCreateButton,
+  } = props;
   const router = useRouter();
   const { versionName } = router.query;
   const { game, versionList = [], version, switchVersionByName } = React.useContext(stateManager);
@@ -316,18 +323,38 @@ export function VersionSelector(props) {
     );
   };
 
+  const handleOpenCreateDialog = () => {
+    if (!allowNewGameOption) {
+      return;
+    }
+    setIsMenuOpen(false);
+    setAddDialogOpen(true);
+  };
+
   const renderDropdown = () => (
     <>
       <div className='relative w-full' ref={dropdownRef}>
-        <button type='button' className={dropdownButtonClass} onClick={() => setIsMenuOpen((prev) => !prev)}>
-          <span className='flex flex-col text-left'>
-            <span className='text-xs font-semibold uppercase tracking-[0.35em] text-slate-500 dark:text-slate-300'>
-              Version
+        <div className='flex w-full items-center gap-2'>
+          <button type='button' className={dropdownButtonClass} onClick={() => setIsMenuOpen((prev) => !prev)}>
+            <span className='flex flex-col text-left'>
+              <span className='text-xs font-semibold uppercase tracking-[0.35em] text-slate-500 dark:text-slate-300'>
+                Version
+              </span>
+              <span className='text-sm font-semibold'>{selectedLabel}</span>
             </span>
-            <span className='text-sm font-semibold'>{selectedLabel}</span>
-          </span>
-          <ChevronDown className='h-4 w-4' />
-        </button>
+            <ChevronDown className='h-4 w-4' />
+          </button>
+          {showCreateButton && allowNewGameOption ? (
+            <button
+              type='button'
+              onClick={handleOpenCreateDialog}
+              className='inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:border-white/10 dark:text-slate-100 dark:hover:border-white/20 dark:hover:bg-white/10'
+            >
+              <Plus className='h-5 w-5' />
+              <span className='sr-only'>Create version</span>
+            </button>
+          ) : null}
+        </div>
       </div>
       {isMenuOpen && menuPosition && typeof document !== 'undefined'
         ? createPortal(
@@ -356,7 +383,19 @@ export function VersionSelector(props) {
 
   const renderInlineList = () => (
     <div className={inlineListContainerClass}>
-      <p className='px-1 text-xs font-semibold uppercase tracking-[0.25em] text-slate-400'>Versions</p>
+      <div className='flex items-center justify-between gap-2 px-1'>
+        <p className='text-xs font-semibold uppercase tracking-[0.25em] text-slate-400'>Versions</p>
+        {showCreateButton && allowNewGameOption ? (
+          <button
+            type='button'
+            onClick={handleOpenCreateDialog}
+            className='inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 text-slate-500 transition hover:border-slate-400 hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:border-white/10 dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-white/10'
+          >
+            <Plus className='h-4 w-4' />
+            <span className='sr-only'>Create version</span>
+          </button>
+        ) : null}
+      </div>
       <div className='space-y-2'>
         {versionOptions.map((option, index) => renderVersionOption(option, index))}
       </div>

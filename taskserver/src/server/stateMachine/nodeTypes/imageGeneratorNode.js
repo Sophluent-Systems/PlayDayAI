@@ -23,22 +23,29 @@ export class imageGeneratorNode extends nodeType {
 
         console.error("txt2img prompt: ", prompt);
 
-          const result = await doImageGeneration({seed, keySource, ...params ,prompt: prompt});
+          const generationResult = await doImageGeneration({seed, keySource, ...params ,prompt: prompt});
+          const imagePath = generationResult?.path ?? generationResult;
+          const metadata = generationResult?.metadata;
           
-          console.error("Received result from txt2img: ", result);
+          console.error("Received result from txt2img: ", imagePath);
 
           let returnVal = {
             state: "completed",
             eventsEmitted: ["completed"],
             output: {
                 result: {
-                    "image": result,
+                    "image": imagePath,
                 },
             },
             context: {
                 ...params,
                 prompt: prompt,
             }
+        }
+
+        if (metadata && Object.keys(metadata).length > 0) {
+            returnVal.output.result.metadata = metadata;
+            returnVal.context.metadata = metadata;
         }
 
         return returnVal;

@@ -41,10 +41,15 @@ async function doTxt2ImgRequest(params) {
   const response = await fetch(params.url, requestOptions);
 
   let buffer;
+  const metadata = {};
   if (response.ok) {
     const arrayBuffer = await response.arrayBuffer();
     buffer = Buffer.from(arrayBuffer);
     Constants.debug.logImageGen &&  console.log("txt2img returned file size=", buffer.length);
+    const synthId = response.headers?.get?.("x-goog-synthid");
+    if (!nullUndefinedOrEmpty(synthId, true)) {
+      metadata.synthId = synthId;
+    }
   } else {
     const failResponse = await response.text();
     const message = `stable diffusion API failure: status=${response.status}, response=${failResponse}`;
@@ -52,7 +57,10 @@ async function doTxt2ImgRequest(params) {
     throw new Error(message);
   }
 
-  return buffer;
+  return {
+    buffer,
+    metadata
+  };
 }
 
 export default {

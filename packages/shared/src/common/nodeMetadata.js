@@ -244,6 +244,9 @@ export class externalMultiInputMetadata extends nodeMetadata {
 export class codeBlockMetadata extends contextAwareMetadata {
     static parametersToCopy = [
         "code_UNSAFE",
+        "maxExecutionTimeMs",
+        "sandboxTTLHours",
+        "resetSandbox",
     ];
 
     static AllowedVariableOverrides = {
@@ -291,6 +294,9 @@ export class codeBlockMetadata extends contextAwareMetadata {
         inputs: [],
         params: {
             "code_UNSAFE": "console.log('Hello, world!');",
+            "maxExecutionTimeMs": 30000,
+            "sandboxTTLHours": 6,
+            "resetSandbox": false,
         }, 
         properties: {
             "reviewable": true,
@@ -771,6 +777,504 @@ export class imageGeneratorMetadata extends nodeMetadata {
     static defaultPersona = "builtInAssistant";
 }
 
+export class videoGenerationMetadata extends nodeMetadata {
+    static parametersToCopy = [
+        "prompt",
+        "model",
+        "serverUrl",
+        "endpoint",
+        "apiKey",
+        "videoGenerationSettings",
+    ];
+
+    static AllowedVariableOverrides = {
+        "prompt": {
+            label: "Prompt",
+            mediaType: "text",
+        }
+    };
+
+    static {
+        this.nodeAttributes = {
+            ...super.nodeAttributes,
+            addable: true,
+            label: "Video Generator",
+            tooltip: "Generate a video clip",
+            mediaTypes: ["video"],
+            isAIResponse: true,
+        };
+    }
+
+    static initMenu = [
+        {
+          label: "Give this new entry a name to help you keep track of it (not shown to users):",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "Video Generator",
+        },
+      ];
+
+    static newNodeTemplate = {
+        nodeType: "videoGenerator",
+        instanceName: "New Video Generator",
+        requireAllEventTriggers: false,
+        requireAllVariables: false,
+        inputs: [],
+        params: {
+            "prompt": "A cinematic drone shot over a futuristic city at sunset.",
+            "model": "sora-1.0",
+            "endpoint": "openai",
+            "serverUrl": "https://api.openai.com/v1/video/generations",
+            "apiKey": 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
+            "videoGenerationSettings": {
+                "durationSeconds": 8,
+                "frameRate": 24,
+                "aspectRatio": "16:9",
+                "stylePreset": "",
+                "safetySensitivity": "medium",
+                "negativePrompts": [],
+                "cameraPath": ""
+            }
+        },
+        properties: {
+            "reviewable": true,
+        },
+    };
+
+    getOutputs() {
+        return ["video", "metadata"];
+    }
+
+    static defaultPersona = "builtInAssistant";
+}
+
+export class perplexitySearchMetadata extends nodeMetadata {
+    static parametersToCopy = [
+        "query",
+        "searchConfig",
+        "serverUrl",
+        "apiKey",
+        "endpoint"
+    ];
+
+    static AllowedVariableOverrides = {
+        "query": {
+            label: "Query",
+            mediaType: "text",
+        }
+    };
+
+    static {
+        this.nodeAttributes = {
+            ...super.nodeAttributes,
+            addable: true,
+            label: "Perplexity Search",
+            tooltip: "Search the web and return ranked snippets",
+            mediaTypes: ["data"],
+        };
+    }
+
+    static initMenu = [
+        {
+          label: "Give this new entry a name to help you keep track of it (not shown to users):",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "Perplexity Search",
+        },
+      ];
+
+    static newNodeTemplate = {
+        nodeType: "perplexitySearch",
+        instanceName: "Perplexity Search",
+        requireAllEventTriggers: false,
+        requireAllVariables: false,
+        inputs: [],
+        params: {
+            "query": "Latest advancements in agent orchestration",
+            "searchConfig": {
+                "freshnessWindow": "7d",
+                "locale": "en-US",
+                "snippetLimit": 5,
+                "safeMode": true,
+                "allowedDomains": []
+            },
+            "endpoint": "perplexity",
+            "serverUrl": "https://api.perplexity.ai/search",
+            "apiKey": "setting:perplexityApiKey;px-xxxxxxxxxxxxxxxx",
+        },
+        properties: {
+            "reviewable": true,
+        },
+    };
+
+    getOutputs() {
+        return ["result", "snippets", "raw"];
+    }
+
+  static defaultPersona = "builtInDebug";
+}
+
+export class modelTrainingMetadata extends nodeMetadata {
+    static parametersToCopy = [
+        "baseModel",
+        "trainingDataset",
+        "trainingConfig",
+        "serverUrl",
+        "statusUrl",
+        "endpoint",
+        "apiKey",
+    ];
+
+    static AllowedVariableOverrides = {
+        "dataset": {
+            label: "Training Dataset",
+            mediaType: "data",
+        }
+    };
+
+    static {
+        this.nodeAttributes = {
+            ...super.nodeAttributes,
+            addable: true,
+            label: "Model Training",
+            tooltip: "Submit a fine-tuning job via Tinker",
+            mediaTypes: ["data"],
+        };
+    }
+
+    static initMenu = [
+        {
+          label: "Give this new entry a name to help you keep track of it (not shown to users):",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "Model Training",
+        },
+      ];
+
+    static newNodeTemplate = {
+        nodeType: "modelTraining",
+        instanceName: "Model Training",
+        requireAllEventTriggers: false,
+        requireAllVariables: false,
+        inputs: [],
+        params: {
+            "baseModel": "tinker/base-qwen-7b",
+            "trainingDataset": [],
+            "trainingConfig": {
+                "optimizer": "adamw",
+                "learningRate": 0.0001,
+                "epochs": 3,
+                "loraRank": 16,
+                "targetTokens": 200000,
+                "checkpointInterval": 1000,
+                "gpuTier": "A10",
+                "evalDatasets": [],
+                "pollIntervalSeconds": 5,
+                "maxPollAttempts": 12,
+            },
+            "endpoint": "tinker",
+            "statusUrl": "https://api.tinker.ai/v1/jobs",
+            "serverUrl": "https://api.tinker.ai/v1/jobs",
+            "apiKey": "setting:tinkerApiKey;tk-xxxxxxxxxxxxxxxx",
+        },
+        properties: {
+            "reviewable": true,
+        },
+    };
+
+    getOutputs() {
+        return ["result", "status", "details"];
+    }
+
+    static defaultPersona = "builtInDebug";
+}
+export class openAiAgentMetadata extends nodeMetadata {
+    static parametersToCopy = [
+        "model",
+        "serverUrl",
+        "endpoint",
+        "apiKey",
+        "agentBlueprint",
+        "connectorRefs",
+        "appSurface",
+        "observability"
+    ];
+
+    static AllowedVariableOverrides = {
+        "context": {
+            label: "Context",
+            mediaType: "text",
+        }
+    };
+
+    static inputTemplate = {
+        "includeHistory": true,
+        "historyParams": {
+            "spanSelectionMode": "full",
+            "ignoreCompression": false,
+            "includeDeleted": false,
+            "includeFailed": false,
+            "includedNodes": [], // all
+        },
+    }
+
+    static {
+        this.nodeAttributes = {
+            ...super.nodeAttributes,
+            addable: true,
+            label: "OpenAI AgentKit",
+            tooltip: "Execute an AgentKit blueprint using OpenAI Responses",
+            mediaTypes: ["text", "data"],
+            canUseHistoryAsInput: true,
+            isAIResponse: true,
+        };
+    }
+
+    static initMenu = [
+        {
+          label: "Give this new entry a name to help you keep track of it (not shown to users):",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "AgentKit",
+        },
+      ];
+
+    static newNodeTemplate = {
+        nodeType: "openAiAgent",
+        instanceName: "AgentKit Orchestrator",
+        canUseHistoryAsInput: true,
+        requireAllEventTriggers: true,
+        requireAllVariables: false,
+        inputs: [],
+        params: {
+            "model": "gpt-4.1-mini",
+            "endpoint": "openai",
+            "serverUrl": "https://api.openai.com/v1/responses",
+            "apiKey": 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
+            "agentBlueprint": {
+                "name": "Assistant",
+                "description": "Helpful agent",
+                "tools": [],
+                "memory": {
+                    "strategy": "ephemeral"
+                }
+            },
+            "connectorRefs": [],
+            "appSurface": "{}",
+            "observability": "{}",
+        },
+        properties: {
+            "reviewable": true,
+        },
+    };
+
+    static defaultPersona = "builtInAssistant";
+}
+
+export class microsoftAgentFrameworkMetadata extends contextAwareMetadata {
+    static parametersToCopy = [
+        "model",
+        "serverUrl",
+        "endpoint",
+        "apiKey",
+        "agentConfig",
+        "workflowVariables",
+        "azureResourceProfile",
+        "clientId",
+        "clientSecret",
+        "tenantId",
+        "scope",
+        "safetySettings",
+        "metadata"
+    ];
+
+    static AllowedVariableOverrides = {
+        "context": {
+            label: "Context",
+            mediaType: "text",
+        }
+    };
+
+    static inputTemplate = {
+        "includeHistory": true,
+        "historyParams": {
+            "spanSelectionMode": "full",
+            "ignoreCompression": false,
+            "includeDeleted": false,
+            "includeFailed": false,
+            "includedNodes": [],
+        },
+    };
+
+    static {
+        this.nodeAttributes = {
+            ...super.nodeAttributes,
+            addable: true,
+            label: "Microsoft Agent Framework",
+            tooltip: "Run an Agent Framework pipeline with Azure resources",
+            mediaTypes: ["text", "data"],
+            canUseHistoryAsInput: true,
+            isAIResponse: true,
+        };
+    }
+
+    static initMenu = [
+        {
+          label: "Give this new entry a name to help you keep track of it (not shown to users):",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "Agent Framework",
+        },
+      ];
+
+    static newNodeTemplate = {
+        nodeType: "microsoftAgentFramework",
+        instanceName: "Agent Framework Pipeline",
+        canUseHistoryAsInput: true,
+        requireAllEventTriggers: true,
+        requireAllVariables: false,
+        inputs: [],
+        params: {
+            "model": "microsoft-agent-framework",
+            "endpoint": "microsoft",
+            "serverUrl": "https://agentframework.microsoft.com/api/run",
+            "scope": "https://graph.microsoft.com/.default",
+            "apiKey": "setting:microsoftAgentFrameworkClientSecret;xxxxxxxx-xxxxxxxx",
+            "clientId": "setting:microsoftAgentFrameworkClientId;xxxxxxxx-xxxxxxxx",
+            "clientSecret": "",
+            "tenantId": "setting:azureEntraTenantId;xxxxxxxx-xxxxxxxx",
+            "agentConfig": {
+                "entryPoint": "main",
+                "graph": {
+                    "nodes": [],
+                },
+            },
+            "workflowVariables": {},
+            "azureResourceProfile": {
+                "tenantId": "",
+                "subscriptionId": "",
+                "aiFoundryEndpoint": "",
+                "loggingWorkspaceId": "",
+                "telemetrySampleRate": 1,
+            },
+            "safetySettings": {
+                "toolUse": "allowlisted",
+                "network": "restricted"
+            },
+            "metadata": "{}",
+        },
+        properties: {
+            "reviewable": true,
+        },
+    };
+
+    getOutputs() {
+        return ["result", "agentEvents", "artifactStoreRefs"];
+    }
+
+    static defaultPersona = "builtInAssistant";
+}
+
+export class uiAutomationMetadata extends nodeMetadata {
+    static parametersToCopy = [
+        "taskDescription",
+        "viewport",
+        "sessionState",
+        "model",
+        "serverUrl",
+        "endpoint",
+        "apiKey",
+        "maxSteps",
+        "stepDelayMs",
+        "safetySettings",
+        "metadata"
+    ];
+
+    static AllowedVariableOverrides = {
+        "taskDescription": {
+            label: "Task description",
+            mediaType: "text",
+        },
+        "viewport": {
+            label: "Viewport",
+            mediaType: "data",
+        },
+        "sessionState": {
+            label: "Session state",
+            mediaType: "data",
+        },
+    };
+
+    static {
+        this.nodeAttributes = {
+            ...super.nodeAttributes,
+            addable: true,
+            label: "UI Automation",
+            tooltip: "Use Gemini Computer Use to automate UI interactions",
+            mediaTypes: ["data"],
+        };
+    }
+
+    static initMenu = [
+        {
+          label: "Give this new entry a name to help you keep track of it (not shown to users):",
+          type: "text",
+          path: "instanceName",
+          tooltip: "A unique name for your reference.",
+          maxChar: 30,
+          multiline: false,
+          defaultValue: "UI Automation",
+        },
+      ];
+
+    static newNodeTemplate = {
+        nodeType: "uiAutomation",
+        instanceName: "UI Automation",
+        requireAllEventTriggers: false,
+        requireAllVariables: false,
+        inputs: [],
+        params: {
+            "taskDescription": "Audit the checkout flow and capture a summary of any blockers.",
+            "viewport": "",
+            "sessionState": {},
+            "model": "gemini-2.5-computer-use",
+            "endpoint": "google",
+            "serverUrl": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-user:computerUse",
+            "apiKey": "setting:googleLLMKey;sk-xxxxxxxxxxxxxxxxxxxxxxxx",
+            "maxSteps": 20,
+            "stepDelayMs": 500,
+            "safetySettings": {
+                "level": "strict"
+            },
+            "metadata": "{}",
+        },
+        properties: {
+            "reviewable": true,
+        },
+    };
+
+    getOutputs() {
+        return ["result", "actionPlan", "updatedViewport"];
+    }
+
+    static defaultPersona = "builtInAssistant";
+}
+
 export class llmMetadata extends nodeMetadata {
     static parametersToCopy = [
         "model",
@@ -942,6 +1446,7 @@ export class llmDataMetadata extends llmMetadata {
             "apiKey": 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
             "endpoint": "openai",
             "streaming": true,
+            "dataFieldsPassType": "all"
         }, 
         properties: {
             "reviewable": true,
@@ -1231,6 +1736,9 @@ export class sttMetadata extends nodeMetadata {
         "serverUrl",
         "model",
         "apiKey",
+        "endpoint",
+        "prompt",
+        "response_format",
     ];
 
     static AllowedVariableOverrides = {
@@ -1273,7 +1781,8 @@ export class sttMetadata extends nodeMetadata {
             "serverUrl": "https://api.openai.com/v1/audio/transcriptions",
             "endpoint": "openai",
             "apiKey": 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
-            "model": "gpt-4o-transcribe",
+            "model": "whisper-1",
+            "response_format": "text",
         }, 
         properties: {
             "reviewable": false,
@@ -1290,6 +1799,8 @@ export class ttsMetadata extends nodeMetadata {
         "model",
         "speed",
         "apiKey",
+        "endpoint",
+        "voice",
     ];
 
     static AllowedVariableOverrides = {
@@ -1341,7 +1852,7 @@ export class ttsMetadata extends nodeMetadata {
             "text": "The quick brown fox jumped over the lazy dog.",
             "endpoint": "openai",
             "apiKey": 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
-            "model": "tts-1",
+            "model": "gpt-4o-mini-tts",
             "voice": "alloy",
             "speed": 1,
         }, 
@@ -1503,6 +2014,7 @@ export class imagePromptWriterMetadata extends llmMetadata {
             "repetition_penalty": 1,
             "apiKey": 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
             "streaming": true,
+            "dataFieldsPassType": "all",
         }, 
         properties: {
             "reviewable": true,
@@ -1595,6 +2107,7 @@ export const nodeTypeLookupTable = {
     "forLoop": forLoopMetadata,
     "ifThenElse": ifThenElseMetadata ,
     "imageGenerator": imageGeneratorMetadata,
+    "videoGenerator": videoGenerationMetadata,
     "llm": llmMetadata,
     "llmData": llmDataMetadata,
     "fileStore": fileStoreMetadata,
@@ -1611,6 +2124,11 @@ export const nodeTypeLookupTable = {
     "arrayIndex": arrayIndexMetadata,
     "arrayIterator": arrayIteratorMetadata,
     "audioPlayback": audioPlaybackMetadata,
+    "openAiAgent": openAiAgentMetadata,
+    "microsoftAgentFramework": microsoftAgentFrameworkMetadata,
+    "perplexitySearch": perplexitySearchMetadata,
+    "uiAutomation": uiAutomationMetadata,
+    "modelTraining": modelTrainingMetadata,
 };
 
 //

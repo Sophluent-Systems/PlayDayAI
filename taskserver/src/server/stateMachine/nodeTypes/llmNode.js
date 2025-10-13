@@ -4,6 +4,28 @@ import { Config } from "@src/backend/config";
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { AIError } from '@src/common/errors';
 
+function parseStructuredValue(value) {
+    if (value == null) {
+        return null;
+    }
+    if (typeof value === "object") {
+        return value;
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed.length === 0) {
+            return null;
+        }
+        try {
+            return JSON.parse(trimmed);
+        } catch (error) {
+            console.warn("llmNode: failed to parse structured parameter", error);
+            return null;
+        }
+    }
+    return null;
+}
+
 export class llmNode extends nodeType {
 
     constructor({db, session, fullNodeDescription}) {
@@ -35,6 +57,29 @@ export class llmNode extends nodeType {
             keySource,
         }
         delete llmParameters.history;
+
+        if (!nullUndefinedOrEmpty(params.responseFormat, true)) {
+            llmParameters.responseFormat = params.responseFormat;
+        }
+
+        const safetySettings = parseStructuredValue(params.safetySettings);
+        if (safetySettings) {
+            llmParameters.safetySettings = safetySettings;
+        }
+
+        const providerConfig = parseStructuredValue(params.providerConfig ?? params.providerOptions);
+        if (providerConfig) {
+            llmParameters.providerConfig = providerConfig;
+        }
+
+        const contextWindow = Number(params.contextWindow ?? params.tokenLimit);
+        if (Number.isFinite(contextWindow) && contextWindow > 0) {
+            llmParameters.contextWindow = contextWindow;
+        }
+
+        if (nullUndefinedOrEmpty(llmParameters.provider)) {
+            llmParameters.provider = params.endpoint;
+        }
        
         return llmParameters;
     }

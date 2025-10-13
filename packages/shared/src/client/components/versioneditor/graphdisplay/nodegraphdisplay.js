@@ -121,6 +121,10 @@ export function NodeGraphDisplay(params) {
     const ref = useRef(null);
     const [doneInitialFitView, setDoneInitialFitView] = useState(false);
 
+    if (!nodes) {
+        return null;
+    }
+
     // Prevent the browser's context menu from appearing
     useEffect(() => {
         const handleContextMenu = (event) => {
@@ -165,24 +169,25 @@ export function NodeGraphDisplay(params) {
         onEdgeClicked?.(producerNode, consumerNode);
     }
 
-
-    if (!nodes) {
-        return null;
-    }
-
     useEffect(() => {
-        if (nodes) {
-            let stateMachineNodes = nodes;
-            if (stateMachineNodes.length == 0) {
-                // set graph and edges to empty
-                setGraphNodes([]);
-                setEdges([]);
-                return;
-            }
-                
-            if (stateMachineNodes[0].nodeType !== "start") {
-                throw new Error('NodeGraphDisplay: stateMachineNodes does not start with a start node!');
-            }
+        const nodes = versionInfo?.stateMachineDescription?.nodes;
+        if (!nodes) {
+            setGraphNodes([]);
+            setEdges([]);
+            return;
+        }
+
+        const stateMachineNodes = nodes;
+        if (stateMachineNodes.length === 0) {
+            // set graph and edges to empty
+            setGraphNodes([]);
+            setEdges([]);
+            return;
+        }
+        
+        if (stateMachineNodes[0].nodeType !== "start") {
+            throw new Error('NodeGraphDisplay: stateMachineNodes does not start with a start node!');
+        }
 
             // Generate a hash table of all nodes consuming a given instanceID
             let consumerNodesMap = {};
@@ -499,8 +504,7 @@ export function NodeGraphDisplay(params) {
                 }
                 return newEdges;
             });
-        }
-    }, [nodes]);
+    }, [versionInfo]);
 
 
     useEffect(() => {
@@ -625,7 +629,7 @@ export function NodeGraphDisplay(params) {
         let targetNode = nodes.find((node) => node.instanceID === target);
         if (sourceNode && targetNode) {
             
-            // If they're alreayd connected, onNodeStructureChange will find and ignore it. So just submit it.
+            // If they're already connected, onNodeStructureChange will find and ignore it. So just submit it.
 
             if (sourceType === "event") {
 
@@ -638,6 +642,27 @@ export function NodeGraphDisplay(params) {
             } else {
                 throw new Error('onConnect: input type not recognized ' + sourceType);
             }            
+
+            const edgeId =
+                sourceType === "event"
+                    ? `e-trigger-${source}-${sourceName}-${targetName}-${target}`
+                    : `e-variable-${source}-${sourceName}-${targetName}-${target}`;
+            setEdges((eds) => {
+                if (eds.some((edge) => edge.id === edgeId)) {
+                    return eds;
+                }
+                const newEdge = {
+                    id: edgeId,
+                    source,
+                    target,
+                    sourceHandle,
+                    targetHandle,
+                    type: 'customsmartedge',
+                    style: edgeStyle,
+                    markerEnd: makerEndStyle,
+                };
+                return [...eds, newEdge];
+            });
 
         } else {
             throw new Error('onConnect: source or target node not found' + source + ' ' + target);
@@ -1131,5 +1156,3 @@ export function NodeGraphDisplay(params) {
       </div>
     );
 }
-
-

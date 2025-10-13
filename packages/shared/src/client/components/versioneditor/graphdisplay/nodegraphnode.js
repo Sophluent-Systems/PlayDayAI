@@ -34,19 +34,19 @@ const defaultWidth = 240;
 
 const defaultHeight = 120;
 
-
+const handleHeight = 22;
 
 const handleBaseStyle = {
 
   width: defaultWidth,
 
-  height: '22px',
+  height: `${handleHeight}px`,
 
   background: 'transparent',
 
   border: 'transparent',
 
-  justifyContent: 'center',
+  justifyContent: 'flex-start',
 
   alignItems: 'center',
 
@@ -56,6 +56,24 @@ const handleBaseStyle = {
 
   zIndex: 1000,
 
+};
+
+const targetHandleWidth = 8;
+const targetHandleOffset = targetHandleWidth / 2;
+
+const targetHandleBaseStyle = {
+  width: targetHandleWidth,
+  height: `${handleHeight}px`,
+  background: 'transparent',
+  border: 'transparent',
+  justifyContent: 'center',
+  alignItems: 'center',
+  display: 'flex',
+  position: 'absolute',
+  zIndex: 1000,
+  overflow: 'visible',
+  pointerEvents: 'auto',
+  cursor: 'pointer',
 };
 
 
@@ -249,13 +267,23 @@ const NodeGraphNode = memo((props) => {
 
           id={`trigger-default`}
 
-          style={{ ...handleBaseStyle, left: 0, top: `${IOTopOffset}px` }}
+          style={{
+            ...targetHandleBaseStyle,
+            left: -targetHandleOffset,
+            top: IOTopOffset,
+          }}
 
           isConnectableStart={isConnecting}
 
         >
 
-          <div style={{ ...leftHandleContainerStyle, color: '#fff' }}>
+          <div style={{ 
+            ...leftHandleContainerStyle, 
+            color: '#fff',
+            width: defaultWidth,
+            position: 'absolute',
+            left: targetHandleOffset,
+          }}>
 
             <Play className="h-3.5 w-3.5" />
 
@@ -279,13 +307,25 @@ const NodeGraphNode = memo((props) => {
 
           id={`variable-${variable.value}`}
 
-          style={{ ...handleBaseStyle, left: 0, top: `${IOTopOffset + IOHeight + index * IOHeight}px` }}
+          style={{
+            ...targetHandleBaseStyle,
+            left: -targetHandleOffset,
+            top: IOTopOffset + IOHeight + index * IOHeight,
+          }}
 
           isConnectableStart={isConnecting}
 
         >
 
-          <div style={{ ...leftHandleContainerStyle, color: '#fff' }}>
+          <div
+            style={{
+              ...leftHandleContainerStyle,
+              color: '#fff',
+              width: defaultWidth,
+              position: 'absolute',
+              left: targetHandleOffset,
+            }}
+          >
 
             <span className="h-2 w-2 rounded-full bg-white/90" />
 

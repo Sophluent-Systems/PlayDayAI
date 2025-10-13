@@ -10,25 +10,63 @@ import { PrimaryButton, SecondaryButton } from '@src/client/components/ui/button
 import { StatusPanel } from '@src/client/components/ui/statuspanel';
 import { getNestedObjectProperty, setNestedObjectProperty, nullUndefinedOrEmpty } from '@src/common/objects';
 import { useConfig } from '@src/client/configprovider';
-import { Key, Settings } from 'lucide-react';
+import { Key, Settings, Eye, EyeOff } from 'lucide-react';
 
-function TextPreference({ label, path, preferences, setPreferences }) {
+function TextPreference({
+  label,
+  path,
+  preferences,
+  setPreferences,
+  placeholder = 'Paste your value',
+  isSecret = true,
+  multiline = false,
+}) {
   const value = getNestedObjectProperty(preferences, path) ?? '';
+  const sharedClassName =
+    'rounded-2xl border border-border/60 bg-surface px-4 py-3 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none';
+  const [isVisible, setIsVisible] = useState(false);
+  const inputType = isSecret && !isVisible ? 'password' : 'text';
 
   return (
     <label className="flex flex-col gap-2 text-sm font-semibold text-emphasis">
       <span>{label}</span>
-      <input
-        type="password"
-        value={value}
-        placeholder="Paste your API key"
-        onChange={(event) => {
-          const next = { ...preferences };
-          setNestedObjectProperty(next, path, event.target.value);
-          setPreferences(next);
-        }}
-        className="rounded-2xl border border-border/60 bg-surface px-4 py-3 text-sm text-emphasis shadow-inner focus:border-primary focus:outline-none"
-      />
+      {multiline ? (
+        <textarea
+          value={value}
+          placeholder={placeholder}
+          rows={4}
+          onChange={(event) => {
+            const next = { ...preferences };
+            setNestedObjectProperty(next, path, event.target.value);
+            setPreferences(next);
+          }}
+          className={`${sharedClassName} min-h-[120px] resize-y`}
+        />
+      ) : (
+        <div className="relative flex items-center">
+          <input
+            type={inputType}
+            value={value}
+            placeholder={placeholder}
+            onChange={(event) => {
+              const next = { ...preferences };
+              setNestedObjectProperty(next, path, event.target.value);
+              setPreferences(next);
+            }}
+            className={`${sharedClassName} pr-12`}
+          />
+          {isSecret && (
+            <button
+              type="button"
+              onClick={() => setIsVisible((prev) => !prev)}
+              className="absolute right-3 inline-flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            >
+              {isVisible ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+              <span className="sr-only">{isVisible ? 'Hide value' : 'Show value'}</span>
+            </button>
+          )}
+        </div>
+      )}
     </label>
   );
 }
@@ -67,20 +105,89 @@ export default function Home() {
   const [preferences, setPreferences] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (!account) {
-      return;
-    }
-    const base = {
+  const buildBasePreferences = React.useCallback(
+    (incoming = {}) => ({
       openAIkey: '',
       anthropicKey: '',
       googleLLMKey: '',
       stabilityAIKey: '',
       elevenLabsKey: '',
-      ...account.preferences,
-    };
-    setPreferences(base);
-  }, [account]);
+      openaiAgentKitWebhookSecret: '',
+      openaiConnectorRegistryKey: '',
+      microsoftAgentFrameworkClientId: '',
+      microsoftAgentFrameworkClientSecret: '',
+      azureAiFoundryEndpoint: '',
+      azureEntraTenantId: '',
+      googleAdsServiceAccountKey: '',
+      perplexityApiKey: '',
+      ibmApiConnectKey: '',
+      ibmApiConnectSecret: '',
+      tinkerApiKey: '',
+      tinkerWebhookSecret: '',
+      openRouterApiKey: '',
+      temporalCloudApiKey: '',
+      ...incoming,
+    }),
+    []
+  );
+
+  const apiKeyGroups = React.useMemo(
+    () => [
+      {
+        title: 'Core model providers',
+        fields: [
+          { label: 'OpenAI', path: 'openAIkey' },
+          { label: 'Anthropic', path: 'anthropicKey' },
+          { label: 'Google Gemini', path: 'googleLLMKey' },
+          { label: 'OpenRouter', path: 'openRouterApiKey' },
+        ],
+      },
+      {
+        title: 'Agent orchestration & platform',
+        fields: [
+          { label: 'OpenAI AgentKit webhook secret', path: 'openaiAgentKitWebhookSecret' },
+          { label: 'OpenAI Connector Registry key', path: 'openaiConnectorRegistryKey' },
+          { label: 'Microsoft Agent Framework client ID', path: 'microsoftAgentFrameworkClientId', isSecret: false, placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
+          { label: 'Microsoft Agent Framework client secret', path: 'microsoftAgentFrameworkClientSecret' },
+          { label: 'Azure AI Foundry endpoint', path: 'azureAiFoundryEndpoint', isSecret: false, placeholder: 'https://your-resource.cognitiveservices.azure.com' },
+          { label: 'Azure Entra tenant ID', path: 'azureEntraTenantId', isSecret: false, placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
+          { label: 'Temporal Cloud API key', path: 'temporalCloudApiKey' },
+        ],
+      },
+      {
+        title: 'Media & speech services',
+        fields: [
+          { label: 'Stability AI', path: 'stabilityAIKey' },
+          { label: 'ElevenLabs', path: 'elevenLabsKey' },
+        ],
+      },
+      {
+        title: 'Data & automation APIs',
+        fields: [
+          { label: 'Perplexity Search API', path: 'perplexityApiKey' },
+          {
+            label: 'Google Ads MCP service account (JSON)',
+            path: 'googleAdsServiceAccountKey',
+            isSecret: false,
+            multiline: true,
+            placeholder: '{ "type": "service_account", ... }',
+          },
+          { label: 'IBM API Connect key', path: 'ibmApiConnectKey' },
+          { label: 'IBM API Connect secret', path: 'ibmApiConnectSecret' },
+          { label: 'Tinker API key', path: 'tinkerApiKey' },
+          { label: 'Tinker webhook secret', path: 'tinkerWebhookSecret' },
+        ],
+      },
+    ],
+    []
+  );
+
+  useEffect(() => {
+    if (!account) {
+      return;
+    }
+    setPreferences(buildBasePreferences(account.preferences ?? {}));
+  }, [account, buildBasePreferences]);
 
   const handleSave = async () => {
     if (!account || !preferences) {
@@ -133,48 +240,48 @@ export default function Home() {
             </GlassCard>
 
             <GlassCard>
-              <div className="grid gap-6 md:grid-cols-2">
-                <TextPreference
-                  label="OpenAI"
-                  path="openAIkey"
-                  preferences={preferences}
-                  setPreferences={setPreferences}
-                />
-                <TextPreference
-                  label="Anthropic"
-                  path="anthropicKey"
-                  preferences={preferences}
-                  setPreferences={setPreferences}
-                />
-                <TextPreference
-                  label="Google Gemini"
-                  path="googleLLMKey"
-                  preferences={preferences}
-                  setPreferences={setPreferences}
-                />
-                <TextPreference
-                  label="Stability AI"
-                  path="stabilityAIKey"
-                  preferences={preferences}
-                  setPreferences={setPreferences}
-                />
-                <TextPreference
-                  label="ElevenLabs"
-                  path="elevenLabsKey"
-                  preferences={preferences}
-                  setPreferences={setPreferences}
-                />
-                <SelectPreference
-                  label="Auto-scroll behaviour"
-                  path="scrollingMode"
-                  options={Constants.scrollingModeOptions}
-                  defaultValue={Constants.defaultScrollingMode}
-                  preferences={preferences}
-                  setPreferences={setPreferences}
-                />
+              <div className="space-y-10">
+                {apiKeyGroups.map((group) => (
+                  <section key={group.title} className="space-y-4">
+                    <h2 className="text-xs font-semibold uppercase tracking-[0.35em] text-muted">
+                      {group.title}
+                    </h2>
+                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                      {group.fields.map((field) => (
+                        <TextPreference
+                          key={field.path}
+                          label={field.label}
+                          path={field.path}
+                          preferences={preferences}
+                          setPreferences={setPreferences}
+                          placeholder={field.placeholder}
+                          isSecret={field.isSecret !== false}
+                          multiline={field.multiline || false}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ))}
+                <section className="space-y-4">
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.35em] text-muted">
+                    Playback settings
+                  </h2>
+                  <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                    <SelectPreference
+                      label="Auto-scroll behaviour"
+                      path="scrollingMode"
+                      options={Constants.scrollingModeOptions}
+                      defaultValue={Constants.defaultScrollingMode}
+                      preferences={preferences}
+                      setPreferences={setPreferences}
+                    />
+                  </div>
+                </section>
               </div>
               <div className="mt-6 flex justify-end gap-3">
-                <SecondaryButton onClick={() => setPreferences(account.preferences ?? {})}>
+                <SecondaryButton
+                  onClick={() => setPreferences(buildBasePreferences(account.preferences ?? {}))}
+                >
                   Reset
                 </SecondaryButton>
                 <PrimaryButton onClick={handleSave} disabled={saving}>

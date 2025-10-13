@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Processor-Oriented Mental Model
  * --------------------------------
  * The task server executes graph nodes the way a simple CPU executes instructions.
@@ -113,6 +113,12 @@ import { Config } from "@src/backend/config";
 import { exportRecordsAsMessageList } from '@src/backend/messageHistory';
 import { RecordHistory } from './recordHistory';
 import { imageGeneratorNode } from './nodeTypes/imageGeneratorNode.js';
+import { videoGenerationNode } from './nodeTypes/videoGenerationNode.js';
+import { openAiAgentKitNode } from './nodeTypes/openAiAgentKitNode.js';
+import { microsoftAgentFrameworkNode } from './nodeTypes/microsoftAgentFrameworkNode.js';
+import { uiAutomationNode } from './nodeTypes/uiAutomationNode.js';
+import { perplexitySearchNode } from './nodeTypes/perplexitySearchNode.js';
+import { adsCampaignInsightsNode } from './nodeTypes/adsCampaignInsightsNode.js';
 import { sttNode } from './nodeTypes/sttNode.js';
 import { ttsNode } from './nodeTypes/ttsNode.js';
 import { audioPlaybackNode } from './nodeTypes/audioPlaybackNode.js';
@@ -127,6 +133,7 @@ import { delayNode } from './nodeTypes/delayNode';
 import { randomNumberNode } from './nodeTypes/randomNumber.js';
 import { externalTextInput } from './nodeTypes/externalTextInput.js';
 import { externalMultiInput } from './nodeTypes/externalMultiInput';
+import { modelTrainingNode } from './nodeTypes/modelTrainingNode.js';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { getNodePersonaDetails } from '@src/common/personainfo';
 import { forLoopNode } from './nodeTypes/forLoopNode';
@@ -146,6 +153,12 @@ export const nodeTypeLookupTable = {
     "externalTextInput": externalTextInput,
     "externalMultiInput": externalMultiInput,
     "imageGenerator": imageGeneratorNode,
+    "videoGenerator": videoGenerationNode,
+    "openAiAgent": openAiAgentKitNode,
+    "microsoftAgentFramework": microsoftAgentFrameworkNode,
+    "uiAutomation": uiAutomationNode,
+    "perplexitySearch": perplexitySearchNode,
+    "adsCampaignInsights": adsCampaignInsightsNode,
     "llm": llmNode,
     "llmData": llmDataNode,
     "randomNumber": randomNumberNode,
@@ -160,6 +173,7 @@ export const nodeTypeLookupTable = {
     "whileLoop": whileLoopNode,
     "arrayIndex": arrayIndexNode,
     "arrayIterator": arrayIteratorNode,
+    "modelTraining": modelTrainingNode,
 };
 
 
@@ -278,6 +292,10 @@ export class StateMachine {
             arrayIndex: 'ARRAY INDEX',
             randomNumber: 'RANDOM NUMBER',
             imageGenerator: 'IMAGE GENERATOR',
+            videoGenerator: 'VIDEO GENERATOR',
+            openAiAgent: 'OPENAI AGENT',
+            perplexitySearch: 'PERPLEXITY SEARCH',
+            adsCampaignInsights: 'ADS CAMPAIGN INSIGHTS',
             scenario: 'SCENARIO',
             start: 'START',
             delay: 'DELAY',
@@ -353,7 +371,7 @@ export class StateMachine {
             return this.aiPriorityNodeTypeSet;
         }
         const config = this.getStateMachineConfig();
-        const defaults = ["llm", "llmData", "imageGenerator", "tts", "stt", "audioPlayback"];
+        const defaults = ["llm", "llmData", "imageGenerator", "videoGenerator", "tts", "stt", "audioPlayback"];
         const configured = Array.isArray(config.aiPriorityNodeTypes) ? config.aiPriorityNodeTypes : defaults;
         this.aiPriorityNodeTypeSet = new Set(configured);
         return this.aiPriorityNodeTypeSet;

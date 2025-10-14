@@ -1,6 +1,7 @@
 import { nullUndefinedOrEmpty } from '@src/common/objects.js';
 import { nodeType } from  './nodeType.js';
 import { doImageGeneration } from '../../imageGen.js';
+import { applyStableDiffusionGuardrail } from '@src/common/stableDiffusionGuardrails.js';
 
 export class imageGeneratorNode extends nodeType {
     constructor({db, session, fullNodeDescription}) {
@@ -15,21 +16,35 @@ export class imageGeneratorNode extends nodeType {
     //
     async runImpl({params, seed, keySource}) {
 
-        let prompt = params.prompt;
+        const baseParams = params ?? {};
+        const guardrailedParams =
+          (baseParams?.endpoint ?? "") === "stablediffusion"
+            ? applyStableDiffusionGuardrail(baseParams.model, baseParams)
+            : { ...baseParams };
 
-        if (!nullUndefinedOrEmpty(params.extraPromptParams)) {
-                prompt = prompt + "\n" + params.extraPromptParams;
+        const promptSections = [];
+        if (!nullUndefinedOrEmpty(guardrailedParams.prompt)) {
+                promptSections.push(guardrailedParams.prompt);
         }
+        if (!nullUndefinedOrEmpty(guardrailedParams.extraPromptParams)) {
+                promptSections.push(guardrailedParams.extraPromptParams);
+        }
+        const combinedPrompt = promptSections.join("\n");
 
-        console.error("txt2img prompt: ", prompt);
+        console.error("txt2img prompt: ", combinedPrompt);
 
-          const generationResult = await doImageGeneration({seed, keySource, ...params ,prompt: prompt});
-          const imagePath = generationResult?.path ?? generationResult;
-          const metadata = generationResult?.metadata;
-          
-          console.error("Received result from txt2img: ", imagePath);
+        const paramsForGeneration = {
+            ...guardrailedParams,
+            prompt: combinedPrompt
+        };
 
-          let returnVal = {
+        const generationResult = await doImageGeneration({seed, keySource, ...paramsForGeneration});
+        const imagePath = generationResult?.path ?? generationResult;
+        const metadata = generationResult?.metadata;
+        
+        console.error("Received result from txt2img: ", imagePath);
+
+        let returnVal = {
             state: "completed",
             eventsEmitted: ["completed"],
             output: {
@@ -38,8 +53,7 @@ export class imageGeneratorNode extends nodeType {
                 },
             },
             context: {
-                ...params,
-                prompt: prompt,
+                ...paramsForGeneration,
             }
         }
 

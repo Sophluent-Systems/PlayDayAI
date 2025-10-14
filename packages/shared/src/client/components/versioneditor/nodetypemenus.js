@@ -3,6 +3,18 @@ import { ifThenElseMetadata } from '@src/common/nodeMetadata';
 
 const FALLBACK_TRAINING_KEY = 'tinker';
 const FALLBACK_TRAINING_URL = 'https://api.tinker.ai/v1/jobs';
+const FALLBACK_ASPECT_RATIOS = [
+  "21:9",
+  "16:9",
+  "3:2",
+  "4:3",
+  "5:4",
+  "1:1",
+  "4:5",
+  "3:4",
+  "2:3",
+  "9:16",
+];
 
 const trainingEndpoints = Constants?.endpoints?.training ?? {};
 const trainingEndpointKeys = Object.keys(trainingEndpoints);
@@ -17,6 +29,17 @@ const defaultTrainingSubmitUrl =
   trainingEndpoints[defaultTrainingKey]?.defaultUrl ?? FALLBACK_TRAINING_URL;
 const defaultTrainingStatusUrl =
   trainingEndpoints[defaultTrainingKey]?.statusUrl ?? FALLBACK_TRAINING_URL;
+
+const stabilityImageEndpoint =
+  Constants?.endpoints?.imageGeneration?.stablediffusion ?? {};
+const stabilityAspectRatios =
+  stabilityImageEndpoint.supportedAspectRatios ?? FALLBACK_ASPECT_RATIOS;
+const stabilityAspectRatioOptions = stabilityAspectRatios.map((ratio) => ({
+  label: ratio,
+  value: ratio,
+}));
+const stabilityDefaultAspectRatio =
+  stabilityImageEndpoint.defaultAspectRatio ?? '1:1';
 
 export const nodeTypeMenus = {
   start: [{
@@ -1097,6 +1120,14 @@ export const nodeTypeMenus = {
           tooltip: "The requested height of the image.",
         },
         {
+          label: "Aspect ratio (Stability / Flux models)",
+          type: "dropdown",
+          path: "params.aspectRatio",
+          tooltip: "Used by SD3/SD3.5 and Flux models. Width and height are ignored for these models.",
+          options: stabilityAspectRatioOptions,
+          defaultValue: stabilityDefaultAspectRatio,
+        },
+        {
           label: "Extra Parameters",
           type: "text",
           path: "params.extraPromptParams",
@@ -1175,6 +1206,54 @@ export const nodeTypeMenus = {
                   path: "params.sampling_method",
                   tooltip: "Sampling method.",
                   defaultValue: "Euler a",
+                },
+                {
+                  label: "Style preset (Stability AI)",
+                  type: "text",
+                  maxChar: 128,
+                  path: "params.stylePreset",
+                  tooltip: "Optional Stability AI style preset (for example: photographic, enhance).",
+                  defaultValue: "",
+                },
+                {
+                  label: "Safety filter",
+                  type: "dropdown",
+                  path: "params.safetyFilter",
+                  tooltip: "Set the Stability AI safety filter behaviour.",
+                  options: [
+                    { label: "Moderate (default)", value: "moderate" },
+                    { label: "Strict", value: "strict" },
+                    { label: "Disable", value: "disable" },
+                  ],
+                  defaultValue: "moderate",
+                },
+                {
+                  label: "Output format",
+                  type: "dropdown",
+                  path: "params.outputFormat",
+                  tooltip: "Image file format requested from the API.",
+                  options: [
+                    { label: "PNG", value: "png" },
+                    { label: "JPEG", value: "jpeg" },
+                    { label: "WebP", value: "webp" },
+                  ],
+                  defaultValue: "png",
+                },
+                {
+                  label: "Output quality",
+                  type: "decimal",
+                  range: [1, 100],
+                  path: "params.outputQuality",
+                  tooltip: "Quality percentage for lossy formats (ignored for PNG).",
+                  defaultValue: 90,
+                },
+                {
+                  label: "Samples",
+                  type: "decimal",
+                  range: [1, 10],
+                  path: "params.samples",
+                  tooltip: "Number of images to generate per request.",
+                  defaultValue: 1,
                 },
               ]
             }

@@ -1,11 +1,46 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import clsx from "clsx";
 
 export function CollapsibleSection({ title, collapsedView, children, defaultExpanded }) {
   const [open, setOpen] = useState(Boolean(defaultExpanded));
+  const contentRef = useRef(null);
+  const [maxHeight, setMaxHeight] = useState(open ? "none" : "0px");
+
+  useEffect(() => {
+    const node = contentRef.current;
+    if (!node) {
+      return;
+    }
+
+    let timeoutId = null;
+    let rafId = null;
+
+    if (open) {
+      const measured = node.scrollHeight;
+      setMaxHeight(`${measured}px`);
+      timeoutId = setTimeout(() => {
+        setMaxHeight("none");
+      }, 250);
+    } else {
+      const measured = node.scrollHeight;
+      setMaxHeight(`${measured}px`);
+      rafId = requestAnimationFrame(() => {
+        setMaxHeight("0px");
+      });
+    }
+
+    return () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [open, children]);
 
   return (
     <div className="w-full">
@@ -27,9 +62,10 @@ export function CollapsibleSection({ title, collapsedView, children, defaultExpa
       </button>
       <div
         className={clsx(
-          "overflow-hidden transition-[max-height] duration-300 ease-in-out",
-          open ? "max-h-[1200px]" : "max-h-0"
+          "overflow-hidden transition-[max-height] duration-300 ease-in-out"
         )}
+        style={{ maxHeight }}
+        ref={contentRef}
       >
         <div className="mt-4 rounded-3xl border border-border/60 bg-surface/90 p-6 shadow-inner">
           {children}

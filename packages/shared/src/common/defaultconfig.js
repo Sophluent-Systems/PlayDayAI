@@ -185,10 +185,25 @@ const defaultConstantsJSON = `
         "imageGeneration": {
             "stablediffusion": {
                 "label": "Stable Diffusion",
-                "defaultUrl": "http://img.playday.ai:7880/sdapi/v1/txt2img",
+                "defaultUrl": "https://api.stability.ai/v2beta/stable-image/generate",
                 "defaultModel": "sd3.5-large",
                 "defaultWidth": 1024,
-                "defaultHeight": 1024
+                "defaultHeight": 1024,
+                "defaultAspectRatio": "1:1",
+                "defaultOutputFormat": "png",
+                "defaultOutputQuality": 90,
+                "supportedAspectRatios": [
+                    "21:9",
+                    "16:9",
+                    "3:2",
+                    "4:3",
+                    "5:4",
+                    "1:1",
+                    "4:5",
+                    "3:4",
+                    "2:3",
+                    "9:16"
+                ]
             },
             "openai": {
                 "label": "OpenAI",
@@ -364,7 +379,16 @@ const defaultConstantsJSON = `
                     "sd3.5-large-turbo",
                     "sd3.5-medium",
                     "sd3.5-flash",
-                    "core"
+                    "sd3-large",
+                    "sd3-large-turbo",
+                    "sd3-medium",
+                    "sd3-flash",
+                    "core",
+                    "sdxl-1.0",
+                    "sdxl-lightning",
+                    "sdxl-turbo",
+                    "flux-pro",
+                    "flux-fast"
                 ],
                 "label": "Stable Diffusion",
                 "type": "stablediffusion",
@@ -372,7 +396,34 @@ const defaultConstantsJSON = `
                 "defaultAPIKey": "setting:stabilityAIKey;sk-xxxxxxxxxxxxxxxxxxxxxxxx",
                 "defaultModel": "sd3.5-large",
                 "defaultWidth": 1024,
-                "defaultHeight": 1024
+                "defaultHeight": 1024,
+                "defaultAspectRatio": "1:1",
+                "supportedAspectRatios": [
+                    "21:9",
+                    "16:9",
+                    "3:2",
+                    "4:3",
+                    "5:4",
+                    "1:1",
+                    "4:5",
+                    "3:4",
+                    "2:3",
+                    "9:16"
+                ],
+                "defaultOutputFormat": "png",
+                "defaultOutputQuality": 90,
+                "aspectRatioModels": [
+                    "sd3.5-large",
+                    "sd3.5-large-turbo",
+                    "sd3.5-medium",
+                    "sd3.5-flash",
+                    "sd3-large",
+                    "sd3-large-turbo",
+                    "sd3-medium",
+                    "sd3-flash",
+                    "flux-pro",
+                    "flux-fast"
+                ]
             },
             "openai": {
                 "models": [

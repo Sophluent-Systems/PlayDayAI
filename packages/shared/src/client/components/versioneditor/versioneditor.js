@@ -404,11 +404,6 @@ function VersionEditor(props) {
       return;
     }
     const nextReadOnly = shouldBeReadOnly();
-    console.log("[NODE-DROP-PROBE]", {
-      phase: "permission-check",
-      gamePermissions,
-      nextReadOnly,
-    });
     if (nextReadOnly !== readOnly) {
       setreadOnly(nextReadOnly);
     }

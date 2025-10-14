@@ -534,16 +534,10 @@ export function NodeGraphDisplay(params) {
     (event) => {
       event.preventDefault();
       if (readOnly) {
-        console.log("[NODE-DROP-PROBE]", { skipped: "readOnly", readOnly });
         return;
       }
 
       const eventData = event.dataTransfer.getData('application/reactflow');
-      console.log("[NODE-DROP-PROBE]", {
-        hasData: Boolean(eventData),
-        types: Array.from(event?.dataTransfer?.types ?? []),
-        readOnly,
-      });
 
       if (!eventData) {
         return;
@@ -551,12 +545,6 @@ export function NodeGraphDisplay(params) {
 
       try {
         const dropAction = JSON.parse(eventData);
-        console.log("[NODE-DROP-PROBE]", {
-          parsed: true,
-          action: dropAction?.action,
-          template: dropAction?.template,
-          nodeId: dropAction?.node?.instanceID,
-        });
 
         if (dropAction.action === "add") {
           onNodeStructureChange?.(null, "add", { templateName: dropAction.template });
@@ -564,7 +552,7 @@ export function NodeGraphDisplay(params) {
           onNodeStructureChange?.(dropAction.node, "duplicate", {});
         }
       } catch (e) {
-        console.error("[NODE-DROP-PROBE] onDrop: Error parsing graph event data", e, { raw: eventData });
+        return;
       }
     },
     [readOnly, onNodeStructureChange],

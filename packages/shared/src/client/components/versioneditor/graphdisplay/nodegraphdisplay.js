@@ -110,7 +110,7 @@ const ContextMenuItem = ({ icon, children, onSelect, onClose }) => (
 
 export function NodeGraphDisplay(params) {
     const { theme, versionInfo, onNodeClicked, onEdgeClicked, onNodeStructureChange, onPersonaListChange, readOnly } = params;
-    const nodes = versionInfo.stateMachineDescription.nodes;
+    const nodes = versionInfo?.stateMachineDescription?.nodes ?? [];
     const [graphNodes, setGraphNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [selectedNodes, setSelectedNodes] = useState([]);
@@ -120,10 +120,6 @@ export function NodeGraphDisplay(params) {
     const [paneMenu, setPaneMenu] = useState(null);
     const ref = useRef(null);
     const [doneInitialFitView, setDoneInitialFitView] = useState(false);
-
-    if (!nodes) {
-        return null;
-    }
 
     // Prevent the browser's context menu from appearing
     useEffect(() => {
@@ -401,34 +397,32 @@ export function NodeGraphDisplay(params) {
                 subgraphStartYOffset += totalSubgraphHeight + 160;  // Increment yOffset for the next subgraph dynamically
             });
 
-            setGraphNodes((nds) => {
-                let newNodes = [];
-                stateMachineNodes.forEach(node => {                    
-                    let graphNode = findGraphNode(nds, node.instanceID);
-                    if (!graphNode) {
-                        graphNode = {
-                            id: node.instanceID,
-                            type: 'nodeGraphNode',
-                            dragHandle: '.custom-drag-handle',
-                            data: {
-                                versionInfo,
-                                node,
-                                theme,
-                                isSelected: selectedNodes.includes(node.instanceID),
-                                onClicked: () => handleNodeClicked(node),
-                                readOnly,
-                            }
-                        };
-                    } else {
-                        graphNode.data = {...graphNode.data, versionInfo, node, theme};
-                    }
-                    graphNode.position = positions[node.instanceID];
-                    graphNode.data.label = node.instanceName;
-                    newNodes.push(graphNode);
-                });
+            setGraphNodes((nds) =>
+                stateMachineNodes.map((node) => {
+                    const existingNode = findGraphNode(nds, node.instanceID);
+                    const baseNode = {
+                        id: node.instanceID,
+                        type: 'nodeGraphNode',
+                        dragHandle: '.custom-drag-handle',
+                    };
+                    const nextData = {
+                        ...(existingNode?.data ?? {}),
+                        versionInfo,
+                        node,
+                        theme,
+                        readOnly,
+                        onClicked: () => handleNodeClicked(node),
+                        label: node.instanceName,
+                    };
 
-                return newNodes;
-            });
+                    return {
+                        ...(existingNode ?? baseNode),
+                        ...baseNode,
+                        position: positions[node.instanceID],
+                        data: nextData,
+                    };
+                })
+            );
             
             setEdges((eds) => {
                 let newEdges = [];
@@ -504,19 +498,31 @@ export function NodeGraphDisplay(params) {
                 }
                 return newEdges;
             });
-    }, [versionInfo]);
+    }, [versionInfo, theme, readOnly]);
 
 
     useEffect(() => {
-        if (selectedNodes != null) {
-            setGraphNodes((nds) => nds.map((graphNode) => {
-                    graphNode.data = {
-                        ...graphNode.data, 
-                        isSelected: selectedNodes.includes(graphNode.id),
-                    }
-                    return graphNode;
-                }));
+        if (!selectedNodes) {
+            return;
         }
+
+        const selectedSet = new Set(selectedNodes);
+        setGraphNodes((nds) =>
+            nds.map((graphNode) => {
+                const nextSelected = selectedSet.has(graphNode.id);
+                if (graphNode.data?.isSelected === nextSelected) {
+                    return graphNode;
+                }
+
+                return {
+                    ...graphNode,
+                    data: {
+                        ...graphNode.data,
+                        isSelected: nextSelected,
+                    },
+                };
+            })
+        );
     }, [selectedNodes]);
     
   const onDragOver = useCallback((event) => {
@@ -568,6 +574,7 @@ export function NodeGraphDisplay(params) {
         (event, node) => {
           // Prevent native context menu from showing
           event.preventDefault();
+          if (readOnly) { return };
             
           if (!node.selected) {
             setSelectedNodes([node.id]);
@@ -594,7 +601,7 @@ export function NodeGraphDisplay(params) {
           let newNodeMenu = nodeInstance ? { top: event.clientY, left: event.clientX} : null;
           setNodeMenu(newNodeMenu);
         },
-        [setNodeMenu, nodes],
+        [setNodeMenu, nodes, readOnly],
       );
       
     const handleDeleteNodes = (event) => {
@@ -687,13 +694,18 @@ export function NodeGraphDisplay(params) {
         }
     }
     
-    const handleSelectionChange = ({ nodes, edges }) => {
-            const newSelectedNodes = nodes.map((node) => node.id);
-            // if the selection is different from the current selection, update the state
-            if (newSelectedNodes.length !== selectedNodes.length || newSelectedNodes.find((node) => !selectedNodes.includes(node))) {
-                setSelectedNodes(newSelectedNodes);
+    const handleSelectionChange = useCallback(({ nodes }) => {
+        setSelectedNodes((currentSelection) => {
+            const nextSelection = nodes.map((node) => node.id);
+            if (
+                nextSelection.length === currentSelection.length &&
+                nextSelection.every((id) => currentSelection.includes(id))
+            ) {
+                return currentSelection;
             }
-    };
+            return nextSelection;
+        });
+    }, []);
 
     const handleSelectionContextMenu = useCallback(
       (event, graphNodes) => {
@@ -715,7 +727,7 @@ export function NodeGraphDisplay(params) {
         let newNodeMenu = nodeInstances ? {nodes: nodeInstances, top: event.clientY, left: event.clientX} : null;
         setNodeMenu(newNodeMenu);
       },
-      [setNodeMenu, nodes],
+      [setNodeMenu, nodes, readOnly],
     );
 
     const handleEdgeContextMenu = useCallback(
@@ -735,7 +747,7 @@ export function NodeGraphDisplay(params) {
             left: event.clientX,
           });
         },
-        [setEdgeMenu, nodes],
+        [setEdgeMenu, nodes, readOnly],
       );
 
     const handleDeleteEdge = (event, node, edge) => {
@@ -764,10 +776,33 @@ export function NodeGraphDisplay(params) {
         setEdgeMenu(null);
     }
 
+    const clearSelection = useCallback(() => {
+        setSelectedNodes((current) => (current.length ? [] : current));
+        setGraphNodes((nds) =>
+            nds.map((graphNode) => {
+                const alreadyCleared =
+                    !graphNode.selected && !graphNode.data?.isSelected;
+                if (alreadyCleared) {
+                    return graphNode;
+                }
+
+                return {
+                    ...graphNode,
+                    selected: false,
+                    data: {
+                        ...graphNode.data,
+                        isSelected: false,
+                    },
+                };
+            })
+        );
+    }, [setGraphNodes, setSelectedNodes]);
+
     const handlePaneContextMenu = useCallback(
         (event) => {
             // Prevent native context menu from showing
             event.preventDefault();
+            if (readOnly) { return };
 
             setNodeMenu(null);
             setEdgeMenu(null);
@@ -778,7 +813,7 @@ export function NodeGraphDisplay(params) {
             const pane = ref.current.getBoundingClientRect();
             setPaneMenu({top: event.clientY, left: event.clientX});
         },
-        [setNodeMenu, setEdgeMenu, setPaneMenu],
+        [setNodeMenu, setEdgeMenu, setPaneMenu, readOnly, clearSelection],
     );
 
     /*
@@ -994,17 +1029,6 @@ export function NodeGraphDisplay(params) {
         });
     }
 
-    function clearSelection() {
-        setSelectedNodes([]);
-        setGraphNodes((nds) => nds.map((graphNode) => {
-            graphNode = {
-                ...graphNode,
-                selected: false,
-            }
-            return graphNode;
-        }));
-    }
-
     const handleSelectAll = (event) => {
         if (readOnly) { return };
 
@@ -1027,7 +1051,7 @@ export function NodeGraphDisplay(params) {
         setNodeMenu(null);
         setEdgeMenu(null);
         clearSelection();
-    }, [setNodeMenu, setEdgeMenu]);
+    }, [setNodeMenu, setEdgeMenu, readOnly, clearSelection]);
     
     const handleKeyDown = (event) => {
         

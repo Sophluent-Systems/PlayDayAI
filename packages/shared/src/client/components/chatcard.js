@@ -87,6 +87,46 @@ const extractColorToken = (value) => {
   return value;
 };
 
+const formatErrorMessage = (error) => {
+  if (!error) {
+    return '';
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (Array.isArray(error)) {
+    return error.map((item) => formatErrorMessage(item)).filter(Boolean).join('\n\n');
+  }
+  if (error instanceof Error) {
+    return error.stack || error.message || `${error}`;
+  }
+  if (typeof error === 'object') {
+    const { code, status, statusCode, message, error: nestedError, reason, description, detail } = error;
+    const primaryMessage =
+      message ||
+      reason ||
+      description ||
+      detail ||
+      (typeof nestedError === 'string' ? nestedError : undefined);
+
+    if (primaryMessage) {
+      const identifier = code || statusCode || status;
+      return identifier ? `${identifier}: ${primaryMessage}` : primaryMessage;
+    }
+
+    if (nestedError) {
+      return formatErrorMessage(nestedError);
+    }
+
+    try {
+      return `\`\`\`json\n${JSON.stringify(error, null, 2)}\n\`\`\``;
+    } catch (serializationError) {
+      // fall through to string conversion below
+    }
+  }
+  return String(error);
+};
+
 export const ChatCard = memo((props) => {
   const {
     message,
@@ -324,7 +364,9 @@ const renderSpinner = (key, label) => (
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.35em] text-rose-200/80">
             <AlertTriangle className="h-4 w-4" /> Execution error
           </div>
-          <ReactMarkdown components={markdownComponents}>{`${error}`}</ReactMarkdown>
+          <ReactMarkdown components={markdownComponents}>
+            {formatErrorMessage(error) || 'Unknown error'}
+          </ReactMarkdown>
         </div>,
       );
       return result;

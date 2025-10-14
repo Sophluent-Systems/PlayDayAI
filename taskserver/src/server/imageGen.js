@@ -20,8 +20,23 @@ export async function doImageGeneration(params) {
     const endpoint = endpoints[params.endpoint];
 
     const generationResult = await endpoint(params);
-    const buffer = generationResult?.buffer ?? generationResult;
+    const rawBuffer = generationResult?.buffer ?? generationResult;
     const metadata = generationResult?.metadata ?? {};
+
+    let buffer = rawBuffer;
+    if (!Buffer.isBuffer(buffer)) {
+      if (ArrayBuffer.isView(buffer)) {
+        buffer = Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      } else if (buffer instanceof ArrayBuffer) {
+        buffer = Buffer.from(buffer);
+      } else if (buffer && typeof buffer === 'object' && typeof buffer.data === 'string') {
+        buffer = Buffer.from(buffer.data, buffer.encoding ?? 'base64');
+      } else if (typeof buffer === 'string') {
+        buffer = Buffer.from(buffer, 'base64');
+      } else {
+        throw new TypeError("Unsupported image buffer type received from endpoint");
+      }
+    }
 
     // buffer should be in binary format (decoded from Base64 or fetched from a URL, etc.)
 

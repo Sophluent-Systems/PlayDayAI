@@ -3,6 +3,35 @@ import { Config } from "@src/backend/config";
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { getAccountServiceKey } from "@src/backend/accounts";
 
+function sanitizeApiKey(rawKey) {
+  if (nullUndefinedOrEmpty(rawKey, true)) {
+    return null;
+  }
+
+  const trimmed = `${rawKey}`.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
+    return null;
+  }
+
+  if (trimmed.startsWith('setting:')) {
+    const [, remainder] = trimmed.split(':');
+    if (!remainder) {
+      return null;
+    }
+    const [, fallbackKey] = remainder.split(';');
+    if (fallbackKey && !fallbackKey.includes('xxxxxxxx')) {
+      return fallbackKey.trim();
+    }
+    return null;
+  }
+
+  if (trimmed.includes('xxxxxxxx')) {
+    return null;
+  }
+
+  return trimmed;
+}
+
 async function doTxt2ImgRequest(params) {
   const { keySource } = params;
   const { Constants } = Config;
@@ -20,11 +49,18 @@ async function doTxt2ImgRequest(params) {
     Accept: "image/*" 
   };
 
-  const apiKeyToUse = keySource.source == 'account' ? getAccountServiceKey(keySource.account, "stabilityAIKey") : params.apiKey;
+  const resolvedKey =
+    keySource?.source === 'account' && keySource?.account
+      ? getAccountServiceKey(keySource.account, "stabilityAIKey")
+      : params.apiKey;
 
-  if (!nullUndefinedOrEmpty(apiKeyToUse)) {
-    headers["Authorization"] = `Bearer ${apiKeyToUse}`;
+  const apiKeyToUse = sanitizeApiKey(resolvedKey);
+
+  if (!apiKeyToUse) {
+    throw new Error("Stable Diffusion API key is missing. Please add a Stability AI key in Account Preferences or provide an API key for this node.");
   }
+
+  headers["Authorization"] = `Bearer ${apiKeyToUse}`;
 
 
   const requestOptions = {

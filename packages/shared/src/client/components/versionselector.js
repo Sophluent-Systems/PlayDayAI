@@ -25,6 +25,15 @@ const modalBackdropClass = 'fixed inset-0 z-[19000] flex items-center justify-ce
 const modalCardClass =
   'w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-slate-900';
 
+// Helper function to extract date value from MongoDB date objects or strings
+function getDateValue(dateField) {
+  if (!dateField) return null;
+  // Handle MongoDB $date format: { $date: "2024-08-01T19:01:21.893Z" }
+  if (dateField.$date) return dateField.$date;
+  // Handle regular date object or string
+  return dateField;
+}
+
 function useOutsideClick(refs, handler, enabled = true) {
   useEffect(() => {
     if (!enabled) {
@@ -94,6 +103,7 @@ export function VersionSelector(props) {
 
   const dropdownRef = useRef(null);
   const menuRef = useRef(null);
+  const hasInitializedVersion = useRef(false);
 
   const closeMenu = useCallback(() => setIsMenuOpen(false), []);
   const clickRefs = useMemo(() => [dropdownRef, menuRef], []);
@@ -173,10 +183,34 @@ export function VersionSelector(props) {
     }
   }, [version, versionOptions.length, setIndexForVersionName]);
 
+  // Reset initialization flag when game changes
+  useEffect(() => {
+    hasInitializedVersion.current = false;
+  }, [game?.gameID]);
+
   useEffect(() => {
     if (!versionList.length) {
       return;
     }
+
+    // On initial load with chooseMostRecent, always select the most recently edited version
+    if (chooseMostRecent && !hasInitializedVersion.current) {
+      hasInitializedVersion.current = true;
+      const newest = [...versionList]
+        .filter(Boolean)
+        .sort((a, b) => {
+          // Sort by lastUpdatedDate if available, otherwise by creationDate, otherwise use position in list
+          const dateA = getDateValue(a.lastUpdatedDate) || getDateValue(a.creationDate) || new Date(0);
+          const dateB = getDateValue(b.lastUpdatedDate) || getDateValue(b.creationDate) || new Date(0);
+          return new Date(dateB) - new Date(dateA);
+        })[0];
+      if (newest) {
+        switchVersionByName(newest.versionName);
+      }
+      return;
+    }
+
+    // After initialization, only switch if current version is not in list
     const currentVersionNameIsInList = !nullUndefinedOrEmpty(versionName)
       ? versionList.some((item) => item.versionName === versionName)
       : false;
@@ -185,7 +219,11 @@ export function VersionSelector(props) {
       if (chooseMostRecent) {
         const newest = [...versionList]
           .filter(Boolean)
-          .sort((a, b) => new Date(b.lastUpdatedDate) - new Date(a.lastUpdatedDate))[0];
+          .sort((a, b) => {
+            const dateA = getDateValue(a.lastUpdatedDate) || getDateValue(a.creationDate) || new Date(0);
+            const dateB = getDateValue(b.lastUpdatedDate) || getDateValue(b.creationDate) || new Date(0);
+            return new Date(dateB) - new Date(dateA);
+          })[0];
         if (newest) {
           switchVersionByName(newest.versionName);
         }

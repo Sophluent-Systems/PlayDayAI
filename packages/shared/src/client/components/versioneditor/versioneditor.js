@@ -109,6 +109,25 @@ function getLuminance(color) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+function extractTimestamp(dateLike) {
+  if (!dateLike) {
+    return 0;
+  }
+  if (dateLike instanceof Date) {
+    return dateLike.getTime();
+  }
+  if (typeof dateLike === 'object') {
+    if (Object.prototype.hasOwnProperty.call(dateLike, '$date')) {
+      return extractTimestamp(dateLike.$date);
+    }
+    if (Object.prototype.hasOwnProperty.call(dateLike, '$numberLong')) {
+      return extractTimestamp(Number(dateLike.$numberLong));
+    }
+  }
+  const parsed = new Date(dateLike).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 function DialogShell({ open, onClose, title, description, children, actions, maxWidth = "max-w-lg", tone = "light" }) {
   if (!open) {
     return null;
@@ -191,12 +210,14 @@ function TemplateChooser({ templateChosen }) {
 function VersionEditor(props) {
   const { Constants } = useConfig();
   const router = useRouter();
-  const { versionName } = router.query;
+  const { versionName: versionNameParam } = router.query;
+  const versionName = Array.isArray(versionNameParam) ? versionNameParam[0] : versionNameParam;
   const {
     loading,
     account,
     game,
     version,
+    versionList,
     updateVersion,
     switchVersionByName,
     gamePermissions,
@@ -328,6 +349,32 @@ function VersionEditor(props) {
   }, [version]);
 
   useEffect(() => {
+    if (!Array.isArray(versionList) || versionList.length === 0) {
+      return;
+    }
+
+    const selectedVersionExists = versionName
+      ? versionList.some((item) => item?.versionName === versionName)
+      : false;
+
+    if (selectedVersionExists) {
+      return;
+    }
+
+    const bestVersion = [...versionList]
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aTimestamp = extractTimestamp(a?.lastUpdatedDate) || extractTimestamp(a?.creationDate);
+        const bTimestamp = extractTimestamp(b?.lastUpdatedDate) || extractTimestamp(b?.creationDate);
+        return bTimestamp - aTimestamp;
+      })[0];
+
+    if (bestVersion?.versionName) {
+      switchVersionByName(bestVersion.versionName);
+    }
+  }, [versionList, versionName, switchVersionByName]);
+
+  useEffect(() => {
     const handleBeforeUnload = (event) => {
       if (dirtyEditor) {
         event.preventDefault();
@@ -351,6 +398,21 @@ function VersionEditor(props) {
     const hasEditPermissions = gamePermissions?.includes('game_edit');
     return !hasEditPermissions;
   }
+
+  useEffect(() => {
+    if (!version || !Array.isArray(gamePermissions)) {
+      return;
+    }
+    const nextReadOnly = shouldBeReadOnly();
+    console.log("[NODE-DROP-PROBE]", {
+      phase: "permission-check",
+      gamePermissions,
+      nextReadOnly,
+    });
+    if (nextReadOnly !== readOnly) {
+      setreadOnly(nextReadOnly);
+    }
+  }, [version, gamePermissions]);
 
   useEffect(() => {
     async function doSave() {

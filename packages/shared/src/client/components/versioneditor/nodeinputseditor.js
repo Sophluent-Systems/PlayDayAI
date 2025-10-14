@@ -5,6 +5,7 @@ import { Plus, Save, Trash2, Pencil } from "lucide-react";
 import { HistoryInputSelector } from "./historyinputselector";
 import { SettingsMenu } from "@src/client/components/settingsmenus/settingsmenu";
 import { getMetadataForNodeType } from "@src/common/nodeMetadata";
+import { CollapsibleSection } from "@src/client/components/collapsiblesection";
 
 const requireAllEventTriggersOption = [
   {
@@ -135,30 +136,40 @@ export function NodeInputsEditor({ readOnly, node, onChange, nodes, producerNode
     return null;
   }
 
-  const inputs = node.inputs || [];
+  const inputs = Array.isArray(node?.inputs) ? node.inputs : [];
   const hasInputs = inputs.length > 0;
+  const collapsedSummary = hasInputs
+    ? `${inputs.length} input${inputs.length === 1 ? "" : "s"} configured`
+    : "No inputs configured";
 
   return (
-    <section className="mt-6 w-full rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Inputs</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Configure how this node receives information from other nodes.
-          </p>
+    <CollapsibleSection
+      title="Inputs"
+      collapsedView={collapsedSummary}
+      defaultExpanded={false}
+    >
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="max-w-xl text-sm text-slate-500 dark:text-slate-400">
+            Connect upstream nodes, control history sharing, and decide when this node should run.
+          </div>
+          <button
+            type="button"
+            onClick={handleAddInput}
+            disabled={readOnly || !nodes?.length}
+            className={buttonStyles.primary}
+          >
+            <Plus className="h-4 w-4" />
+            Add input
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={handleAddInput}
-          disabled={readOnly || !nodes?.length}
-          className={buttonStyles.outline}
-        >
-          <Plus className="h-4 w-4" />
-          Add input
-        </button>
-      </div>
 
-      <div className="mt-6 space-y-4">
+        <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
+          <p>Each input can include history, override parameters, or provide variables from previous nodes.</p>
+          <p>Inputs run in the order shown. Drag to reorder for precise control.</p>
+        </div>
+
+        <div className="space-y-4">
         {hasInputs ? (
           inputs.map((input, index) => {
             const producer = nodeLookupTable[input.producerInstanceID];
@@ -254,22 +265,23 @@ export function NodeInputsEditor({ readOnly, node, onChange, nodes, producerNode
           })
         ) : (
           <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
-            No inputs configured yet. Click “Add input” to connect this node.
+            No inputs configured yet. Click "Add input" to connect this node.
           </div>
         )}
-      </div>
-
-      {inputs.length > 1 ? (
-        <div className="mt-6">
-          <SettingsMenu
-            menu={requireAllEventTriggersOption}
-            rootObject={node}
-            onChange={onChange}
-            readOnly={readOnly}
-            key={"requireAllEventTriggersOption"}
-          />
         </div>
-      ) : null}
-    </section>
+
+        {inputs.length > 1 ? (
+          <div className="pt-2">
+            <SettingsMenu
+              menu={requireAllEventTriggersOption}
+              rootObject={node}
+              onChange={onChange}
+              readOnly={readOnly}
+              key={"requireAllEventTriggersOption"}
+            />
+          </div>
+        ) : null}
+      </div>
+    </CollapsibleSection>
   );
 }

@@ -195,6 +195,7 @@ export function NodeLibraryTree({ versionInfo, readOnly }) {
   }, [nodes]);
 
   const handleTemplateDragStart = React.useCallback((event, payload) => {
+    console.log("[NODE-DROP-PROBE]", { phase: "dragstart", payload });
     event.dataTransfer.setData("application/reactflow", JSON.stringify(payload));
     event.dataTransfer.effectAllowed = "move";
   }, []);

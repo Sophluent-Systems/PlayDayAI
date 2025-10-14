@@ -302,7 +302,14 @@ export const ChatCard = memo((props) => {
     </p>
   );
 
-  const renderSpinner = (key) => <Spinner key={key} color={palette.text} />;
+const renderSpinner = (key, label) => (
+  <div key={key} className="flex w-full flex-col items-center gap-2">
+    <Spinner color={palette.text} />
+    {label ? (
+      <span className="text-[10px] uppercase tracking-[0.35em] text-white/50">{label}</span>
+    ) : null}
+  </div>
+);
   const renderTyping = (key) => <ChatBotTypingIndicator key={key} color={palette.text} />;
 
   const renderMessage = () => {
@@ -330,6 +337,8 @@ export const ChatCard = memo((props) => {
             result.push(renderSpinner(`${type}-${index}`));
           } else if (type === 'text') {
             result.push(renderTyping(`${type}-${index}`));
+          } else if (type === 'video') {
+            result.push(renderSpinner(`${type}-${index}`, 'Rendering video...'));
           } else {
             result.push(renderSpinner(`${type}-${index}`));
           }
@@ -390,6 +399,184 @@ export const ChatCard = memo((props) => {
             result.push(renderTyping(`${key}-typing`));
           } else {
             result.push(renderMarkup(key, data));
+          }
+        } else if (mediaType === 'video') {
+          const extractVideoSource = (value) => {
+            if (!value) {
+              return { src: null, poster: null, metadata: null };
+            }
+
+            if (typeof value === 'string') {
+              const trimmed = value.trim();
+              const looksLikeJson =
+                (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                (trimmed.startsWith('[') && trimmed.endsWith(']'));
+
+              if (looksLikeJson) {
+                try {
+                  const parsed = JSON.parse(trimmed);
+                  if (parsed && typeof parsed === 'object') {
+                    value = parsed;
+                  } else {
+                    return { src: value, poster: null, metadata: null };
+                  }
+                } catch (error) {
+                  return { src: value, poster: null, metadata: null };
+                }
+              } else {
+                return { src: value, poster: null, metadata: null };
+              }
+            }
+
+            if (typeof value === 'object') {
+              const src =
+                typeof value.url === 'string'
+                  ? value.url
+                  : typeof value.path === 'string'
+                  ? value.path
+                  : typeof value.video === 'string'
+                  ? value.video
+                  : typeof value.contentUrl === 'string'
+                  ? value.contentUrl
+                  : null;
+              const poster =
+                typeof value.thumbnail === 'string'
+                  ? value.thumbnail
+                  : typeof value.poster === 'string'
+                  ? value.poster
+                  : null;
+              const metadata =
+                value.executionMetadata ||
+                value.metadata ||
+                value.job ||
+                null;
+
+              return { src, poster, metadata };
+            }
+
+            return { src: null, poster: null, metadata: null };
+          };
+
+          if (nullUndefinedOrEmpty(data) && processing) {
+            result.push(renderSpinner(`${key}-spinner`, 'Rendering video...'));
+          } else if (data) {
+            const { src, poster, metadata } = extractVideoSource(data);
+            const resolvedVideoUrl =
+              src && src.startsWith('/gen/') ? buildAssetUrl(src) : src;
+            const resolvedPoster =
+              poster && poster.startsWith('/gen/') ? buildAssetUrl(poster) : poster;
+
+            if (!resolvedVideoUrl && processing) {
+              result.push(renderSpinner(`${key}-spinner`, 'Rendering video...'));
+            } else if (typeof data === 'object' && !resolvedVideoUrl) {
+              if (editMode) {
+                const cardLabel = key.replace(/-/g, ' ').toUpperCase();
+                result.push(
+                  <div
+                    key={`${key}-metadata`}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[11px] text-white/70"
+                  >
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/40">
+                      {cardLabel}
+                    </div>
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-white/70">
+                      {JSON.stringify(data, null, 2)}
+                    </pre>
+                  </div>,
+                );
+              }
+            } else if (resolvedVideoUrl) {
+              result.push(
+                <div key={key} className="flex w-full justify-center">
+                  <video
+                    className="w-full max-w-3xl rounded-3xl border border-white/10 bg-black object-contain shadow-[var(--video-shadow,0_25px_90px_-45px_rgba(15,23,42,0.65))]"
+                    src={resolvedVideoUrl}
+                    controls
+                    playsInline
+                    poster={resolvedPoster ?? undefined}
+                  />
+                </div>,
+              );
+
+              if (editMode) {
+                const detailEntries = [];
+                if (metadata && typeof metadata === 'object') {
+                  if (metadata.status) {
+                    detailEntries.push({
+                      label: 'Status',
+                      value: String(metadata.status),
+                    });
+                  }
+                  if (metadata.progress != null) {
+                    const rawProgress = `${metadata.progress}`;
+                    const normalizedProgress = rawProgress.includes('%')
+                      ? rawProgress
+                      : `${rawProgress}%`;
+                    detailEntries.push({
+                      label: 'Progress',
+                      value: normalizedProgress,
+                    });
+                  }
+                  if (metadata.seconds) {
+                    const rawSeconds = `${metadata.seconds}`;
+                    const normalizedSeconds = rawSeconds.endsWith('s')
+                      ? rawSeconds
+                      : `${rawSeconds}s`;
+                    detailEntries.push({
+                      label: 'Duration',
+                      value: normalizedSeconds,
+                    });
+                  }
+                  if (metadata.size) {
+                    detailEntries.push({
+                      label: 'Size',
+                      value: metadata.size,
+                    });
+                  }
+                }
+
+                if (detailEntries.length > 0) {
+                  result.push(
+                    <div
+                      key={`${key}-metadata`}
+                      className="mx-auto w-full max-w-3xl rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70"
+                    >
+                      <ul className="flex flex-wrap gap-x-6 gap-y-1">
+                        {detailEntries.map(({ label, value }) => (
+                          <li
+                            key={label}
+                            className="flex items-center gap-2 uppercase tracking-[0.25em]"
+                          >
+                            <span className="text-white/40">{label}:</span>
+                            <span className="font-semibold text-white/80 tracking-normal normal-case">
+                              {value}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>,
+                  );
+                }
+              }
+            } else {
+              result.push(renderText(key, JSON.stringify(data ?? 'null')));
+            }
+          }
+        } else if (mediaType === 'metadata') {
+          if (editMode && data) {
+            result.push(
+              <div
+                key={key}
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[11px] text-white/70"
+              >
+                <div className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/40">
+                  METADATA
+                </div>
+                <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-white/70">
+                  {JSON.stringify(data, null, 2)}
+                </pre>
+              </div>,
+            );
           }
         } else if (mediaType === 'data') {
           if (nullUndefinedOrEmpty(data) && processing) {

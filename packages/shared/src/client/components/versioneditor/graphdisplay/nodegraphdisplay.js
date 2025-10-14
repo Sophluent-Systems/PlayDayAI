@@ -519,32 +519,50 @@ export function NodeGraphDisplay(params) {
         }
     }, [selectedNodes]);
     
-      const onDragOver = useCallback((event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-      }, []);
-    
-      const onDrop = useCallback(
-        (event) => {
-            event.preventDefault();
-            if (readOnly) { return };
-    
-            const eventData = event.dataTransfer.getData('application/reactflow');
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
 
-            try {
-                const dropAction = JSON.parse(eventData);
-    
-                if (dropAction.action === "add") {
-                    onNodeStructureChange?.(null, "add", {templateName: dropAction.template});
-                } else if (dropAction.action === "duplicate") {
-                    onNodeStructureChange?.(dropAction.node, "duplicate", {});
-                }
-            } catch(e) {
-                console.error("onDrop: Error parsing graph event data", e);
-            }
-        },
-        [reactFlowInstance],
-      );
+  const onDrop = useCallback(
+    (event) => {
+      event.preventDefault();
+      if (readOnly) {
+        console.log("[NODE-DROP-PROBE]", { skipped: "readOnly", readOnly });
+        return;
+      }
+
+      const eventData = event.dataTransfer.getData('application/reactflow');
+      console.log("[NODE-DROP-PROBE]", {
+        hasData: Boolean(eventData),
+        types: Array.from(event?.dataTransfer?.types ?? []),
+        readOnly,
+      });
+
+      if (!eventData) {
+        return;
+      }
+
+      try {
+        const dropAction = JSON.parse(eventData);
+        console.log("[NODE-DROP-PROBE]", {
+          parsed: true,
+          action: dropAction?.action,
+          template: dropAction?.template,
+          nodeId: dropAction?.node?.instanceID,
+        });
+
+        if (dropAction.action === "add") {
+          onNodeStructureChange?.(null, "add", { templateName: dropAction.template });
+        } else if (dropAction.action === "duplicate") {
+          onNodeStructureChange?.(dropAction.node, "duplicate", {});
+        }
+      } catch (e) {
+        console.error("[NODE-DROP-PROBE] onDrop: Error parsing graph event data", e, { raw: eventData });
+      }
+    },
+    [readOnly, onNodeStructureChange],
+  );
 
       const onNodeContextMenu = useCallback(
         (event, node) => {

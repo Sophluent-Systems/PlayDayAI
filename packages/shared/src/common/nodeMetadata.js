@@ -825,9 +825,9 @@ export class videoGenerationMetadata extends nodeMetadata {
         inputs: [],
         params: {
             "prompt": "A cinematic drone shot over a futuristic city at sunset.",
-            "model": "sora-1.0",
+            "model": "sora-2",
             "endpoint": "openai",
-            "serverUrl": "https://api.openai.com/v1/video/generations",
+            "serverUrl": "https://api.openai.com/v1/videos",
             "apiKey": 'setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx',
             "videoGenerationSettings": {
                 "durationSeconds": 8,

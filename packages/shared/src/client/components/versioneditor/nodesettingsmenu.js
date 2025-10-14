@@ -127,15 +127,6 @@ export function NodeSettingsMenu(params) {
     <div className="space-y-6">
       {renderWarnings(node)}
 
-      {!node.isSourceNode ? (
-        <NodeInputsEditor
-          node={node}
-          nodes={nodes}
-          readOnly={readOnly}
-          onChange={onInputChanged}
-        />
-      ) : null}
-
       <SettingsMenu
         menu={treatAsDebugCheckbox}
         rootObject={node}
@@ -166,6 +157,15 @@ export function NodeSettingsMenu(params) {
           key="topLevelNodeOptions"
         />
       </div>
+
+      {!node.isSourceNode ? (
+        <NodeInputsEditor
+          node={node}
+          nodes={nodes}
+          readOnly={readOnly}
+          onChange={onInputChanged}
+        />
+      ) : null}
 
       <div className="flex flex-wrap justify-center gap-3">
         <button

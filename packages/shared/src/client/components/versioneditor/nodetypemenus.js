@@ -1365,7 +1365,7 @@ export const nodeTypeMenus = {
               tooltip: "Model identifier supplied to the provider.",
               maxChar: 100,
               multiline: false,
-              defaultValue: Constants.endpoints.videoGeneration.openai?.defaultModel ?? "sora-1.0",
+              defaultValue: Constants.endpoints.videoGeneration.openai?.defaultModel ?? "sora-2",
             },
             {
               label: "Server URL",
@@ -1374,7 +1374,7 @@ export const nodeTypeMenus = {
               tooltip: "Endpoint URL for the selected provider.",
               maxChar: 2048,
               multiline: false,
-              defaultValue: Constants.endpoints.videoGeneration.openai?.defaultUrl ?? "https://api.openai.com/v1/video/generations",
+              defaultValue: Constants.endpoints.videoGeneration.openai?.defaultUrl ?? "https://api.openai.com/v1/videos",
             },
             {
               label: "API Key",

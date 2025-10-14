@@ -46,31 +46,27 @@ export function FloatingPanel({
   return (
     <div className={`pointer-events-none ${positionClass}`}>
       <div className={containerClasses}>
-        <button
-          type="button"
-          onClick={toggleOpen}
-          className={
-            resolvedOpen
-              ? "pointer-events-auto flex items-center justify-between gap-3 text-left"
-              : `pointer-events-auto ${COLLAPSED_BASE}`
-          }
-          aria-expanded={resolvedOpen}
-        >
-          <span className="flex items-center gap-3 text-left">
-            {icon ? <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10">{icon}</span> : null}
-            <span className={`flex flex-col ${resolvedOpen ? "" : "leading-tight"}`}>
-              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-300">
-                {title}
+        <div className={resolvedOpen ? "pointer-events-auto flex items-center justify-between gap-3 text-left" : `pointer-events-auto ${COLLAPSED_BASE}`}>
+          <button
+            type="button"
+            onClick={toggleOpen}
+            className="flex flex-1 items-center justify-between gap-3 text-left"
+            aria-expanded={resolvedOpen}
+          >
+            <span className="flex items-center gap-3 text-left">
+              {icon ? <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10">{icon}</span> : null}
+              <span className={`flex flex-col ${resolvedOpen ? "" : "leading-tight"}`}>
+                <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-300">
+                  {title}
+                </span>
               </span>
             </span>
-          </span>
-          <div className="flex items-center gap-3">
-            {actions && resolvedOpen ? <div className="pointer-events-auto">{actions}</div> : null}
             <ChevronDown
               className={`h-4 w-4 transition-transform ${resolvedOpen ? "" : "-rotate-90"}`}
             />
-          </div>
-        </button>
+          </button>
+          {actions && resolvedOpen ? <div className="pointer-events-auto ml-2 shrink-0">{actions}</div> : null}
+        </div>
         {resolvedOpen ? (
           <div
             className={`pointer-events-auto mt-4 max-h-[min(70vh,600px)] overflow-y-auto pr-1 ${contentClassName}`}

@@ -233,7 +233,19 @@ const defaultConstantsJSON = `
                 "defaultOutputFormat": "text"
             }
         },
-        "videoGeneration": {\n            "openai": {\n                "models": [\n                    "sora-1.0"\n                ],\n                "label": "OpenAI Sora",\n                "type": "openai",\n                "defaultModel": "sora-1.0",\n                "defaultUrl": "https://api.openai.com/v1/video/generations",\n                "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"\n            }\n        },
+        "videoGeneration": {
+            "openai": {
+                "models": [
+                    "sora-2",
+                    "sora-2-pro"
+                ],
+                "label": "OpenAI Sora",
+                "type": "openai",
+                "defaultModel": "sora-2",
+                "defaultUrl": "https://api.openai.com/v1/videos",
+                "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+        },
         "agentFramework": {
             "microsoft-agent-framework": {
                 "label": "Microsoft Agent Framework",
@@ -454,7 +466,19 @@ const defaultConstantsJSON = `
                 "defaultAPIKey": "setting:openRouterApiKey;sk-or-v1-xxxxxxxxxxxxxxxx"
             }
         },
-        "videoGeneration": {\n            "openai": {\n                "models": [\n                    "sora-1.0"\n                ],\n                "label": "OpenAI Sora",\n                "type": "openai",\n                "defaultModel": "sora-1.0",\n                "defaultUrl": "https://api.openai.com/v1/video/generations",\n                "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"\n            }\n        },
+        "videoGeneration": {
+            "openai": {
+                "models": [
+                    "sora-2",
+                    "sora-2-pro"
+                ],
+                "label": "OpenAI Sora",
+                "type": "openai",
+                "defaultModel": "sora-2",
+                "defaultUrl": "https://api.openai.com/v1/videos",
+                "defaultAPIKey": "setting:openAIkey;sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+        },
         "training": {
             "tinker-fine-tune": {
                 "label": "Tinker Fine-Tune",

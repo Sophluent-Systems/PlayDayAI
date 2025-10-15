@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import ChatBotView from './chatbotview';
-import { useRouter } from 'next/router';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { callGetMostRecentSave, callStateMachineContinuationRequest } from '@src/client/gameplay';
 import { callRetryRecord } from '@src/client/editor';
 import { WebSocketChannel } from '@src/common/pubsub/websocketchannel';
@@ -17,8 +17,6 @@ import { useMessagesClient } from '../messagesClient';
 import { callStateMachineHaltRequest } from '@src/client/gameplay';
 import { FilteredMessageList } from './filteredmessagelist';
 import { analyticsReportEvent} from "@src/client/analytics";
-import { useAtom } from 'jotai';
-import { vhState, editorSaveRequestState, dirtyEditorState } from '@src/client/states';
 import { AudioManager } from '@src/client/audiomanager'
 import { EditorPreferencesCheck } from '@src/client/components/editorpreferencescheck';
 
@@ -33,8 +31,24 @@ const reconnectThresholds = [
 function ChatBot(props) {
   const { Constants } = useConfig();
   const router = useRouter();
-  const { versionName, sessionID } = router.query;
-  const { url, title, theme } = props;  const { account, game, version, session, editMode, gamePermissions,refreshAccessToken, startNewGameSession,switchSessionID, accessToken } = React.useContext(stateManager);
+  const searchParams = useSearchParams();
+  const { url, title, theme } = props;
+  const {
+    account,
+    game,
+    version,
+    session,
+    editMode,
+    gamePermissions,
+    refreshAccessToken,
+    startNewGameSession,
+    switchSessionID,
+    accessToken,
+  } = React.useContext(stateManager);
+  const activeGameID = game?.gameID;
+  const sessionIDFromParams = searchParams?.get('sessionID') ?? undefined;
+  const versionName = searchParams?.get('versionName') ?? undefined;
+  const sessionID = sessionIDFromParams ?? session?.sessionID ?? undefined;
   const loadedSessionID = useRef(null);
   const [processingUnderway, setProcessingUnderway] = useState(false);
   const [waitingForInput, setWaitingForInput] = useState(false);
@@ -48,14 +62,13 @@ function ChatBot(props) {
   const [scrollingMode, setScrollingMode] = useState(Constants.defaultScrollingMode);
   const stateMachineWebsocket = useRef(null);
   const preferredWsOptionsRef = useRef(null);
-  const [editorSaveRequest, setEditorSaveRequest] = useAtom(editorSaveRequestState);
-  const [dirtyEditor, setDirtyEditor] = useAtom(dirtyEditorState);
   const [supportedMediaTypes, setSupportedMediaTypes] = useState([]);
   const [supportedInputModes, setSupportedInputModes] = useState([]);
   const autoSendAudioOnSpeechEnd = Constants.audioRecordingDefaults?.autoSendOnSpeechEnd !== false;
   const scrollRef = useRef(null);
   const showAlert = useAlert();
   const themeToUse = useMemo(() => normalizeTheme(theme), [theme]);
+  const messageClientSubscriptionRef = useRef(null);
   const messageUpdateHandlers = {
       replaceMessageList: (newMessages) => {
           if (scrollingMode == 'lineByLine' || scrollingMode == 'messageComplete') {
@@ -121,6 +134,20 @@ function ChatBot(props) {
 
 
   useEffect(() => {
+    return () => {
+      if (typeof messageClientSubscriptionRef.current === 'function') {
+        messageClientSubscriptionRef.current();
+        messageClientSubscriptionRef.current = null;
+      }
+      if (stateMachineWebsocket.current) {
+        stateMachineWebsocket.current.close();
+        stateMachineWebsocket.current = null;
+      }
+    };
+  }, []);
+
+
+  useEffect(() => {
     let timeoutId;
 
     // If retryTimeout is not null, not undefined, and not 0, set a timer
@@ -137,17 +164,16 @@ function ChatBot(props) {
     return () => {
       if (timeoutId) {
         clearTimeout(timeoutId);
-        setRetryTimeout(null);
       }
     };
-  }, [retryTimeout]); 
+  }, [retryTimeout]);
 
   useEffect(() => {
     Constants.debug.logSessionRestart && console.log("ChatBot: useEffect sessionID=", sessionID);
-    if (versionName && !sessionID) {
+    if (versionName && !sessionID && activeGameID) {
       findOrCreateGameSession();
     }
-  }, [versionName, sessionID]);
+  }, [versionName, sessionID, activeGameID]);
 
   useEffect(() => {
     if (account) {
@@ -199,7 +225,7 @@ function ChatBot(props) {
     } else if (!session || !sessionID) {
       loadedSessionID.current = null;
     }
-  }, [game, version, session]);
+  }, [game, version, session, sessionID]);
 
 
   useEffect(() => {
@@ -227,7 +253,12 @@ function ChatBot(props) {
   async function findOrCreateGameSession() {
 
     try {
-      const gameSaveSessionInfo = await callGetMostRecentSave(null, game.gameID, versionName);
+      if (!activeGameID) {
+        console.warn('findOrCreateGameSession called without an active game');
+        return;
+      }
+
+      const gameSaveSessionInfo = await callGetMostRecentSave(null, activeGameID, versionName);
 
       const savedSessionID = gameSaveSessionInfo?.session?.sessionID;
       Constants.debug.logSessionRestart && console.log("findOrCreateGameSession - previous SessionID=", savedSessionID);
@@ -238,7 +269,7 @@ function ChatBot(props) {
         //
         // Load the session we have
         //
-        await switchSessionID(savedSessionID, game.gameID);
+        await switchSessionID(savedSessionID, activeGameID);
       } else {
         //
         // Start a new game session
@@ -534,7 +565,11 @@ function ChatBot(props) {
       // Set all callbacks
       //
       stateMachineWebsocket.current.subscribe(commandHandlers);
-      subscribeMessageClient(stateMachineWebsocket.current);
+      if (typeof messageClientSubscriptionRef.current === 'function') {
+        messageClientSubscriptionRef.current();
+      }
+      const unsubscribe = subscribeMessageClient(stateMachineWebsocket.current);
+      messageClientSubscriptionRef.current = typeof unsubscribe === 'function' ? unsubscribe : null;
       stateMachineWebsocket.current.setConnectionCallbacks(connectionCallbacks);
 
       if (newConnection) {

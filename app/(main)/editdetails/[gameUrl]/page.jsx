@@ -1,7 +1,7 @@
 "use client";
 
 import React, { memo, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/router";
+import { useRouter } from "next/navigation";
 import { RequireAuthentication } from "@src/client/components/standard/requireauthentication";
 import { stateManager } from "@src/client/statemanager";
 import { MessagesDebugControls } from "@src/client/components/messagesdebugcontrols";

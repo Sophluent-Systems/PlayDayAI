@@ -149,24 +149,50 @@ async function processSessionCommands(providedDb = null) {
   const machineID = await ensureMachineID();
   const collection = db.collection('sessionCommands');
 
+  const claimableMachineFilter = [
+    { machineID: { $exists: false } },
+    { machineID: null },
+    { machineID },
+  ];
+
   for (let i = 0; i < 10; i++) {
-    const claimResult = await collection.findOneAndUpdate(
+    const claimCandidate = await collection.findOne(
       {
         status: 'pending',
-        $or: [
-          { machineID: null },
-          { machineID },
-        ],
+        $or: claimableMachineFilter,
       },
-      { $set: { status: 'processing', machineID, updatedAt: new Date() } },
-      { sort: { createdAt: 1 }, returnDocument: 'after' }
+      { sort: { createdAt: 1 } }
     );
 
-    const commandDoc = claimResult?.value;
-    if (!commandDoc) {
+    if (!claimCandidate) {
       break;
     }
 
+    const updatedAt = new Date();
+    const updateResult = await collection.updateOne(
+      {
+        _id: claimCandidate._id,
+        status: 'pending',
+      },
+      {
+        $set: {
+          status: 'processing',
+          machineID,
+          updatedAt,
+        },
+      }
+    );
+
+    if (updateResult.modifiedCount === 0) {
+      continue;
+    }
+
+    const commandDoc = {
+      ...claimCandidate,
+      status: 'processing',
+      machineID,
+      updatedAt,
+    };
     const bridge = getSessionBridge(commandDoc.sessionID);
     const target = commandDoc.target || 'worker';
     let sent = false;

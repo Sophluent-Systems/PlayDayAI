@@ -4,7 +4,7 @@ const MAX_BUFFERED_MESSAGES = 100;
 class SessionBridge {
   constructor(sessionID) {
     this.sessionID = sessionID;
-    this.wsChannel = null;
+    this.wsChannels = new Set();
     this.hostPort = null;
     this.workerActive = false;
     this.bufferedMessages = [];
@@ -16,46 +16,71 @@ class SessionBridge {
     return this.workerActive;
   }
 
+  hasConnectedClients() {
+    return this.wsChannels.size > 0;
+  }
+
   attachWebSocket(wsChannel) {
-    this.wsChannel = wsChannel;
+    this.wsChannels.add(wsChannel);
     this.flushBufferedMessages();
   }
 
   detachWebSocket(wsChannel) {
-    if (this.wsChannel === wsChannel) {
-      this.wsChannel = null;
+    this.wsChannels.delete(wsChannel);
+  }
+
+  enqueueBufferedMessage(command, data) {
+    this.bufferedMessages.push({ command, data });
+    if (this.bufferedMessages.length > MAX_BUFFERED_MESSAGES) {
+      this.bufferedMessages.shift();
     }
   }
 
   flushBufferedMessages() {
-    if (!this.wsChannel || this.bufferedMessages.length === 0) {
+    if (!this.hasConnectedClients() || this.bufferedMessages.length === 0) {
       return;
     }
-    const queue = [...this.bufferedMessages];
+    const pending = [...this.bufferedMessages];
     this.bufferedMessages = [];
-    queue.forEach(({ command, data }) => {
+    pending.forEach(({ command, data }) => {
       this.forwardToClient(command, data);
     });
   }
 
   forwardToClient(command, data) {
-    if (!this.wsChannel) {
-      this.bufferedMessages.push({ command, data });
-      if (this.bufferedMessages.length > MAX_BUFFERED_MESSAGES) {
-        this.bufferedMessages.shift();
-      }
-      return;
-    }
-
     if (command === 'stateMachineCommand') {
       return;
     }
 
-    try {
-      this.wsChannel.proxyCommand(command, data);
-    } catch (error) {
-      console.error(`[SessionBridge] Error forwarding message to client`, error);
-      this.bufferedMessages.push({ command, data });
+    if (!this.hasConnectedClients()) {
+      this.enqueueBufferedMessage(command, data);
+      return;
+    }
+
+    const initialChannelCount = this.wsChannels.size;
+    const failedChannels = [];
+
+    for (const channel of this.wsChannels) {
+      try {
+        const result = channel.proxyCommand(command, data);
+        if (result && typeof result.then === 'function') {
+          result.catch((error) => {
+            console.error(`[SessionBridge] Async error forwarding message`, error);
+            this.wsChannels.delete(channel);
+          });
+        }
+      } catch (error) {
+        console.error(`[SessionBridge] Error forwarding message to client`, error);
+        failedChannels.push(channel);
+      }
+    }
+
+    if (failedChannels.length === initialChannelCount) {
+      this.enqueueBufferedMessage(command, data);
+    }
+
+    if (failedChannels.length > 0) {
+      failedChannels.forEach((channel) => this.wsChannels.delete(channel));
     }
   }
 
@@ -151,6 +176,7 @@ class SessionBridge {
     return {
       sessionID: this.sessionID,
       workerActive: this.workerActive,
+      connectedClients: this.wsChannels.size,
       pendingMessages: this.bufferedMessages.length,
       lastError: this.lastError ? `${this.lastError.message}` : null,
     };
@@ -182,7 +208,7 @@ export function detachWebSocketFromBridge(sessionID, wsChannel) {
 export function activeSessionCount() {
   let count = 0;
   bridges.forEach((bridge) => {
-    if (bridge.wsChannel) {
+    if (bridge.hasConnectedClients()) {
       count += 1;
     }
   });

@@ -1,8 +1,8 @@
 import "../styles/globals.css";
 import Providers from "./providers";
-import Script from "next/script";
 import { IBM_Plex_Mono, Inter, Sora } from "next/font/google";
 import AppHeader from "./components/app-header";
+import { GoogleTagManager } from "@next/third-parties/google";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -42,25 +42,7 @@ export default function RootLayout({ children }) {
     >
       <body className="relative min-h-screen bg-background text-emphasis">
         {gtmId ? (
-          <>
-            <Script
-              id="gtag-src"
-              src={"https://www.googletagmanager.com/gtag/js?id=" + gtmId}
-              strategy="afterInteractive"
-            />
-            <Script
-              id="gtag-inline"
-              strategy="afterInteractive"
-              dangerouslySetInnerHTML={{
-                __html: [
-                  "window.dataLayer = window.dataLayer || [];",
-                  "function gtag(){dataLayer.push(arguments);}",
-                  "gtag('js', new Date());",
-                  "gtag('config', '" + gtmId + "');",
-                ].join("\n"),
-              }}
-            />
-          </>
+          <GoogleTagManager gtmId={gtmId} />
         ) : null}
         <Providers isSandbox={isSandbox}>
           <div className="relative flex min-h-screen flex-col">

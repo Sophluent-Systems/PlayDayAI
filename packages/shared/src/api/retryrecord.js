@@ -6,7 +6,7 @@ import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { getRecord, deleteRecord } from '@src/backend/records';
 import { hasRight } from '@src/backend/accesscontrol';
 import { enqueueNewTask, notifyServerOnTaskQueued } from '@src/backend/tasks';
-import { enqueueSessionCommand, getActiveSessionMachine } from '@src/backend/sessionCommands';
+import { enqueueSessionCommand, getActiveSessionMachine, sendSessionCommandIfActive } from '@src/backend/sessionCommands';
 import { resolveWebsocketInfo } from '@src/backend/websocket';
 
 async function handle(req, res) {
@@ -147,7 +147,14 @@ async function handle(req, res) {
 
       const newTask = await enqueueNewTask(db, account.accountID, sessionID, "continuation", taskParams);
       
-      notifyServerOnTaskQueued();
+      await notifyServerOnTaskQueued();
+
+      await sendSessionCommandIfActive(
+        db,
+        sessionID,
+        'stateMachineCommand',
+        { command: 'continuation' }
+      );
 
       res.status(200).json({
         status: "success",

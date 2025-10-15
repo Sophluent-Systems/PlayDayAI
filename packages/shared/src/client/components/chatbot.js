@@ -770,9 +770,6 @@ const handleAudioStateChange = (audioType, newState) => {
             attemptWebsocketReconnect();
           }
         }
-
-        await sendContinuationRequest();
-
       } catch (err) {
 
           console.log("error deleting message(s): ", err.message, err.stack);

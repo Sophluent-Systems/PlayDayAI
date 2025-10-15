@@ -329,16 +329,26 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
   const buildMessageHandlers = () => {
     const callbacks = callbacksRef.current || {};
     const externalHandlers = handlersRef.current || {};
+    const shouldProcessMessage = (payload, verification) => {
+      const activeSessionID = currentSessionID.current ?? sessionID;
+      const candidate =
+        verification?.sessionID ??
+        (payload && typeof payload === 'object' ? payload.sessionID : null);
+      if (candidate == null) {
+        return true;
+      }
+      return candidate === activeSessionID;
+    };
 
     return {
       'message:array': (cmd, payload, { verification }) => {
-        if (verification?.sessionID !== sessionID) return;
+        if (!shouldProcessMessage(payload, verification)) return;
         const updatedMessages = replaceMessages(payload);
         callbacks.onMessage?.(payload);
         externalHandlers.replaceMessageList?.(updatedMessages);
       },
       'message:start': (cmd, payload, { verification }) => {
-        if (verification?.sessionID !== sessionID) return;
+        if (!shouldProcessMessage(payload, verification)) return;
         const { message, isNew } = addMessage(payload);
         if (!message) return;
         callbacks.onMessage?.(message);
@@ -348,8 +358,26 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
           externalHandlers.updateMessage?.(message);
         }
       },
+      'message:full': (cmd, payload, { verification }) => {
+        if (!shouldProcessMessage(payload, verification)) return;
+        const { message, isNew } = addMessage(payload);
+        if (!message) return;
+        callbacks.onMessage?.(message);
+        if (isNew) {
+          externalHandlers.newMessage?.(message);
+        } else {
+          externalHandlers.updateMessage?.(message);
+        }
+        const key = resolveMessageKey(payload);
+        if (!key) return;
+        const finalized = finalizeMessage(key) || message;
+        callbacks.onMessageComplete?.(key);
+        if (finalized) {
+          externalHandlers.messageComplete?.(finalized);
+        }
+      },
       'message:field': (cmd, payload, { verification }) => {
-        if (verification?.sessionID !== sessionID) return;
+        if (!shouldProcessMessage(payload, verification)) return;
         const key = resolveMessageKey(payload);
         if (!key) return;
 
@@ -361,7 +389,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
         }
       },
       'message:appendstring': (cmd, payload, { verification }) => {
-        if (verification?.sessionID !== sessionID) return;
+        if (!shouldProcessMessage(payload, verification)) return;
         const key = resolveMessageKey(payload);
         if (!key) return;
         const updatedMessage = appendMessageContent(key, payload.value);
@@ -371,7 +399,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
         }
       },
       'message:end': (cmd, payload, { verification }) => {
-        if (verification?.sessionID !== sessionID) return;
+        if (!shouldProcessMessage(payload, verification)) return;
         const key = resolveMessageKey(payload);
         if (!key) return;
         const updatedMessage = finalizeMessage(key);
@@ -381,7 +409,7 @@ export function useMessagesClient({ sessionID, onMessage, onMessageUpdate, onMes
         }
       },
       'message:delete': (cmd, payload, { verification }) => {
-        if (verification?.sessionID !== sessionID) return;
+        if (!shouldProcessMessage(payload, verification)) return;
         const { changed, messages: updatedMessages } = removeMessagesByRecordIDs(payload?.recordIDsDeleted);
         if (changed) {
           externalHandlers.replaceMessageList?.(updatedMessages);

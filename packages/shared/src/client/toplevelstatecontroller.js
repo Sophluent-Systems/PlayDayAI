@@ -150,25 +150,6 @@ export function topLevelStateController(props) {
         return localAccount && localAccount.roles?.servicePermissions?.includes(permissions);
     }, [localAccount]);
 
-    useEffect(() => {
-        if (game && localAccount) {
-            updatePermissionsForGame(game.gameID);
-        }
-        if (localAccount) {
-            const newEditMode = hasServicePerms("service_editMode") && localAccount?.preferences?.editMode;
-            setEditMode(!!newEditMode);
-
-            if (localAccount && !localAccount?.roles?.userRoles) {
-                redirectToAuthRoute(`/auth/logout?returnTo=${encodeURIComponent(process.env.APP_NEXT_PUBLIC_BASE_URL)}`);
-            } else if (localAccount && !hasServicePerms("service_basicAccess")) {
-                console.log("GUEST: Redirecting to redeem key page");
-                navigateTo('/account/redeemkey');
-            }
-        } else {
-            setEditMode(false);
-        }
-    }, [game, hasServicePerms, localAccount, navigateTo, redirectToAuthRoute, updatePermissionsForGame]);
-
     const debouncedUpdateAccount = useRef(
         debounce(async (updatedAccount) => {
           try {
@@ -286,6 +267,25 @@ export function topLevelStateController(props) {
         }
         updateUrl(params);
     }, [updateUrl, Constants.debug.logStateManager]);
+
+    useEffect(() => {
+        if (game && localAccount) {
+            updatePermissionsForGame(game.gameID);
+        }
+        if (localAccount) {
+            const newEditMode = hasServicePerms("service_editMode") && localAccount?.preferences?.editMode;
+            setEditMode(!!newEditMode);
+
+            if (localAccount && !localAccount?.roles?.userRoles) {
+                redirectToAuthRoute(`/auth/logout?returnTo=${encodeURIComponent(process.env.APP_NEXT_PUBLIC_BASE_URL)}`);
+            } else if (localAccount && !hasServicePerms("service_basicAccess")) {
+                console.log("GUEST: Redirecting to redeem key page");
+                navigateTo('/account/redeemkey');
+            }
+        } else {
+            setEditMode(false);
+        }
+    }, [game, hasServicePerms, localAccount, navigateTo, redirectToAuthRoute, updatePermissionsForGame]);
 
     const refreshGameVersionList = useCallback(async (gameID=undefined, options = {}) => {
         const targetGameID = gameID ?? game?.gameID;

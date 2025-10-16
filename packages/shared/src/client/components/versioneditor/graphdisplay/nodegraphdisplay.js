@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useContext, useRef } from "react";
 import ReactFlow, { 
     useNodesState, 
     useEdgesState, 
@@ -18,6 +18,8 @@ import { Copy, Trash2, ClipboardPaste, SquareStack } from 'lucide-react';
 import FloatingEdge from './customedges/floatingedge';
 import CustomConnectionLine from './customedges/customconnectionline';
 import { copyDataToClipboard, pasteDataFromClipboard } from "@src/client/clipboard";
+import { callGetBlob, callUploadBlob } from "@src/client/blobclient";
+import { stateManager } from "@src/client/statemanager";
 import { nullUndefinedOrEmpty } from "@src/common/objects";
 
 const nodeTypes = {
@@ -56,6 +58,64 @@ const defaultEdgeOptions = {
     type: 'customsmartedge',
     markerEnd: makerEndStyle,
   };
+
+
+const INLINE_PAYLOAD_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
+const BASE64_DELIMITER = 'base64,';
+
+function dataUrlToBase64(dataUrl) {
+  if (typeof dataUrl !== 'string') {
+    return null;
+  }
+  const markerIndex = dataUrl.indexOf(BASE64_DELIMITER);
+  if (markerIndex === -1) {
+    return null;
+  }
+  return dataUrl.substring(markerIndex + BASE64_DELIMITER.length);
+}
+
+function base64ByteLength(base64) {
+  if (typeof base64 !== 'string') {
+    return 0;
+  }
+  const length = base64.length;
+  if (length === 0) {
+    return 0;
+  }
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor((length * 3) / 4) - padding;
+}
+
+function formatBytes(bytes) {
+  if (!bytes || Number.isNaN(bytes)) {
+    return '0 B';
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const units = ['KB', 'MB', 'GB'];
+  let index = -1;
+  let value = bytes;
+  do {
+    value /= 1024;
+    index += 1;
+  } while (value >= 1024 && index < units.length - 1);
+  return `${value.toFixed(1)} ${units[index]}`;
+}
+
+function base64ToFile(base64, fileName, mimeType) {
+  if (typeof atob !== 'function' || typeof Uint8Array === 'undefined' || typeof File === 'undefined') {
+    throw new Error('Binary conversion APIs are unavailable in this environment.');
+  }
+
+  const binaryString = atob(base64);
+  const byteArray = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i += 1) {
+    byteArray[i] = binaryString.charCodeAt(i);
+  }
+
+  return new File([byteArray], fileName, { type: mimeType });
+}
 
 
 
@@ -120,6 +180,8 @@ export function NodeGraphDisplay(params) {
     const [paneMenu, setPaneMenu] = useState(null);
     const ref = useRef(null);
     const [doneInitialFitView, setDoneInitialFitView] = useState(false);
+    const { session } = useContext(stateManager);
+    const activeSessionID = session?.sessionID ?? null;
 
     // Prevent the browser's context menu from appearing
     useEffect(() => {
@@ -592,6 +654,195 @@ export function NodeGraphDisplay(params) {
         [setNodeMenu, nodes, readOnly],
       );
       
+    const hydrateFilePayloadForClipboard = useCallback(async (nodeCopies) => {
+        const summary = {
+            attempted: 0,
+            succeeded: 0,
+            totalBytes: 0,
+            errors: [],
+            skippedSession: false,
+            skippedSizeLimit: false,
+        };
+
+        if (!Array.isArray(nodeCopies) || nodeCopies.length === 0) {
+            return summary;
+        }
+
+        const storageReferences = [];
+        nodeCopies.forEach((node, nodeIndex) => {
+            const files = node?.params?.files;
+            if (!Array.isArray(files) || files.length === 0) {
+                return;
+            }
+            files.forEach((entry, fileIndex) => {
+                const fileDescriptor = entry?.file;
+                if (fileDescriptor?.source === 'storage' && fileDescriptor?.data) {
+                    storageReferences.push({
+                        nodeIndex,
+                        fileIndex,
+                        blobID: fileDescriptor.data,
+                        fileName: entry?.fileName ?? `file-${fileIndex + 1}`,
+                    });
+                }
+            });
+        });
+
+        summary.attempted = storageReferences.length;
+
+        if (storageReferences.length === 0) {
+            return summary;
+        }
+
+        if (!activeSessionID) {
+            summary.skippedSession = true;
+            return summary;
+        }
+
+        const uniqueBlobIDs = Array.from(new Set(storageReferences.map((ref) => ref.blobID)));
+        const blobCache = new Map();
+        const failedBlobIDs = new Map();
+
+        await Promise.all(
+            uniqueBlobIDs.map(async (blobID) => {
+                try {
+                    const response = await callGetBlob(activeSessionID, blobID);
+                    const base64 = dataUrlToBase64(response?.url);
+                    if (!base64) {
+                        failedBlobIDs.set(blobID, 'No data returned');
+                        return;
+                    }
+                    blobCache.set(blobID, {
+                        base64,
+                        mimeType: response?.mimeType ?? 'application/octet-stream',
+                        byteLength: base64ByteLength(base64),
+                    });
+                } catch (error) {
+                    const reason = error instanceof Error ? error.message : String(error);
+                    failedBlobIDs.set(blobID, reason);
+                }
+            })
+        );
+
+        const mutatedEntries = [];
+
+        storageReferences.forEach(({ nodeIndex, fileIndex, blobID, fileName }) => {
+            const targetFile = nodeCopies[nodeIndex]?.params?.files?.[fileIndex]?.file;
+            if (!targetFile) {
+                return;
+            }
+
+            if (failedBlobIDs.has(blobID)) {
+                const reason = failedBlobIDs.get(blobID);
+                summary.errors.push(`${fileName}: ${reason}`);
+                return;
+            }
+
+            const cacheEntry = blobCache.get(blobID);
+            if (!cacheEntry) {
+                summary.errors.push(`${fileName}: Unknown error`);
+                return;
+            }
+
+            targetFile.inlineData = {
+                base64: cacheEntry.base64,
+                mimeType: cacheEntry.mimeType,
+                byteLength: cacheEntry.byteLength,
+                originalBlobID: blobID,
+            };
+            mutatedEntries.push({ nodeIndex, fileIndex });
+            summary.succeeded += 1;
+            summary.totalBytes += cacheEntry.byteLength;
+        });
+
+        if (summary.totalBytes > INLINE_PAYLOAD_LIMIT_BYTES) {
+            mutatedEntries.forEach(({ nodeIndex, fileIndex }) => {
+                const targetFile = nodeCopies[nodeIndex]?.params?.files?.[fileIndex]?.file;
+                if (targetFile?.inlineData) {
+                    delete targetFile.inlineData;
+                }
+            });
+            summary.skippedSizeLimit = true;
+            summary.succeeded = 0;
+            summary.totalBytes = 0;
+        }
+
+        return summary;
+    }, [activeSessionID]);
+
+    const uploadInlineFilesForNodes = useCallback(async (nodesPayload) => {
+        const summary = {
+            total: 0,
+            uploaded: 0,
+            errors: [],
+        };
+
+        if (!Array.isArray(nodesPayload) || nodesPayload.length === 0) {
+            return summary;
+        }
+
+        const entries = [];
+        nodesPayload.forEach((node, nodeIndex) => {
+            const files = node?.params?.files;
+            if (!Array.isArray(files) || files.length === 0) {
+                return;
+            }
+
+            files.forEach((entry, fileIndex) => {
+                const inlineData = entry?.file?.inlineData;
+                if (inlineData?.base64 && inlineData?.mimeType) {
+                    entries.push({
+                        nodeIndex,
+                        fileIndex,
+                        inlineData,
+                        fileName: entry?.fileName ?? `file-${fileIndex + 1}`,
+                    });
+                }
+            });
+        });
+
+        summary.total = entries.length;
+
+        for (let i = 0; i < entries.length; i += 1) {
+            const { nodeIndex, fileIndex, inlineData, fileName } = entries[i];
+            const targetFile = nodesPayload[nodeIndex]?.params?.files?.[fileIndex]?.file;
+            if (!targetFile) {
+                continue;
+            }
+
+            try {
+                const fileObject = base64ToFile(inlineData.base64, fileName, inlineData.mimeType);
+                const uploadResult = await callUploadBlob(fileObject, fileName);
+                if (!uploadResult?.blobID) {
+                    throw new Error('Upload did not return a blob identifier.');
+                }
+
+                targetFile.data = uploadResult.blobID;
+                targetFile.mimeType = uploadResult.mimeType ?? inlineData.mimeType;
+                targetFile.source = 'storage';
+                delete targetFile.inlineData;
+                summary.uploaded += 1;
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                summary.errors.push(`${fileName}: ${reason}`);
+            }
+        }
+
+        // Ensure no inline data remains, even if upload was skipped
+        nodesPayload.forEach((node) => {
+            const files = node?.params?.files;
+            if (!Array.isArray(files)) {
+                return;
+            }
+            files.forEach((entry) => {
+                if (entry?.file?.inlineData) {
+                    delete entry.file.inlineData;
+                }
+            });
+        });
+
+        return summary;
+    }, []);
+
     const handleDeleteNodes = (event) => {
         event.preventDefault();
         if (readOnly) { return };
@@ -836,186 +1087,244 @@ export function NodeGraphDisplay(params) {
             }            
     */
 
-    const handleCopy = (event) => {
+    const handleCopy = useCallback(async (event) => {
         event.preventDefault();
-        if (!selectedNodes || selectedNodes.length == 0) {
+        if (!selectedNodes || selectedNodes.length === 0) {
             return;
         }
-        let nodesToCopy = selectedNodes.map((nodeID) => nodes.find((node) => node.instanceID === nodeID));
-        nodesToCopy = JSON.parse(JSON.stringify(nodesToCopy));
-        if (nodesToCopy && nodesToCopy.length > 0) {
-            let edges = [];
-            let inputParams=[];
-            let versionPersonas = [];
-            for (let i=0; i<nodesToCopy.length; i++) {
-                const node = nodesToCopy[i];
 
-                //
-                // Map inputs to edges to be copied
-                // 
-                if (node.inputs && node.inputs.length > 0) {
-                    for (let j=0; j<node.inputs.length; j++) {
-                        const input = node.inputs[j];
-                        const nodeInCopySet = nodesToCopy.find((n) => n.instanceID === input.producerInstanceID);
-                        if (nodeInCopySet) {
-                            if (input.triggers) {
-                                input.triggers.forEach((trigger) => {
-                                    edges.push({
-                                        inputType: "trigger",
-                                        sourceID: input.producerInstanceID,
-                                        targetID: node.instanceID,
-                                        sourceName: trigger.producerEvent,
-                                        targetName: trigger.targetTrigger,
-                                    });
-                                });
-                            }
-                            if (input.variables) {
-                                input.variables.forEach((variable) => {
-                                    edges.push({
-                                        inputType: "variable",
-                                        sourceID: input.producerInstanceID,
-                                        targetID: node.instanceID,
-                                        sourceName: variable.producerOutput,
-                                        targetName: variable.consumerVariable,
-                                    });
-                                });
-                            }
-                            inputParams.push({
-                                sourceID: input.producerInstanceID,
-                                targetID: node.instanceID,
-                                params: {
-                                    includeHistory: input.includeHistory,
-                                    historyParams: input.historyParams,
-                                }
-                            });
-                        }
-                    }
-                }
-                
-                // 
-                // If the persona is attached to the version (not inline in the node),
-                // then add it to the array of personas to copy
-                //
+        let nodesToCopy = selectedNodes
+            .map((nodeID) => nodes.find((node) => node.instanceID === nodeID))
+            .filter(Boolean);
 
-                if (node.personaLocation && node.personaLocation.source === "version") {
-                    versionPersonas.push(versionInfo.personas.find(persona => persona.personaID === node.personaLocation.personaID));
-                }
-            }
-            nodesToCopy = nodesToCopy.map((node) => {
-                delete node.inputs;
-                return node;
-            });
-            const copyData = {
-                contents: "nodecopydata",
-                nodes: nodesToCopy,
-                edges: edges,
-                personas: versionPersonas,
-                inputParams: inputParams,
-            }
-
-            copyDataToClipboard(copyData);
+        if (!nodesToCopy || nodesToCopy.length === 0) {
+            setNodeMenu(null);
+            return;
         }
-        setNodeMenu(null);
-    }
 
-    const handlePaste = (event) => {
-        if (readOnly) { return };
-        
-        event.preventDefault();
-        pasteDataFromClipboard().then((data) => {
-            if (data && data.contents === "nodecopydata" && data.nodes && data.nodes.length > 0) {
-                // special case: if the start node is in the copy set, then overwrite the
-                // start node with the copy
-                let newNodes = [];
-                let nodeInstanceIDMappings = {};
-                let startNode = data.nodes.find((node) => node.nodeType === "start");
-                if (startNode) {
-                    onNodeStructureChange?.(startNode, "overwrite", {});
-                    newNodes.push(startNode);
-                    nodeInstanceIDMappings[startNode.instanceID] = startNode;
-                }
+        nodesToCopy = JSON.parse(JSON.stringify(nodesToCopy));
 
-                for (let i=0; i<data.nodes.length; i++) {
-                    // if we encounter the start node, skip it
-                    if (data.nodes[i].nodeType === "start") {
+        let edges = [];
+        const inputParams = [];
+        const versionPersonas = [];
+
+        for (let i = 0; i < nodesToCopy.length; i += 1) {
+            const node = nodesToCopy[i];
+
+            if (node.inputs && node.inputs.length > 0) {
+                for (let j = 0; j < node.inputs.length; j += 1) {
+                    const input = node.inputs[j];
+                    const nodeInCopySet = nodesToCopy.find((n) => n.instanceID === input.producerInstanceID);
+                    if (!nodeInCopySet) {
                         continue;
                     }
-                    const newNodeByRef = onNodeStructureChange?.(data.nodes[i], "duplicate", {});
-                    // This allows us to match edges correctly later
-                    newNodes.push(newNodeByRef);
-                    nodeInstanceIDMappings[data.nodes[i].instanceID] = newNodeByRef;
-                }
-                if (data.edges && data.edges.length > 0) {
-                    for (let i=0; i<data.edges.length; i++) {
-                        const edge = data.edges[i];
-                        const sourceID = nodeInstanceIDMappings[edge.sourceID].instanceID;
-                        const targetNode = nodeInstanceIDMappings[edge.targetID];
-                        if (sourceID && targetNode) {
-                            
-                            if (edge.inputType === "trigger") {
 
-                                onNodeStructureChange?.(targetNode, "addinputeventtrigger", {producerEvent: edge.sourceName, targetTrigger: edge.targetName, producerInstanceID: sourceID});
-
-                            } else if (edge.inputType === "variable") {
-
-                                onNodeStructureChange?.(targetNode, "addinputvariableproducer", {producerOutput: edge.sourceName, consumerVariable: edge.targetName, producerInstanceID: sourceID});
-
-                            } else {
-                                throw new Error('handlePaste: input type not recognized ' + edge.inputType);
-                            }     
-                        } else {
-                            throw new Error('handlePaste: source or target node not found' + sourceID + ' ' + targetNode);
-                        }
-                    }
-                }
-                data.inputParams &&data.inputParams.forEach((item) => {
-                    const targetNode = nodeInstanceIDMappings[item.targetID];
-                    const producerInstanceID = nodeInstanceIDMappings[item.sourceID].instanceID;
-                    let newInputParams = JSON.parse(JSON.stringify(item.params));
-                    // Need to fix up all the instance IDs in historyParams.includedNodes, if it exists
-                    if (newInputParams.includeHistory && newInputParams.historyParams && newInputParams.historyParams.includedNodes) {
-                        newInputParams.historyParams.includedNodes = newInputParams.historyParams.includedNodes.map((instanceID) => {
-                            const mappedInstance = nodeInstanceIDMappings[instanceID];                            
-                            if (mappedInstance) {
-                                return mappedInstance.instanceID;
-                            } else if (instanceID == "start") {
-                                // special exception for the start node
-                                return "start";  
-                            } else {
-                                console.log("Node not found in mapping for paste, likely outside selection: ", instanceID)
-                                return null;
-                            }
+                    if (input.triggers) {
+                        input.triggers.forEach((trigger) => {
+                            edges.push({
+                                inputType: "trigger",
+                                sourceID: input.producerInstanceID,
+                                targetID: node.instanceID,
+                                sourceName: trigger.producerEvent,
+                                targetName: trigger.targetTrigger,
+                            });
                         });
-                        // Now filter out any nulls
-                        newInputParams.historyParams.includedNodes = newInputParams.historyParams.includedNodes.filter((node) => node != null);
                     }
-                    if (targetNode && producerInstanceID) {
-                        onNodeStructureChange?.(targetNode, "setinputparams", {producerInstanceID, inputParams: newInputParams});
+                    if (input.variables) {
+                        input.variables.forEach((variable) => {
+                            edges.push({
+                                inputType: "variable",
+                                sourceID: input.producerInstanceID,
+                                targetID: node.instanceID,
+                                sourceName: variable.producerOutput,
+                                targetName: variable.consumerVariable,
+                            });
+                        });
                     }
-                });
-                if (data.personas && data.personas.length > 0) {
-                    for (let i=0; i<data.personas.length; i++) {
-                        const persona = data.personas[i];
-                        // Is there an existing persona with the same ID?
-                        let personaToAdd = null;
-                        if (!nullUndefinedOrEmpty(versionInfo.personas)) {
-                            personaToAdd = versionInfo.personas.find((p) => p.personaID === persona.personaID);
-                        }
-                        if (!personaToAdd) {
-                            personaToAdd = JSON.parse(JSON.stringify(persona));
-                        } else {
-                            personaToAdd = {
-                                ...JSON.parse(JSON.stringify(personaToAdd)),
-                                ...persona,
-                            }
-                        }
-                        onPersonaListChange?.(personaToAdd, "upsert", {});
+                    inputParams.push({
+                        sourceID: input.producerInstanceID,
+                        targetID: node.instanceID,
+                        params: {
+                            includeHistory: input.includeHistory,
+                            historyParams: input.historyParams,
+                        },
+                    });
+                }
+            }
+
+            if (node.personaLocation && node.personaLocation.source === "version") {
+                const personas = versionInfo?.personas ?? [];
+                const personaMatch = personas.find((persona) => persona.personaID === node.personaLocation.personaID);
+                if (personaMatch) {
+                    versionPersonas.push(personaMatch);
+                }
+            }
+        }
+
+        nodesToCopy = nodesToCopy.map((node) => {
+            if (node.inputs) {
+                delete node.inputs;
+            }
+            return node;
+        });
+
+        const hydrationSummary = await hydrateFilePayloadForClipboard(nodesToCopy);
+
+        const warnings = [];
+        if (hydrationSummary.skippedSession) {
+            warnings.push('Inline file data was not copied because no active session is loaded. Start a play session before copying File Store data if you need offline copies.');
+        }
+        if (hydrationSummary.skippedSizeLimit) {
+            warnings.push(`Inline file data exceeded ${formatBytes(INLINE_PAYLOAD_LIMIT_BYTES)}. The copy will reference existing storage blobs instead.`);
+        }
+        if (hydrationSummary.errors.length > 0) {
+            const truncatedErrors = hydrationSummary.errors.slice(0, 5).join('\n');
+            warnings.push(`Some files could not be inlined:\n${truncatedErrors}`);
+        }
+
+        if (warnings.length > 0) {
+            alert(warnings.join('\n\n'));
+        }
+
+        const copyData = {
+            contents: "nodecopydata",
+            nodes: nodesToCopy,
+            edges,
+            personas: versionPersonas,
+            inputParams,
+        };
+
+        await copyDataToClipboard(copyData);
+        setNodeMenu(null);
+    }, [selectedNodes, nodes, versionInfo, hydrateFilePayloadForClipboard]);
+
+    const handlePaste = useCallback(async (event) => {
+        if (readOnly) { return; }
+
+        event.preventDefault();
+
+        try {
+            const clipboardData = await pasteDataFromClipboard();
+            if (!clipboardData || clipboardData.contents !== "nodecopydata" || !Array.isArray(clipboardData.nodes) || clipboardData.nodes.length === 0) {
+                setPaneMenu(null);
+                return;
+            }
+
+            const nodesFromClipboard = JSON.parse(JSON.stringify(clipboardData.nodes));
+            const uploadSummary = await uploadInlineFilesForNodes(nodesFromClipboard);
+
+            if (uploadSummary.errors.length > 0) {
+                const truncatedErrors = uploadSummary.errors.slice(0, 5).join('\n');
+                alert(`Unable to paste because some files failed to upload:\n${truncatedErrors}`);
+                setPaneMenu(null);
+                return;
+            }
+
+            const payload = {
+                ...clipboardData,
+                nodes: nodesFromClipboard,
+            };
+
+            let newNodes = [];
+            const nodeInstanceIDMappings = {};
+            const startNode = payload.nodes.find((node) => node.nodeType === "start");
+
+            if (startNode) {
+                onNodeStructureChange?.(startNode, "overwrite", {});
+                newNodes.push(startNode);
+                nodeInstanceIDMappings[startNode.instanceID] = startNode;
+            }
+
+            for (let i = 0; i < payload.nodes.length; i += 1) {
+                const node = payload.nodes[i];
+                if (node.nodeType === "start") {
+                    continue;
+                }
+
+                const newNodeByRef = onNodeStructureChange?.(node, "duplicate", {});
+                newNodes.push(newNodeByRef);
+                nodeInstanceIDMappings[node.instanceID] = newNodeByRef;
+            }
+
+            if (payload.edges && payload.edges.length > 0) {
+                for (let i = 0; i < payload.edges.length; i += 1) {
+                    const edge = payload.edges[i];
+                    const sourceNode = nodeInstanceIDMappings[edge.sourceID];
+                    const targetNode = nodeInstanceIDMappings[edge.targetID];
+
+                    if (!sourceNode || !targetNode) {
+                        throw new Error('handlePaste: source or target node not found');
+                    }
+
+                    const sourceID = sourceNode.instanceID;
+
+                    if (edge.inputType === "trigger") {
+                        onNodeStructureChange?.(targetNode, "addinputeventtrigger", { producerEvent: edge.sourceName, targetTrigger: edge.targetName, producerInstanceID: sourceID });
+                    } else if (edge.inputType === "variable") {
+                        onNodeStructureChange?.(targetNode, "addinputvariableproducer", { producerOutput: edge.sourceName, consumerVariable: edge.targetName, producerInstanceID: sourceID });
+                    } else {
+                        throw new Error('handlePaste: input type not recognized ' + edge.inputType);
                     }
                 }
             }
+
+            if (payload.inputParams) {
+                payload.inputParams.forEach((item) => {
+                    const targetNode = nodeInstanceIDMappings[item.targetID];
+                    const sourceNode = nodeInstanceIDMappings[item.sourceID];
+                    if (!targetNode || !sourceNode) {
+                        return;
+                    }
+
+                    const producerInstanceID = sourceNode.instanceID;
+                    const newInputParams = JSON.parse(JSON.stringify(item.params));
+
+                    if (newInputParams.includeHistory && newInputParams.historyParams && newInputParams.historyParams.includedNodes) {
+                        newInputParams.historyParams.includedNodes = newInputParams.historyParams.includedNodes
+                            .map((instanceID) => {
+                                const mappedInstance = nodeInstanceIDMappings[instanceID];
+                                if (mappedInstance) {
+                                    return mappedInstance.instanceID;
+                                }
+                                if (instanceID === "start") {
+                                    return "start";
+                                }
+                                console.log("Node not found in mapping for paste, likely outside selection: ", instanceID);
+                                return null;
+                            })
+                            .filter((nodeInstance) => nodeInstance != null);
+                    }
+
+                    onNodeStructureChange?.(targetNode, "setinputparams", { producerInstanceID, inputParams: newInputParams });
+                });
+            }
+
+            if (payload.personas && payload.personas.length > 0) {
+                for (let i = 0; i < payload.personas.length; i += 1) {
+                    const persona = payload.personas[i];
+                    let personaToAdd = null;
+                    if (!nullUndefinedOrEmpty(versionInfo.personas)) {
+                        personaToAdd = versionInfo.personas.find((p) => p.personaID === persona.personaID);
+                    }
+                    if (!personaToAdd) {
+                        personaToAdd = JSON.parse(JSON.stringify(persona));
+                    } else {
+                        personaToAdd = {
+                            ...JSON.parse(JSON.stringify(personaToAdd)),
+                            ...persona,
+                        };
+                    }
+                    onPersonaListChange?.(personaToAdd, "upsert", {});
+                }
+            }
+
             setPaneMenu(null);
-        });
-    }
+        } catch (error) {
+            console.error('Failed to paste nodes:', error);
+            alert('Paste failed. Check the console for details.');
+            setPaneMenu(null);
+        }
+    }, [readOnly, uploadInlineFilesForNodes, onNodeStructureChange, versionInfo, onPersonaListChange]);
 
     const handleSelectAll = (event) => {
         if (readOnly) { return };
@@ -1054,7 +1363,7 @@ export function NodeGraphDisplay(params) {
         // Handle copy: Command+C on macOS, Ctrl+C on Windows
         if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
             console.log('Ctrl+C pressed');
-            handleCopy(event, selectedNodes);
+            void handleCopy(event);
         }
         
         // Handle paste: Command+V on macOS, Ctrl+V on Windows
@@ -1062,7 +1371,7 @@ export function NodeGraphDisplay(params) {
             console.log('Ctrl+V pressed');
             if (readOnly) { return };
 
-            handlePaste(event);
+            void handlePaste(event);
         }
         
         // Handle paste: Command+A on macOS, Ctrl+A on Windows
@@ -1145,7 +1454,7 @@ export function NodeGraphDisplay(params) {
             </ContextMenuItem>
             <ContextMenuItem
               icon={<Copy className="h-4 w-4" />}
-              onSelect={(event) => handleCopy(event)}
+              onSelect={(event) => { void handleCopy(event); }}
             >
               Copy Node
             </ContextMenuItem>
@@ -1171,7 +1480,7 @@ export function NodeGraphDisplay(params) {
           >
             <ContextMenuItem
               icon={<ClipboardPaste className="h-4 w-4" />}
-              onSelect={(event) => handlePaste(event)}
+              onSelect={(event) => { void handlePaste(event); }}
             >
               Paste
             </ContextMenuItem>

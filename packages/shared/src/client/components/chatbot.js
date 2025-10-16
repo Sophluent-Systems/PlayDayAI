@@ -210,7 +210,9 @@ function ChatBot(props) {
     if (game && sessionID && session) {
       if (session.sessionID != loadedSessionID.current) {
         loadedSessionID.current = session.sessionID;
-        subscribeForStateMachineUpdates();
+        subscribeForStateMachineUpdates().catch((error) => {
+          console.warn("subscribeForStateMachineUpdates failed during session load", error);
+        });
 
         resetMediaPlaybackState();
 
@@ -589,18 +591,25 @@ function ChatBot(props) {
       // until we hear otherwise
       setProcessingUnderway(true);
 
-      return new Promise((resolve, reject) => {
-        try {
-            stateMachineWebsocket.current.sendCommand("command", {type: "initializeConnection", accessToken: accessToken, payload: {sessionID: sessionID, gameID: game?.gameID}}).then(() => {
-              resolve();
-            }).catch((error) => {
-              console.log("failed to send init command")
-              reject(error);
-            });
-        } catch (error) {
-          reject(error);
-        }
-      });
+      const websocket = stateMachineWebsocket.current;
+      if (!websocket) {
+        const error = new Error("State machine websocket unavailable during initialization");
+        console.warn("Failed to initialize state machine connection: websocket not ready", error);
+        setProcessingUnderway(false);
+        throw error;
+      }
+
+      try {
+        await websocket.sendCommand("command", {
+          type: "initializeConnection",
+          accessToken: accessToken,
+          payload: { sessionID: sessionID, gameID: game?.gameID },
+        });
+      } catch (error) {
+        console.error("failed to send init command", error);
+        setProcessingUnderway(false);
+        throw error;
+      }
 }
 
 const onRequestAudioControl = (action, playerInstance, params) => {

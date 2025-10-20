@@ -192,6 +192,22 @@ export function messageFromRecord(versionInfo, record, params = {}) {
     nodeAttributes: getMetadataForNodeType(node.nodeType).nodeAttributes,
   };
 
+  message.componentBreadcrumb = Array.isArray(record.componentBreadcrumb)
+    ? [...record.componentBreadcrumb]
+    : [];
+
+  const componentContext = record.context?.customComponent;
+  if (componentContext || node.nodeType === "customComponent") {
+    message.component = {
+      componentID: componentContext?.componentID ?? node?.params?.componentID ?? node?.componentID ?? null,
+      name: componentContext?.name ?? node.instanceName ?? 'Custom Component',
+      version: componentContext?.version ?? node?.params?.version ?? null,
+      placeholder: componentContext?.placeholder ?? false,
+    };
+  }
+
+  message.isComponentRoot = node.nodeType === "customComponent";
+
   // Include ratings if they exist
   if (record.ratings) {
     message.ratings = record.ratings;

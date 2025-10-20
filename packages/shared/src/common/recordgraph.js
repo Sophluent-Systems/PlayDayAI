@@ -20,7 +20,10 @@ export class RecordGraph {
             record: record,
             parents: [],
             childSubtrees: {},
-            attributes: {}
+            attributes: {},
+            componentBreadcrumb: Array.isArray(record?.componentBreadcrumb)
+                ? [...record.componentBreadcrumb]
+                : []
         };
 
         if (record.nodeInstanceID === "start") {
@@ -516,6 +519,22 @@ export class RecordGraph {
         Object.keys(this.recordEntries).forEach(recordID => {
             this.recordEntries[recordID].attributes = {};
         });
+    }
+
+    getComponentBreadcrumb(recordID) {
+        const entry = this.recordEntries[recordID];
+        if (!entry) {
+            return [];
+        }
+        return Array.isArray(entry.componentBreadcrumb) ? [...entry.componentBreadcrumb] : [];
+    }
+
+    setComponentBreadcrumb(recordID, breadcrumb = []) {
+        const entry = this.recordEntries[recordID];
+        if (!entry) {
+            return;
+        }
+        entry.componentBreadcrumb = Array.isArray(breadcrumb) ? [...breadcrumb] : [];
     }
 
     printEntry(entry, prefix = "") {

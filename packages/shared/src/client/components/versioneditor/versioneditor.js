@@ -1,6 +1,6 @@
 'use client';
 import { useRouter } from "next/router";
-import React, { memo, useState, useEffect, useRef } from "react";
+import React, { memo, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { defaultAppTheme } from "@src/common/theme";
 import { AlertCircle, CheckCircle2, GaugeCircle, Layers, Play, Save, Settings2, Trash2, Workflow, X } from "lucide-react";
 import { VersionSelector } from "@src/client/components/versionselector";
@@ -29,7 +29,7 @@ import { NodeGraphDisplay } from "./graphdisplay/nodegraphdisplay";
 import { v4 as uuidv4 } from "uuid";
 import ReactMarkdown from "react-markdown";
 import { replacePlaceholderSettingWithFinalValue } from "@src/client/components/settingsmenus/menudatamodel";
-import { getMetadataForNodeType } from "@src/common/nodeMetadata";
+import { getInputsAndOutputsForNode, getMetadataForNodeType } from "@src/common/nodeMetadata";
 import { analyticsReportEvent } from "@src/client/analytics";
 
 import "ace-builds/src-noconflict/mode-javascript";
@@ -39,6 +39,101 @@ import { NodeInputsEditor } from "./nodeinputseditor";
 import { NodeInitMenu } from "./nodeinitmenu";
 import { FloatingPanel } from "./floatingpanel";
 import { NodeLibraryTree } from "./nodelibrarytree";
+import { CustomComponentEditor } from "./customcomponenteditor";
+
+function slugifyHandleValue(value) {
+  if (value === undefined || value === null) {
+    return "slot";
+  }
+  return value
+    .toString()
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase() || "slot";
+}
+
+function makeUniqueHandle(handleSet, prefix, raw) {
+  const baseSlug = slugifyHandleValue(raw ? `${prefix}_${raw}` : prefix);
+  let candidate = baseSlug || `${prefix}_slot`;
+  let counter = 1;
+  while (handleSet.has(candidate)) {
+    candidate = `${baseSlug}_${counter++}`;
+  }
+  handleSet.add(candidate);
+  return candidate;
+}
+
+function toggleSelectionSet(currentSet, id) {
+  const next = new Set(currentSet);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  return next;
+}
+
+function deriveUniqueComponentName(versionInfo, selectedNodes) {
+  const baseName = selectedNodes.length === 1
+    ? `${selectedNodes[0].instanceName} Component`
+    : "Custom Component";
+  const existingNames = new Set(
+    (versionInfo?.stateMachineDescription?.customComponents || []).map((definition) => definition.name)
+  );
+  if (!existingNames.has(baseName)) {
+    return baseName;
+  }
+  let suffix = 2;
+  let candidate = `${baseName} ${suffix}`;
+  while (existingNames.has(candidate)) {
+    suffix += 1;
+    candidate = `${baseName} ${suffix}`;
+  }
+  return candidate;
+}
+
+function ensureUniqueInstanceName(baseName, nodes) {
+  if (!baseName) {
+    baseName = "Custom Component";
+  }
+  const existing = new Set((nodes || []).map((node) => node.instanceName));
+  if (!existing.has(baseName)) {
+    return baseName;
+  }
+  let suffix = 2;
+  let candidate = `${baseName} ${suffix}`;
+  while (existing.has(candidate)) {
+    suffix += 1;
+    candidate = `${baseName} ${suffix}`;
+  }
+  return candidate;
+}
+
+function resolvePortDirection(port, fallback = "input") {
+  const annotations = port?.annotations || {};
+  const annotatedDirection = annotations.direction;
+  if (annotatedDirection === "input" || annotatedDirection === "output") {
+    return annotatedDirection;
+  }
+  if (
+    annotations.producerInstanceID ||
+    annotations.producerOutput ||
+    annotations.producerEvent
+  ) {
+    return "input";
+  }
+  if (Array.isArray(annotations.targets) && annotations.targets.length > 0) {
+    return "output";
+  }
+  return fallback;
+}
+
+const isInputVariablePort = (port) => resolvePortDirection(port, "input") === "input";
+const isOutputVariablePort = (port) => resolvePortDirection(port, "output") === "output";
+const isInputEventPort = (port) => resolvePortDirection(port, "output") === "input";
+const isOutputEventPort = (port) => resolvePortDirection(port, "output") === "output";
 
 const globalOptions = [
   {
@@ -246,6 +341,7 @@ function VersionEditor(props) {
   const [libraryPanelOpen, setLibraryPanelOpen] = useState(true);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [inspectorPanelOpen, setInspectorPanelOpen] = useState(false);
+  const [componentEditorState, setComponentEditorState] = useState(null);
 
   const gameTheme = game?.theme ? game.theme : defaultAppTheme;
   const baseBackgroundColor = gameTheme?.colors?.titleBackgroundColor || '#0f172a';
@@ -308,6 +404,1571 @@ function VersionEditor(props) {
       alert('Error saving updates: ' + error);
     }
   }
+
+  const buildComponentDraft = useCallback((instanceIDs) => {
+    const versionInfoCurrent = newVersionInfoRef.current;
+    if (!versionInfoCurrent) {
+      return null;
+    }
+    const graphNodes = versionInfoCurrent?.stateMachineDescription?.nodes ?? [];
+    if (!Array.isArray(instanceIDs) || instanceIDs.length === 0 || graphNodes.length === 0) {
+      return null;
+    }
+    const nodeMap = new Map(graphNodes.map((nodeDesc) => [nodeDesc.instanceID, nodeDesc]));
+    const selectedSet = new Set(instanceIDs.filter((id) => nodeMap.has(id)));
+    if (selectedSet.size === 0) {
+      return null;
+    }
+    const selectedNodes = graphNodes.filter((nodeDesc) => selectedSet.has(nodeDesc.instanceID));
+    const handleSet = new Set();
+    const availableInputs = [];
+    const availableOutputs = [];
+    const availableEvents = [];
+    const defaultSelectedInputs = new Set();
+    const defaultSelectedOutputs = new Set();
+    const defaultSelectedEvents = new Set();
+    const metadataCache = new Map();
+
+    const safeGetOverrides = (nodeDesc) => {
+      if (!nodeDesc) {
+        return {};
+      }
+      if (metadataCache.has(nodeDesc.instanceID)) {
+        return metadataCache.get(nodeDesc.instanceID);
+      }
+      try {
+        const metadataClass = getMetadataForNodeType(nodeDesc.nodeType);
+        if (!metadataClass) {
+          metadataCache.set(nodeDesc.instanceID, {});
+          return {};
+        }
+        const metadataInstance = new metadataClass({ fullNodeDescription: nodeDesc });
+        const overrides = metadataInstance.getVariableOverrides
+          ? metadataInstance.getVariableOverrides()
+          : metadataClass.AllowedVariableOverrides || {};
+        metadataCache.set(nodeDesc.instanceID, overrides || {});
+        return overrides || {};
+      } catch (error) {
+        console.warn("Failed to resolve metadata for node", nodeDesc.instanceID, error);
+        metadataCache.set(nodeDesc.instanceID, {});
+        return {};
+      }
+    };
+
+    const safeGetIO = (nodeDesc) => {
+      try {
+        return getInputsAndOutputsForNode(nodeDesc);
+      } catch (error) {
+        console.warn("Failed to compute IO for node", nodeDesc.instanceID, error);
+        return { inputs: [], outputs: [], events: [] };
+      }
+    };
+
+    selectedNodes.forEach((nodeDesc) => {
+      const inputList = Array.isArray(nodeDesc.inputs) ? nodeDesc.inputs : [];
+      const variableOverrides = safeGetOverrides(nodeDesc);
+      inputList.forEach((input) => {
+        if (selectedSet.has(input.producerInstanceID)) {
+          return;
+        }
+        (input.variables || []).forEach((variable) => {
+          const key = `${nodeDesc.instanceID}::${variable.consumerVariable}::${input.producerInstanceID}`;
+          const handle = makeUniqueHandle(handleSet, "input", variable.consumerVariable);
+          const entry = {
+            id: key,
+            kind: "variable",
+            handle,
+            label: `${nodeDesc.instanceName} - ${variable.consumerVariable}`,
+            nodeInstanceID: nodeDesc.instanceID,
+            producerInstanceID: input.producerInstanceID,
+            consumerVariable: variable.consumerVariable,
+            producerOutput: variable.producerOutput,
+            mediaType: variableOverrides?.[variable.consumerVariable]?.mediaType || "text",
+          };
+          availableInputs.push(entry);
+          defaultSelectedInputs.add(entry.id);
+        });
+        (input.triggers || []).forEach((trigger) => {
+          const key = `${nodeDesc.instanceID}::${trigger.targetTrigger}::${input.producerInstanceID}`;
+          const handle = makeUniqueHandle(handleSet, "trigger", trigger.targetTrigger);
+          const entry = {
+            id: key,
+            kind: "event",
+            handle,
+            label: `${nodeDesc.instanceName} - ${trigger.targetTrigger}`,
+            nodeInstanceID: nodeDesc.instanceID,
+            producerInstanceID: input.producerInstanceID,
+            targetTrigger: trigger.targetTrigger,
+            producerEvent: trigger.producerEvent,
+          };
+          availableInputs.push(entry);
+          defaultSelectedInputs.add(entry.id);
+        });
+      });
+    });
+
+    graphNodes.forEach((nodeDesc) => {
+      if (selectedSet.has(nodeDesc.instanceID)) {
+        return;
+      }
+      const inputList = Array.isArray(nodeDesc.inputs) ? nodeDesc.inputs : [];
+      inputList.forEach((input) => {
+        if (!selectedSet.has(input.producerInstanceID)) {
+          return;
+        }
+        const producerNode = nodeMap.get(input.producerInstanceID);
+        if (!producerNode) {
+          return;
+        }
+        const io = safeGetIO(producerNode);
+        (input.variables || []).forEach((variable) => {
+          const key = `${input.producerInstanceID}::${variable.producerOutput}`;
+          let entry = availableOutputs.find((item) => item.id === key);
+          if (!entry) {
+            const outputMeta = (io.outputs || []).find((item) => item.value === variable.producerOutput);
+            entry = {
+              id: key,
+              kind: "variable",
+              handle: makeUniqueHandle(handleSet, "output", variable.producerOutput),
+              label: `${producerNode.instanceName} - ${(outputMeta?.label || variable.producerOutput)}`,
+              nodeInstanceID: input.producerInstanceID,
+              producerOutput: variable.producerOutput,
+              mediaType: outputMeta?.mediaType || "text",
+              targets: [],
+            };
+            availableOutputs.push(entry);
+            defaultSelectedOutputs.add(entry.id);
+          }
+          defaultSelectedOutputs.add(entry.id);
+          entry.targets.push({
+            nodeInstanceID: nodeDesc.instanceID,
+            consumerVariable: variable.consumerVariable,
+          });
+        });
+        (input.triggers || []).forEach((trigger) => {
+          const key = `${input.producerInstanceID}::${trigger.producerEvent}`;
+          let entry = availableEvents.find((item) => item.id === key);
+          if (!entry) {
+            const eventMeta = (io.events || []).find((item) => item.value === trigger.producerEvent);
+            entry = {
+              id: key,
+              kind: "event",
+              handle: makeUniqueHandle(handleSet, "event", trigger.producerEvent),
+              label: `${producerNode.instanceName} - ${(eventMeta?.label || trigger.producerEvent)}`,
+              nodeInstanceID: input.producerInstanceID,
+              producerEvent: trigger.producerEvent,
+              targets: [],
+            };
+            availableEvents.push(entry);
+            defaultSelectedEvents.add(entry.id);
+          }
+          defaultSelectedEvents.add(entry.id);
+          entry.targets.push({
+            nodeInstanceID: nodeDesc.instanceID,
+            targetTrigger: trigger.targetTrigger,
+          });
+        });
+    });
+  });
+
+    selectedNodes.forEach((nodeDesc) => {
+      const io = getInputsAndOutputsForNode(nodeDesc) || {};
+      const variableOverrides = safeGetOverrides(nodeDesc);
+
+      (io.inputs || []).forEach((metaInput, index) => {
+        const consumerVariable = metaInput.value || `input-${index}`;
+        const existing = availableInputs.find(
+          (entry) =>
+            entry.nodeInstanceID === nodeDesc.instanceID &&
+            entry.consumerVariable === consumerVariable
+        );
+        if (existing) {
+          return;
+        }
+        const handle = makeUniqueHandle(handleSet, "input", consumerVariable);
+        const overrideMeta = variableOverrides?.[consumerVariable] || {};
+        availableInputs.push({
+          id: handle,
+          kind: "variable",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(metaInput.label || consumerVariable)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          consumerVariable,
+          mediaType: overrideMeta.mediaType || "text",
+        });
+      });
+
+      (io.outputs || []).forEach((metaOutput, index) => {
+        let producerOutput;
+        let outputLabel;
+        let outputMediaType;
+        if (metaOutput && typeof metaOutput === "object") {
+          producerOutput =
+            metaOutput.value ??
+            metaOutput.key ??
+            metaOutput.id ??
+            metaOutput.name ??
+            `output-${index}`;
+          outputLabel = metaOutput.label ?? producerOutput;
+          outputMediaType = metaOutput.mediaType;
+        } else if (typeof metaOutput === "string") {
+          producerOutput = metaOutput;
+          outputLabel = metaOutput;
+          outputMediaType = undefined;
+        } else {
+          producerOutput = `output-${index}`;
+          outputLabel = producerOutput;
+          outputMediaType = undefined;
+        }
+        const existing = availableOutputs.find(
+          (entry) =>
+            entry.nodeInstanceID === nodeDesc.instanceID &&
+            entry.producerOutput === producerOutput
+        );
+        if (existing) {
+          return;
+        }
+        const handle = makeUniqueHandle(handleSet, "output", producerOutput);
+        availableOutputs.push({
+          id: handle,
+          kind: "variable",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(outputLabel || producerOutput)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          producerOutput,
+          mediaType: outputMediaType || "text",
+          targets: [],
+        });
+      });
+
+      (io.events || []).forEach((metaEvent, index) => {
+        let producerEvent;
+        let eventLabel;
+        if (metaEvent && typeof metaEvent === "object") {
+          producerEvent =
+            metaEvent.value ??
+            metaEvent.key ??
+            metaEvent.id ??
+            metaEvent.name ??
+            `event-${index}`;
+          eventLabel = metaEvent.label ?? producerEvent;
+        } else if (typeof metaEvent === "string") {
+          producerEvent = metaEvent;
+          eventLabel = metaEvent;
+        } else {
+          producerEvent = `event-${index}`;
+          eventLabel = producerEvent;
+        }
+        const existing = availableEvents.find(
+          (entry) =>
+            entry.nodeInstanceID === nodeDesc.instanceID &&
+            entry.producerEvent === producerEvent
+        );
+        if (existing) {
+          return;
+        }
+        const handle = makeUniqueHandle(handleSet, "event", producerEvent);
+        availableEvents.push({
+          id: handle,
+          kind: "event",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(eventLabel || producerEvent)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          producerEvent,
+          targets: [],
+        });
+      });
+    });
+
+    const draft = {
+      id: uuidv4(),
+      name: deriveUniqueComponentName(versionInfoCurrent, selectedNodes),
+      description: "",
+      selectedNodeIDs: Array.from(selectedSet),
+      nodes: selectedNodes.map((nodeDesc) => JSON.parse(JSON.stringify(nodeDesc))),
+      availableInputs,
+      availableOutputs,
+      availableEvents,
+      selectedInputs:
+        defaultSelectedInputs.size > 0
+          ? new Set(defaultSelectedInputs)
+          : new Set(availableInputs.map((entry) => entry.id)),
+      selectedOutputs:
+        defaultSelectedOutputs.size > 0
+          ? new Set(defaultSelectedOutputs)
+          : new Set(),
+      selectedEvents:
+        defaultSelectedEvents.size > 0
+          ? new Set(defaultSelectedEvents)
+          : new Set(),
+      library: "personal",
+    };
+    return draft;
+  }, []);
+
+  const buildComponentDraftFromDefinition = useCallback((definition) => {
+    if (!definition) {
+      return null;
+    }
+    const definitionNodes = Array.isArray(definition.nodes) ? definition.nodes : [];
+    const nodes = definitionNodes.map((node) => JSON.parse(JSON.stringify(node)));
+    const selectedNodeIDs = nodes.map((node) => node.instanceID);
+    const selectedSet = new Set(selectedNodeIDs);
+    const handleSet = new Set();
+    const availableInputs = [];
+    const availableOutputs = [];
+    const availableEvents = [];
+
+    const exposedInputs = Array.isArray(definition.exposedInputs) ? definition.exposedInputs : [];
+    const exposedOutputs = Array.isArray(definition.exposedOutputs) ? definition.exposedOutputs : [];
+    const exposedEvents = Array.isArray(definition.exposedEvents) ? definition.exposedEvents : [];
+
+    const addHandle = (handle) => {
+      if (handle) {
+        handleSet.add(handle);
+      }
+    };
+
+    exposedInputs.forEach((port) => addHandle(port.handle));
+    exposedOutputs.forEach((port) => addHandle(port.handle));
+    exposedEvents.forEach((port) => addHandle(port.handle));
+
+    const metadataCache = new Map();
+
+    const safeGetOverrides = (nodeDesc) => {
+      if (!nodeDesc) {
+        return {};
+      }
+      if (metadataCache.has(nodeDesc.instanceID)) {
+        return metadataCache.get(nodeDesc.instanceID);
+      }
+      try {
+        const metadataClass = getMetadataForNodeType(nodeDesc.nodeType);
+        if (!metadataClass) {
+          metadataCache.set(nodeDesc.instanceID, {});
+          return {};
+        }
+        const metadataInstance = new metadataClass({ fullNodeDescription: nodeDesc });
+        const overrides = metadataInstance.getVariableOverrides
+          ? metadataInstance.getVariableOverrides()
+          : metadataClass.AllowedVariableOverrides || {};
+        metadataCache.set(nodeDesc.instanceID, overrides || {});
+        return overrides || {};
+      } catch (error) {
+        console.warn("Failed to resolve metadata for node", nodeDesc.instanceID, error);
+        metadataCache.set(nodeDesc.instanceID, {});
+        return {};
+      }
+    };
+
+    const safeGetIO = (nodeDesc) => {
+      try {
+        return getInputsAndOutputsForNode(nodeDesc);
+      } catch (error) {
+        console.warn("Failed to compute IO for node", nodeDesc.instanceID, error);
+        return { inputs: [], outputs: [], events: [] };
+      }
+    };
+
+    nodes.forEach((nodeDesc) => {
+      const variableOverrides = safeGetOverrides(nodeDesc);
+      const inputList = Array.isArray(nodeDesc.inputs) ? nodeDesc.inputs : [];
+      inputList.forEach((input) => {
+        if (selectedSet.has(input.producerInstanceID)) {
+          return;
+        }
+        (input.variables || []).forEach((variable) => {
+          const key = `${nodeDesc.instanceID}::${variable.consumerVariable}::${input.producerInstanceID ?? "null"}::${variable.producerOutput ?? "null"}`;
+          const existingPort = exposedInputs.find(
+            (port) =>
+              port.nodeInstanceID === nodeDesc.instanceID &&
+              port.portName === variable.consumerVariable &&
+              port.annotations?.producerInstanceID === input.producerInstanceID &&
+              port.annotations?.producerOutput === variable.producerOutput
+          );
+          const handle = existingPort?.handle || makeUniqueHandle(handleSet, "input", variable.consumerVariable);
+          availableInputs.push({
+            id: key,
+            kind: "variable",
+            handle,
+            label: `${nodeDesc.instanceName} - ${variable.consumerVariable}`,
+            nodeInstanceID: nodeDesc.instanceID,
+            producerInstanceID: input.producerInstanceID,
+            consumerVariable: variable.consumerVariable,
+            producerOutput: variable.producerOutput,
+            mediaType: variableOverrides?.[variable.consumerVariable]?.mediaType || "text",
+          });
+        });
+        (input.triggers || []).forEach((trigger) => {
+          const key = `${nodeDesc.instanceID}::${trigger.targetTrigger}::${input.producerInstanceID ?? "null"}::${trigger.producerEvent ?? "null"}`;
+          const existingPort = exposedEvents.find(
+            (port) =>
+              port.nodeInstanceID === nodeDesc.instanceID &&
+              port.portName === trigger.targetTrigger &&
+              isInputEventPort(port) &&
+              port.annotations?.producerInstanceID === input.producerInstanceID &&
+              port.annotations?.producerEvent === trigger.producerEvent
+          );
+          const handle = existingPort?.handle || makeUniqueHandle(handleSet, "trigger", trigger.targetTrigger);
+          availableInputs.push({
+            id: key,
+            kind: "event",
+            handle,
+            label: `${nodeDesc.instanceName} - ${trigger.targetTrigger}`,
+            nodeInstanceID: nodeDesc.instanceID,
+            producerInstanceID: input.producerInstanceID,
+            targetTrigger: trigger.targetTrigger,
+            producerEvent: trigger.producerEvent,
+          });
+        });
+      });
+    });
+
+    nodes.forEach((nodeDesc) => {
+      const io = safeGetIO(nodeDesc) || {};
+      const variableOverrides = safeGetOverrides(nodeDesc);
+
+      (io.inputs || []).forEach((metaInput, index) => {
+        const consumerVariable = metaInput.value || `input-${index}`;
+        const alreadyPresent = availableInputs.some(
+          (entry) =>
+            entry.nodeInstanceID === nodeDesc.instanceID &&
+            entry.consumerVariable === consumerVariable
+        );
+        if (alreadyPresent) {
+          return;
+        }
+        const existingPort = exposedInputs.find(
+          (port) =>
+            port.nodeInstanceID === nodeDesc.instanceID &&
+            port.portName === consumerVariable
+        );
+        const handle = existingPort?.handle || makeUniqueHandle(handleSet, "input", consumerVariable);
+        availableInputs.push({
+          id: `${nodeDesc.instanceID}::${consumerVariable}`,
+          kind: "variable",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(metaInput.label || consumerVariable)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          consumerVariable,
+          mediaType: variableOverrides?.[consumerVariable]?.mediaType || "text",
+        });
+      });
+
+      (io.outputs || []).forEach((metaOutput, index) => {
+        let producerOutput;
+        let outputLabel;
+        let outputMediaType;
+        if (metaOutput && typeof metaOutput === "object") {
+          producerOutput =
+            metaOutput.value ??
+            metaOutput.key ??
+            metaOutput.id ??
+            metaOutput.name ??
+            `output-${index}`;
+          outputLabel = metaOutput.label ?? producerOutput;
+          outputMediaType = metaOutput.mediaType;
+        } else if (typeof metaOutput === "string") {
+          producerOutput = metaOutput;
+          outputLabel = metaOutput;
+          outputMediaType = undefined;
+        } else {
+          producerOutput = `output-${index}`;
+          outputLabel = producerOutput;
+          outputMediaType = undefined;
+        }
+        const id = `${nodeDesc.instanceID}::${producerOutput}`;
+        const existingPort = exposedOutputs.find(
+          (port) =>
+            port.nodeInstanceID === nodeDesc.instanceID &&
+            port.portName === producerOutput
+        );
+        const handle = existingPort?.handle || makeUniqueHandle(handleSet, "output", producerOutput);
+        availableOutputs.push({
+          id,
+          kind: "variable",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(outputLabel || producerOutput)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          producerOutput,
+          mediaType: outputMediaType || "text",
+          targets: existingPort?.annotations?.targets
+            ? JSON.parse(JSON.stringify(existingPort.annotations.targets))
+            : [],
+        });
+      });
+
+      (io.events || []).forEach((metaEvent, index) => {
+        let producerEvent;
+        let eventLabel;
+        if (metaEvent && typeof metaEvent === "object") {
+          producerEvent =
+            metaEvent.value ??
+            metaEvent.key ??
+            metaEvent.id ??
+            metaEvent.name ??
+            `event-${index}`;
+          eventLabel = metaEvent.label ?? producerEvent;
+        } else if (typeof metaEvent === "string") {
+          producerEvent = metaEvent;
+          eventLabel = metaEvent;
+        } else {
+          producerEvent = `event-${index}`;
+          eventLabel = producerEvent;
+        }
+        const id = `${nodeDesc.instanceID}::${producerEvent}`;
+        const existingPort = exposedEvents.find(
+          (port) =>
+            port.nodeInstanceID === nodeDesc.instanceID &&
+            port.portName === producerEvent &&
+            isOutputEventPort(port)
+        );
+        const handle = existingPort?.handle || makeUniqueHandle(handleSet, "event", producerEvent);
+        availableEvents.push({
+          id,
+          kind: "event",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(eventLabel || producerEvent)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          producerEvent,
+          targets: existingPort?.annotations?.targets
+            ? JSON.parse(JSON.stringify(existingPort.annotations.targets))
+            : [],
+        });
+      });
+    });
+
+    const selectedInputs = new Set();
+    exposedInputs.forEach((port) => {
+      if (!isInputVariablePort(port)) {
+        return;
+      }
+      const match = availableInputs.find((entry) => {
+        if (entry.nodeInstanceID !== port.nodeInstanceID) {
+          return false;
+        }
+        if (entry.kind === "variable") {
+          return entry.consumerVariable === port.portName;
+        }
+        if (entry.kind === "event") {
+          return entry.targetTrigger === port.portName;
+        }
+        return false;
+      });
+      if (match) {
+        match.handle = port.handle;
+        if (match.kind === "variable") {
+          match.producerInstanceID =
+            port.annotations?.producerInstanceID ?? match.producerInstanceID;
+          match.producerOutput =
+            port.annotations?.producerOutput ?? match.producerOutput;
+        } else {
+          match.producerInstanceID =
+            port.annotations?.producerInstanceID ?? match.producerInstanceID;
+          match.producerEvent = port.annotations?.producerEvent ?? match.producerEvent;
+        }
+        selectedInputs.add(match.id);
+      } else {
+        const id = `${port.nodeInstanceID}::${port.portName}::${port.handle}`;
+        const entry = {
+          id,
+          kind: port.portType === "event" ? "event" : "variable",
+          handle: port.handle,
+          label: `${port.nodeInstanceID} - ${port.portName}`,
+          nodeInstanceID: port.nodeInstanceID,
+        };
+        if (entry.kind === "variable") {
+          entry.consumerVariable = port.portName;
+          entry.mediaType = port.mediaType || "text";
+          entry.producerInstanceID = port.annotations?.producerInstanceID || null;
+          entry.producerOutput = port.annotations?.producerOutput || null;
+        } else {
+          entry.targetTrigger = port.portName;
+          entry.producerInstanceID = port.annotations?.producerInstanceID || null;
+          entry.producerEvent = port.annotations?.producerEvent || null;
+        }
+        availableInputs.push(entry);
+        selectedInputs.add(entry.id);
+      }
+    });
+
+    const selectedOutputs = new Set();
+    exposedOutputs.forEach((port) => {
+      if (!isOutputVariablePort(port)) {
+        return;
+      }
+      const match = availableOutputs.find(
+        (entry) =>
+          entry.nodeInstanceID === port.nodeInstanceID &&
+          entry.producerOutput === port.portName
+      );
+      if (match) {
+        match.handle = port.handle;
+        match.targets = JSON.parse(JSON.stringify(port.annotations?.targets || match.targets || []));
+        match.mediaType = port.mediaType || match.mediaType;
+        selectedOutputs.add(match.id);
+      } else {
+        const id = `${port.nodeInstanceID}::${port.portName}::${port.handle}`;
+        const entry = {
+          id,
+          kind: "variable",
+          handle: port.handle,
+          label: `${port.nodeInstanceID} - ${port.portName}`,
+          nodeInstanceID: port.nodeInstanceID,
+          producerOutput: port.portName,
+          mediaType: port.mediaType || "text",
+          targets: JSON.parse(JSON.stringify(port.annotations?.targets || [])),
+        };
+        availableOutputs.push(entry);
+        selectedOutputs.add(entry.id);
+      }
+    });
+
+    const selectedEvents = new Set();
+    exposedEvents.forEach((port) => {
+      if (!isOutputEventPort(port)) {
+        return;
+      }
+      const match = availableEvents.find(
+        (entry) =>
+          entry.nodeInstanceID === port.nodeInstanceID &&
+          entry.producerEvent === port.portName
+      );
+      if (match) {
+        match.handle = port.handle;
+        match.targets = JSON.parse(JSON.stringify(port.annotations?.targets || match.targets || []));
+        selectedEvents.add(match.id);
+      } else {
+        const id = `${port.nodeInstanceID}::${port.portName}::${port.handle}`;
+        const entry = {
+          id,
+          kind: "event",
+          handle: port.handle,
+          label: `${port.nodeInstanceID} - ${port.portName}`,
+          nodeInstanceID: port.nodeInstanceID,
+          producerEvent: port.portName,
+          targets: JSON.parse(JSON.stringify(port.annotations?.targets || [])),
+        };
+        availableEvents.push(entry);
+        selectedEvents.add(entry.id);
+      }
+    });
+
+    return {
+      id: definition.componentID || uuidv4(),
+      name: definition.name || "Custom Component",
+      description: definition.description || "",
+      selectedNodeIDs: selectedNodeIDs.length > 0 ? selectedNodeIDs : [...(definition.metadata?.selectedNodeInstanceIDs || [])],
+      nodes,
+      availableInputs,
+      availableOutputs,
+      availableEvents,
+      selectedInputs,
+      selectedOutputs,
+      selectedEvents,
+      library: definition.library || "personal",
+      componentID: definition.componentID,
+      version: definition.version || { major: 0, minor: 1, patch: 0 },
+      metadata: definition.metadata || {},
+      mode: "editExisting",
+    };
+  }, []);
+
+  const startComponentEditor = useCallback((instanceIDs) => {
+    const draft = buildComponentDraft(instanceIDs);
+    if (draft) {
+      setComponentEditorState(draft);
+      setInspectorPanelOpen(false);
+    }
+  }, [buildComponentDraft]);
+
+  const handleCancelComponentEditor = useCallback(() => {
+    setComponentEditorState(null);
+  }, []);
+
+  const handleComponentNameChange = useCallback((value) => {
+    setComponentEditorState((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return { ...previous, name: value };
+    });
+  }, []);
+
+  const handleComponentDescriptionChange = useCallback((value) => {
+    setComponentEditorState((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return { ...previous, description: value };
+    });
+  }, []);
+
+  const handleComponentLibraryChange = useCallback((value) => {
+    setComponentEditorState((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return { ...previous, library: value };
+    });
+  }, []);
+
+  const handleToggleInputExposure = useCallback((id) => {
+    setComponentEditorState((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        selectedInputs: toggleSelectionSet(previous.selectedInputs, id),
+      };
+    });
+  }, []);
+
+  const handleToggleOutputExposure = useCallback((id) => {
+    setComponentEditorState((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        selectedOutputs: toggleSelectionSet(previous.selectedOutputs, id),
+      };
+    });
+  }, []);
+
+  const handleToggleEventExposure = useCallback((id) => {
+    setComponentEditorState((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        selectedEvents: toggleSelectionSet(previous.selectedEvents, id),
+      };
+    });
+  }, []);
+
+  const handleComponentAddConnection = useCallback((detail) => {
+    if (!detail) {
+      return;
+    }
+    setComponentEditorState((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const nodes = Array.isArray(previous.nodes) ? previous.nodes : [];
+      const targetIndex = nodes.findIndex(
+        (node) => node.instanceID === detail.targetInstanceID,
+      );
+      if (targetIndex === -1) {
+        return previous;
+      }
+
+      const nextNode = JSON.parse(JSON.stringify(nodes[targetIndex] || {}));
+      nextNode.inputs = Array.isArray(nextNode.inputs) ? nextNode.inputs : [];
+      let changed = false;
+
+      nextNode.inputs.forEach((input) => {
+        input.variables = Array.isArray(input.variables) ? input.variables : [];
+        input.triggers = Array.isArray(input.triggers) ? input.triggers : [];
+      });
+
+      if (detail.type === "variable") {
+        nextNode.inputs.forEach((input) => {
+          const originalLength = input.variables.length;
+          input.variables = input.variables.filter(
+            (variable) => variable.consumerVariable !== detail.targetKey,
+          );
+          if (input.variables.length !== originalLength) {
+            changed = true;
+          }
+        });
+
+        let producerEntry = nextNode.inputs.find(
+          (input) => input.producerInstanceID === detail.sourceInstanceID,
+        );
+        if (!producerEntry) {
+          producerEntry = {
+            producerInstanceID: detail.sourceInstanceID,
+            variables: [],
+            triggers: [],
+          };
+          nextNode.inputs.push(producerEntry);
+          changed = true;
+        }
+        producerEntry.variables = Array.isArray(producerEntry.variables)
+          ? producerEntry.variables
+          : [];
+        const existing = producerEntry.variables.find(
+          (variable) => variable.consumerVariable === detail.targetKey,
+        );
+        if (existing) {
+          if (existing.producerOutput !== detail.sourceKey) {
+            existing.producerOutput = detail.sourceKey;
+            changed = true;
+          }
+        } else {
+          producerEntry.variables.push({
+            producerOutput: detail.sourceKey,
+            consumerVariable: detail.targetKey,
+          });
+          changed = true;
+        }
+      } else if (detail.type === "event") {
+        nextNode.inputs.forEach((input) => {
+          const originalLength = input.triggers.length;
+          input.triggers = input.triggers.filter(
+            (trigger) => trigger.targetTrigger !== detail.targetKey,
+          );
+          if (input.triggers.length !== originalLength) {
+            changed = true;
+          }
+        });
+
+        let producerEntry = nextNode.inputs.find(
+          (input) => input.producerInstanceID === detail.sourceInstanceID,
+        );
+        if (!producerEntry) {
+          producerEntry = {
+            producerInstanceID: detail.sourceInstanceID,
+            variables: [],
+            triggers: [],
+          };
+          nextNode.inputs.push(producerEntry);
+          changed = true;
+        }
+        producerEntry.triggers = Array.isArray(producerEntry.triggers)
+          ? producerEntry.triggers
+          : [];
+        const existing = producerEntry.triggers.find(
+          (trigger) =>
+            trigger.targetTrigger === detail.targetKey &&
+            trigger.producerEvent === detail.sourceKey,
+        );
+        if (!existing) {
+          producerEntry.triggers.push({
+            producerEvent: detail.sourceKey,
+            targetTrigger: detail.targetKey,
+          });
+          changed = true;
+        }
+      }
+
+      nextNode.inputs = nextNode.inputs.filter((input) => {
+        const hasVariables =
+          Array.isArray(input.variables) && input.variables.length > 0;
+        const hasTriggers =
+          Array.isArray(input.triggers) && input.triggers.length > 0;
+        return hasVariables || hasTriggers;
+      });
+
+      if (!changed) {
+        return previous;
+      }
+
+      const nextNodes = nodes.map((node, index) =>
+        index === targetIndex ? nextNode : node,
+      );
+      return {
+        ...previous,
+        nodes: nextNodes,
+      };
+    });
+  }, []);
+
+  const handleComponentRemoveConnection = useCallback((detail) => {
+    if (!detail) {
+      return;
+    }
+    setComponentEditorState((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const nodes = Array.isArray(previous.nodes) ? previous.nodes : [];
+      const targetIndex = nodes.findIndex(
+        (node) => node.instanceID === detail.targetInstanceID,
+      );
+      if (targetIndex === -1) {
+        return previous;
+      }
+
+      const nextNode = JSON.parse(JSON.stringify(nodes[targetIndex] || {}));
+      nextNode.inputs = Array.isArray(nextNode.inputs) ? nextNode.inputs : [];
+
+      const producerIndex = nextNode.inputs.findIndex(
+        (input) => input.producerInstanceID === detail.sourceInstanceID,
+      );
+      if (producerIndex === -1) {
+        return previous;
+      }
+
+      const producerEntry = nextNode.inputs[producerIndex];
+      let changed = false;
+
+      if (detail.type === "variable") {
+        const before = Array.isArray(producerEntry.variables)
+          ? producerEntry.variables.length
+          : 0;
+        producerEntry.variables = Array.isArray(producerEntry.variables)
+          ? producerEntry.variables.filter(
+              (variable) =>
+                !(
+                  variable.producerOutput === detail.sourceKey &&
+                  variable.consumerVariable === detail.targetKey
+                ),
+            )
+          : [];
+        if (producerEntry.variables.length !== before) {
+          changed = true;
+        }
+      } else if (detail.type === "event") {
+        const before = Array.isArray(producerEntry.triggers)
+          ? producerEntry.triggers.length
+          : 0;
+        producerEntry.triggers = Array.isArray(producerEntry.triggers)
+          ? producerEntry.triggers.filter(
+              (trigger) =>
+                !(
+                  trigger.producerEvent === detail.sourceKey &&
+                  trigger.targetTrigger === detail.targetKey
+                ),
+            )
+          : [];
+        if (producerEntry.triggers.length !== before) {
+          changed = true;
+        }
+      }
+
+      if (
+        (!producerEntry.variables || producerEntry.variables.length === 0) &&
+        (!producerEntry.triggers || producerEntry.triggers.length === 0)
+      ) {
+        nextNode.inputs.splice(producerIndex, 1);
+        changed = true;
+      }
+
+      if (!changed) {
+        return previous;
+      }
+
+      const nextNodes = nodes.map((node, index) =>
+        index === targetIndex ? nextNode : node,
+      );
+      return {
+        ...previous,
+        nodes: nextNodes,
+      };
+    });
+  }, []);
+
+  const buildComponentDefinitionFromDraft = useCallback((draft, componentID) => {
+    if (!draft) {
+      return null;
+    }
+    const definition = {
+      componentID,
+      name: draft.name,
+      description: draft.description || "",
+      nodes: JSON.parse(JSON.stringify(draft.nodes)),
+      exposedInputs: [],
+      exposedOutputs: [],
+      exposedEvents: [],
+      metadata: {
+        createdAt: new Date().toISOString(),
+        selectedNodeInstanceIDs: [...(draft.selectedNodeIDs || [])],
+      },
+      allowNesting: true,
+      library: draft.library,
+      version: { major: 0, minor: 1, patch: 0 },
+    };
+
+    draft.availableInputs.forEach((entry) => {
+      if (!draft.selectedInputs.has(entry.id)) {
+        return;
+      }
+      if (entry.kind === "variable") {
+        definition.exposedInputs.push({
+          handle: entry.handle,
+          label: entry.label,
+          nodeInstanceID: entry.nodeInstanceID,
+          mediaType: entry.mediaType,
+          portType: "variable",
+          portName: entry.consumerVariable,
+          annotations: {
+            direction: "input",
+            producerInstanceID: entry.producerInstanceID,
+            producerOutput: entry.producerOutput,
+          },
+        });
+      } else if (entry.kind === "event") {
+        definition.exposedEvents.push({
+          handle: entry.handle,
+          label: entry.label,
+          nodeInstanceID: entry.nodeInstanceID,
+          mediaType: "event",
+          portType: "event",
+          portName: entry.targetTrigger,
+          annotations: {
+            direction: "input",
+            producerInstanceID: entry.producerInstanceID,
+            producerEvent: entry.producerEvent,
+          },
+        });
+      }
+    });
+
+    draft.availableOutputs.forEach((entry) => {
+      if (!draft.selectedOutputs.has(entry.id)) {
+        return;
+      }
+      definition.exposedOutputs.push({
+        handle: entry.handle,
+        label: entry.label,
+        nodeInstanceID: entry.nodeInstanceID,
+        mediaType: entry.mediaType,
+        portType: "variable",
+        portName: entry.producerOutput,
+        annotations: {
+          direction: "output",
+          targets: entry.targets,
+        },
+      });
+    });
+
+    draft.availableEvents.forEach((entry) => {
+      if (!draft.selectedEvents.has(entry.id)) {
+        return;
+      }
+      definition.exposedEvents.push({
+        handle: entry.handle,
+        label: entry.label,
+        nodeInstanceID: entry.nodeInstanceID,
+        mediaType: "event",
+        portType: "event",
+        portName: entry.producerEvent,
+        annotations: {
+          direction: "output",
+          targets: entry.targets,
+        },
+      });
+    });
+
+    return definition;
+  }, []);
+
+  const commitComponentDraft = useCallback((draft) => {
+    if (!draft) {
+      return;
+    }
+
+    if (draft.mode === "editExisting" && draft.componentID) {
+      const versionInfoCopy = JSON.parse(JSON.stringify(newVersionInfoRef.current || {}));
+      if (!versionInfoCopy.stateMachineDescription) {
+        versionInfoCopy.stateMachineDescription = {};
+      }
+      const graph = versionInfoCopy.stateMachineDescription;
+      graph.customComponents = Array.isArray(graph.customComponents)
+        ? JSON.parse(JSON.stringify(graph.customComponents))
+        : [];
+
+      const resolveComponentIndex = () => {
+        if (typeof draft.componentIndex === "number") {
+          return draft.componentIndex;
+        }
+        return graph.customComponents.findIndex(
+          (entry) => entry.componentID === draft.componentID
+        );
+      };
+
+      const componentIndex = resolveComponentIndex();
+      const existingDefinition =
+        componentIndex >= 0 ? graph.customComponents[componentIndex] : null;
+
+      const definition = buildComponentDefinitionFromDraft(draft, draft.componentID);
+      if (!definition) {
+        return;
+      }
+
+      const incrementVersion = (previous) => {
+        const safePrev = previous || draft.version || { major: 0, minor: 1, patch: 0 };
+        const major = Number.isFinite(safePrev.major) ? safePrev.major : 0;
+        const minor = Number.isFinite(safePrev.minor) ? safePrev.minor : 1;
+        const patch = Number.isFinite(safePrev.patch) ? safePrev.patch + 1 : 0;
+        return { major, minor, patch };
+      };
+
+      definition.version = incrementVersion(existingDefinition?.version);
+      definition.name = draft.name;
+      definition.description = draft.description || "";
+      definition.library = draft.library || existingDefinition?.library || definition.library;
+      definition.metadata = {
+        ...(existingDefinition?.metadata || {}),
+        ...(definition.metadata || {}),
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (componentIndex >= 0) {
+        graph.customComponents[componentIndex] = definition;
+      } else {
+        graph.customComponents.push(definition);
+      }
+
+      graph.nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+      const componentNodes = graph.nodes.filter(
+        (nodeDesc) =>
+          nodeDesc.nodeType === "customComponent" &&
+          nodeDesc.params?.componentID === draft.componentID
+      );
+
+      const validInputHandles = new Set();
+      definition.exposedInputs
+        .filter((port) => isInputVariablePort(port))
+        .forEach((port) => validInputHandles.add(port.handle));
+      definition.exposedEvents
+        .filter((port) => isInputEventPort(port))
+        .forEach((port) => validInputHandles.add(port.handle));
+
+      const validOutputHandles = new Set(
+        definition.exposedOutputs
+          .filter((port) => isOutputVariablePort(port))
+          .map((port) => port.handle)
+      );
+      const validEventOutputHandles = new Set(
+        definition.exposedEvents
+          .filter((port) => isOutputEventPort(port))
+          .map((port) => port.handle)
+      );
+
+      componentNodes.forEach((componentNode) => {
+        componentNode.params = componentNode.params || {};
+        componentNode.params.version = definition.version;
+        componentNode.params.metadata = {
+          ...(componentNode.params.metadata || {}),
+          componentName: draft.name,
+        };
+
+        componentNode.params.inputBindings = componentNode.params.inputBindings || {};
+        Object.keys(componentNode.params.inputBindings).forEach((handle) => {
+          if (!validInputHandles.has(handle)) {
+            delete componentNode.params.inputBindings[handle];
+          }
+        });
+        definition.exposedInputs
+          .filter((port) => isInputVariablePort(port))
+          .forEach((port) => {
+            componentNode.params.inputBindings[port.handle] = {
+              nodeInstanceID: port.nodeInstanceID,
+              portName: port.portName,
+            };
+          });
+        definition.exposedEvents
+          .filter((port) => isInputEventPort(port))
+          .forEach((port) => {
+            componentNode.params.inputBindings[port.handle] = {
+              nodeInstanceID: port.nodeInstanceID,
+              portName: port.portName,
+            };
+          });
+
+        componentNode.params.outputBindings = componentNode.params.outputBindings || {};
+        Object.keys(componentNode.params.outputBindings).forEach((handle) => {
+          if (!validOutputHandles.has(handle)) {
+            delete componentNode.params.outputBindings[handle];
+          }
+        });
+        definition.exposedOutputs
+          .filter((port) => isOutputVariablePort(port))
+          .forEach((port) => {
+            componentNode.params.outputBindings[port.handle] = {
+              nodeInstanceID: port.nodeInstanceID,
+              portName: port.portName,
+            };
+          });
+
+        componentNode.params.eventBindings = componentNode.params.eventBindings || {};
+        Object.keys(componentNode.params.eventBindings).forEach((handle) => {
+          if (!validEventOutputHandles.has(handle)) {
+            delete componentNode.params.eventBindings[handle];
+          }
+        });
+        definition.exposedEvents
+          .filter((port) => isOutputEventPort(port))
+          .forEach((port) => {
+            componentNode.params.eventBindings[port.handle] = {
+              nodeInstanceID: port.nodeInstanceID,
+              portName: port.portName,
+            };
+          });
+
+        componentNode.inputs = Array.isArray(componentNode.inputs) ? componentNode.inputs : [];
+        componentNode.inputs = componentNode.inputs
+          .map((entry) => {
+            const variables = Array.isArray(entry.variables)
+              ? entry.variables.filter((variable) => validInputHandles.has(variable.consumerVariable))
+              : [];
+            const triggers = Array.isArray(entry.triggers)
+              ? entry.triggers.filter((trigger) => validInputHandles.has(trigger.targetTrigger))
+              : [];
+            if (variables.length === 0 && triggers.length === 0) {
+              return null;
+            }
+            return {
+              ...entry,
+              variables,
+              triggers,
+            };
+          })
+          .filter(Boolean);
+      });
+
+      const componentInstanceIDs = new Set(componentNodes.map((nodeDesc) => nodeDesc.instanceID));
+      graph.nodes = graph.nodes.map((graphNode) => {
+        if (componentInstanceIDs.has(graphNode.instanceID)) {
+          return graphNode;
+        }
+        const inputList = Array.isArray(graphNode.inputs) ? graphNode.inputs : [];
+        const nextInputs = inputList
+          .map((entry) => {
+            if (!componentInstanceIDs.has(entry.producerInstanceID)) {
+              return entry;
+            }
+            const variables = Array.isArray(entry.variables)
+              ? entry.variables.filter((variable) => validOutputHandles.has(variable.producerOutput))
+              : [];
+            const triggers = Array.isArray(entry.triggers)
+              ? entry.triggers.filter((trigger) => validEventOutputHandles.has(trigger.producerEvent))
+              : [];
+            if (variables.length === 0 && triggers.length === 0) {
+              return null;
+            }
+            return {
+              ...entry,
+              variables,
+              triggers,
+            };
+          })
+          .filter(Boolean);
+        return {
+          ...graphNode,
+          inputs: nextInputs,
+        };
+      });
+
+      updateVersionInfo(versionInfoCopy);
+      setComponentEditorState(null);
+      setInspectorPanelOpen(false);
+      return;
+    }
+
+    const selectedIDs = new Set(draft.selectedNodeIDs || []);
+    if (selectedIDs.size === 0) {
+      setComponentEditorState(null);
+      setInspectorPanelOpen(false);
+      return;
+    }
+
+    const definitionID = uuidv4();
+    const definition = buildComponentDefinitionFromDraft(draft, definitionID);
+    if (!definition) {
+      return;
+    }
+
+    const versionInfoCopy = JSON.parse(JSON.stringify(newVersionInfoRef.current || {}));
+    if (!versionInfoCopy.stateMachineDescription) {
+      versionInfoCopy.stateMachineDescription = {};
+    }
+    const graph = versionInfoCopy.stateMachineDescription;
+    graph.customComponents = Array.isArray(graph.customComponents) ? [...graph.customComponents] : [];
+    const originalNodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+
+    const externalConsumersSnapshot = originalNodes
+      .filter((graphNode) => !selectedIDs.has(graphNode.instanceID))
+      .map((graphNode) => {
+        const originalInputs = Array.isArray(graphNode.inputs) ? graphNode.inputs : [];
+        const referencesSelected = originalInputs.some(
+          (inputEntry) => selectedIDs.has(inputEntry?.producerInstanceID)
+        );
+        if (!referencesSelected) {
+          return null;
+        }
+        return {
+          nodeInstanceID: graphNode.instanceID,
+          inputs: JSON.parse(JSON.stringify(originalInputs)),
+        };
+      })
+      .filter(Boolean);
+
+    const remainingNodes = originalNodes.filter((node) => !selectedIDs.has(node.instanceID));
+    const nodesById = new Map(remainingNodes.map((node) => [node.instanceID, node]));
+
+    const metadata = getMetadataForNodeType("customComponent");
+    const template = JSON.parse(JSON.stringify(metadata.newNodeTemplate || {}));
+    const componentInstanceID = uuidv4();
+    const componentInstanceName = ensureUniqueInstanceName(draft.name, remainingNodes);
+
+    const newNodeParamsBase = template.params ? { ...template.params } : {};
+    const newNode = {
+      ...template,
+      instanceID: componentInstanceID,
+      instanceName: componentInstanceName,
+      nodeType: "customComponent",
+      params: {
+        ...newNodeParamsBase,
+        componentID: definition.componentID,
+        version: definition.version,
+        inputBindings: {},
+        outputBindings: {},
+        eventBindings: {},
+        metadata: {
+          ...(newNodeParamsBase.metadata || {}),
+          componentName: draft.name,
+        },
+      },
+      inputs: [],
+    };
+
+    const inputsByProducer = new Map();
+
+    definition.exposedInputs
+      .filter((port) => isInputVariablePort(port))
+      .forEach((port) => {
+        const producerInstanceID = port.annotations?.producerInstanceID;
+        if (!producerInstanceID) {
+          return;
+        }
+        if (!inputsByProducer.has(producerInstanceID)) {
+          inputsByProducer.set(producerInstanceID, {
+            producerInstanceID,
+            includeHistory: false,
+            historyParams: {},
+            variables: [],
+            triggers: [],
+          });
+        }
+        const entry = inputsByProducer.get(producerInstanceID);
+        entry.variables = entry.variables || [];
+        entry.variables.push({
+          producerOutput: port.annotations?.producerOutput || port.portName,
+          consumerVariable: port.handle,
+        });
+        newNode.params.inputBindings[port.handle] = {
+          nodeInstanceID: port.nodeInstanceID,
+          portName: port.portName,
+        };
+      });
+
+    definition.exposedEvents
+      .filter((port) => isInputEventPort(port))
+      .forEach((port) => {
+        const producerInstanceID = port.annotations?.producerInstanceID;
+        if (!producerInstanceID) {
+          return;
+        }
+        if (!inputsByProducer.has(producerInstanceID)) {
+          inputsByProducer.set(producerInstanceID, {
+            producerInstanceID,
+            includeHistory: false,
+            historyParams: {},
+            variables: [],
+            triggers: [],
+          });
+        }
+        const entry = inputsByProducer.get(producerInstanceID);
+        entry.triggers = entry.triggers || [];
+        entry.triggers.push({
+          producerEvent: port.annotations?.producerEvent || port.portName,
+          targetTrigger: port.handle,
+        });
+        newNode.params.inputBindings[port.handle] = {
+          nodeInstanceID: port.nodeInstanceID,
+          portName: port.portName,
+        };
+      });
+
+    newNode.inputs = Array.from(inputsByProducer.values());
+    nodesById.set(newNode.instanceID, newNode);
+
+    const removeEmptyInputEntry = (node, index) => {
+      const entry = node.inputs[index];
+      const hasVariables = Array.isArray(entry?.variables) && entry.variables.length > 0;
+      const hasTriggers = Array.isArray(entry?.triggers) && entry.triggers.length > 0;
+      if (!hasVariables && !hasTriggers) {
+        node.inputs.splice(index, 1);
+      }
+    };
+
+    const ensureComponentInputEntry = (node) => {
+      node.inputs = Array.isArray(node.inputs) ? node.inputs : [];
+      let entry = node.inputs.find((input) => input.producerInstanceID === newNode.instanceID);
+      if (!entry) {
+        entry = {
+          producerInstanceID: newNode.instanceID,
+          includeHistory: false,
+          historyParams: {},
+          variables: [],
+          triggers: [],
+        };
+        node.inputs.push(entry);
+      }
+      entry.variables = entry.variables || [];
+      entry.triggers = entry.triggers || [];
+      return entry;
+    };
+
+    definition.exposedOutputs.forEach((port) => {
+      const originalProducerID = port.nodeInstanceID;
+      const handle = port.handle;
+      const targets = Array.isArray(port.annotations?.targets) ? port.annotations.targets : [];
+      newNode.params.outputBindings[handle] = {
+        nodeInstanceID: port.nodeInstanceID,
+        portName: port.portName,
+      };
+      targets.forEach((target) => {
+        const targetNode = nodesById.get(target.nodeInstanceID);
+        if (!targetNode) {
+          return;
+        }
+        targetNode.inputs = Array.isArray(targetNode.inputs) ? targetNode.inputs : [];
+        const existingIndex = targetNode.inputs.findIndex(
+          (input) => input.producerInstanceID === originalProducerID
+        );
+        const previousEntry =
+          existingIndex >= 0 ? JSON.parse(JSON.stringify(targetNode.inputs[existingIndex])) : null;
+        if (existingIndex >= 0) {
+          const existing = targetNode.inputs[existingIndex];
+          if (Array.isArray(existing.variables)) {
+            existing.variables = existing.variables.filter(
+              (variable) =>
+                !(
+                  variable.consumerVariable === target.consumerVariable &&
+                  variable.producerOutput === port.portName
+                )
+            );
+          }
+          if (!Array.isArray(existing.variables) || existing.variables.length === 0) {
+            removeEmptyInputEntry(targetNode, existingIndex);
+          } else {
+            targetNode.inputs[existingIndex] = existing;
+          }
+        }
+        const componentEntry = ensureComponentInputEntry(targetNode);
+        if (previousEntry) {
+          if (previousEntry.includeHistory) {
+            componentEntry.includeHistory = previousEntry.includeHistory;
+          }
+          if (previousEntry.historyParams && Object.keys(previousEntry.historyParams).length > 0) {
+            componentEntry.historyParams = {
+              ...(componentEntry.historyParams || {}),
+              ...previousEntry.historyParams,
+            };
+          }
+        }
+        const existingVariable = componentEntry.variables.find(
+          (variable) => variable.consumerVariable === target.consumerVariable
+        );
+        if (existingVariable) {
+          existingVariable.producerOutput = handle;
+        } else {
+          componentEntry.variables.push({
+            producerOutput: handle,
+            consumerVariable: target.consumerVariable,
+          });
+        }
+      });
+    });
+
+    definition.exposedEvents
+      .filter((port) => isOutputEventPort(port))
+      .forEach((port) => {
+        const originalProducerID = port.nodeInstanceID;
+        const handle = port.handle;
+        const targets = Array.isArray(port.annotations?.targets) ? port.annotations.targets : [];
+        newNode.params.eventBindings[handle] = {
+          nodeInstanceID: port.nodeInstanceID,
+          portName: port.portName,
+        };
+        targets.forEach((target) => {
+          const targetNode = nodesById.get(target.nodeInstanceID);
+          if (!targetNode) {
+            return;
+          }
+          targetNode.inputs = Array.isArray(targetNode.inputs) ? targetNode.inputs : [];
+          const existingIndex = targetNode.inputs.findIndex(
+            (input) => input.producerInstanceID === originalProducerID
+          );
+          const previousEntry =
+            existingIndex >= 0 ? JSON.parse(JSON.stringify(targetNode.inputs[existingIndex])) : null;
+          if (existingIndex >= 0) {
+            const existing = targetNode.inputs[existingIndex];
+            if (Array.isArray(existing.triggers)) {
+              existing.triggers = existing.triggers.filter(
+                (trigger) =>
+                  !(
+                    trigger.targetTrigger === target.targetTrigger &&
+                    trigger.producerEvent === port.portName
+                  )
+              );
+            }
+            if (
+              (!Array.isArray(existing.triggers) || existing.triggers.length === 0) &&
+              (!Array.isArray(existing.variables) || existing.variables.length === 0)
+            ) {
+              removeEmptyInputEntry(targetNode, existingIndex);
+            } else {
+              targetNode.inputs[existingIndex] = existing;
+            }
+          }
+          const componentEntry = ensureComponentInputEntry(targetNode);
+          if (previousEntry) {
+            if (previousEntry.includeHistory) {
+              componentEntry.includeHistory = previousEntry.includeHistory;
+            }
+            if (previousEntry.historyParams && Object.keys(previousEntry.historyParams).length > 0) {
+              componentEntry.historyParams = {
+                ...(componentEntry.historyParams || {}),
+                ...previousEntry.historyParams,
+              };
+            }
+          }
+          const existingTrigger = componentEntry.triggers.find(
+            (trigger) => trigger.targetTrigger === target.targetTrigger
+          );
+          if (existingTrigger) {
+            existingTrigger.producerEvent = handle;
+          } else {
+            componentEntry.triggers.push({
+              producerEvent: handle,
+              targetTrigger: target.targetTrigger,
+            });
+          }
+        });
+      });
+
+    const selectedIndexes = originalNodes
+      .map((node, index) => (selectedIDs.has(node.instanceID) ? index : null))
+      .filter((index) => index !== null);
+    const insertIndex =
+      selectedIndexes.length > 0 ? Math.min(...selectedIndexes) : remainingNodes.length;
+    remainingNodes.splice(insertIndex, 0, newNode);
+
+    definition.metadata = {
+      ...definition.metadata,
+      componentIndex: insertIndex,
+      externalConsumers: externalConsumersSnapshot,
+    };
+    graph.nodes = remainingNodes;
+    definition.metadata = {
+      ...definition.metadata,
+      componentInstanceID,
+      createdFromVersionID: versionInfoCopy.versionID || null,
+    };
+    graph.customComponents.push(definition);
+
+    updateVersionInfo(versionInfoCopy);
+    setComponentEditorState(null);
+    setInspectorPanelOpen(false);
+  }, [buildComponentDefinitionFromDraft, newVersionInfoRef, setComponentEditorState, setInspectorPanelOpen, updateVersionInfo]);
 
 
 
@@ -659,6 +2320,104 @@ const handleCancelDelete = () => {
 
     let returnValue = null;
     switch (action) {
+      case "startCustomComponent": {
+        const instanceIDs = optionalParams?.instanceIDs || (node ? [node.instanceID] : []);
+        startComponentEditor(instanceIDs);
+      }
+      break;
+      case "editCustomComponent": {
+        if (!node || node.nodeType !== "customComponent") {
+          return;
+        }
+        const componentID = node?.params?.componentID;
+        if (!componentID) {
+          return;
+        }
+        const versionInfoCurrent = newVersionInfoRef.current;
+        const definitions = Array.isArray(versionInfoCurrent?.stateMachineDescription?.customComponents)
+          ? versionInfoCurrent.stateMachineDescription.customComponents
+          : [];
+        const componentIndex = definitions.findIndex((entry) => entry.componentID === componentID);
+        if (componentIndex === -1) {
+          return;
+        }
+        const definition = definitions[componentIndex];
+        const draft = buildComponentDraftFromDefinition(definition);
+        if (!draft) {
+          return;
+        }
+        const graphNodes = versionInfoCurrent?.stateMachineDescription?.nodes ?? [];
+        draft.componentIndex = componentIndex;
+        draft.componentInstanceIDs = graphNodes
+          .filter(
+            (nodeDesc) =>
+              nodeDesc.nodeType === "customComponent" &&
+              nodeDesc.params?.componentID === componentID
+          )
+          .map((nodeDesc) => nodeDesc.instanceID);
+        setComponentEditorState(draft);
+        setInspectorPanelOpen(false);
+      }
+      break;
+      case "cancelCustomComponent": {
+        handleCancelComponentEditor();
+      }
+      break;
+      case "commitCustomComponent": {
+        const draft = optionalParams?.draft || componentEditorState;
+        commitComponentDraft(draft);
+      }
+      break;
+      case "unbundleCustomComponent": {
+        if (!node || node.nodeType !== "customComponent") {
+          return;
+        }
+        const componentID = node?.params?.componentID;
+        let versionInfoCopy = JSON.parse(JSON.stringify(newVersionInfoRef.current));
+        if (!versionInfoCopy.stateMachineDescription) {
+          return;
+        }
+        const graph = versionInfoCopy.stateMachineDescription;
+        graph.nodes = Array.isArray(graph.nodes) ? [...graph.nodes] : [];
+        const componentIndex = graph.nodes.findIndex(
+          (entry) => entry.instanceID === node.instanceID
+        );
+        const definition = (graph.customComponents || []).find(
+          (entry) => entry.componentID === componentID
+        );
+        if (componentIndex === -1 || !definition) {
+          return;
+        }
+
+        graph.nodes.splice(componentIndex, 1);
+
+        const definitionNodes = JSON.parse(JSON.stringify(definition.nodes || []));
+        const definitionIDs = new Set(definitionNodes.map((entry) => entry.instanceID));
+        graph.nodes = graph.nodes.filter((entry) => !definitionIDs.has(entry.instanceID));
+
+        const insertionIndex = Math.min(
+          definition.metadata?.componentIndex ?? componentIndex,
+          graph.nodes.length
+        );
+        graph.nodes.splice(insertionIndex, 0, ...definitionNodes);
+
+        const externalConsumers = Array.isArray(definition.metadata?.externalConsumers)
+          ? definition.metadata.externalConsumers
+          : [];
+        externalConsumers.forEach((snapshot) => {
+          const targetNode = graph.nodes.find(
+            (entry) => entry.instanceID === snapshot.nodeInstanceID
+          );
+          if (targetNode) {
+            targetNode.inputs = JSON.parse(JSON.stringify(snapshot.inputs || []));
+          }
+        });
+
+        updateVersionInfo(versionInfoCopy);
+        setComponentEditorState(null);
+        setInspectorPanelOpen(false);
+      }
+      break;
       case "add":{
         // Need to deep-copy this node
         const nodeMetadata = getMetadataForNodeType(templateName);
@@ -682,6 +2441,54 @@ const handleCancelDelete = () => {
         } else {
           return onNodeStructureChange(node, "finishadd", {});
         }
+      }
+      break;
+      case "addCustomComponentInstance": {
+        const { componentID } = optionalParams;
+        if (!componentID) {
+          break;
+        }
+        let versionInfoCopy = JSON.parse(JSON.stringify(newVersionInfoRef.current));
+        if (!versionInfoCopy.stateMachineDescription) {
+          versionInfoCopy.stateMachineDescription = {};
+        }
+        const graph = versionInfoCopy.stateMachineDescription;
+        graph.customComponents = Array.isArray(graph.customComponents) ? graph.customComponents : [];
+        graph.nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+
+        const definition = graph.customComponents.find((entry) => entry.componentID === componentID);
+        if (!definition) {
+          break;
+        }
+
+        const metadata = getMetadataForNodeType("customComponent");
+        const template = JSON.parse(JSON.stringify(metadata.newNodeTemplate || {}));
+        const instanceID = uuidv4();
+        const instanceName = ensureUniqueInstanceName(definition.name, graph.nodes);
+
+        const newNode = {
+          ...template,
+          instanceID,
+          instanceName,
+          nodeType: "customComponent",
+          params: {
+            ...(template.params || {}),
+            componentID: definition.componentID,
+            version: definition.version,
+            inputBindings: {},
+            outputBindings: {},
+            eventBindings: {},
+            metadata: {
+              ...(template.params?.metadata || {}),
+              componentName: definition.name,
+            },
+          },
+          inputs: [],
+        };
+
+        graph.nodes.push(newNode);
+        updateVersionInfo(versionInfoCopy);
+        returnValue = newNode;
       }
       break;
       case "overwrite":
@@ -1179,11 +2986,28 @@ const handleCancelDelete = () => {
             onNodeStructureChange={onNodeStructureChange}
             onEdgeClicked={handleOpenInputSettingsMenu}
             onPersonaListChange={onPersonaListChange}
-            readOnly={readOnly}
+            readOnly={readOnly || Boolean(componentEditorState)}
           />
         ) : null}
         <div className="pointer-events-none absolute inset-0" style={overlayStyle} />
       </div>
+
+      {componentEditorState ? (
+        <CustomComponentEditor
+          draft={componentEditorState}
+          onClose={handleCancelComponentEditor}
+          onSave={commitComponentDraft}
+          onNameChange={handleComponentNameChange}
+          onDescriptionChange={handleComponentDescriptionChange}
+          onToggleInput={handleToggleInputExposure}
+          onToggleOutput={handleToggleOutputExposure}
+          onToggleEvent={handleToggleEventExposure}
+          onLibraryChange={handleComponentLibraryChange}
+          onAddConnection={handleComponentAddConnection}
+          onRemoveConnection={handleComponentRemoveConnection}
+          onNodeClicked={handleOpenNodeSettingsMenu}
+        />
+      ) : null}
 
       {showSelectVersionMessage
         ? renderStatusOverlay(

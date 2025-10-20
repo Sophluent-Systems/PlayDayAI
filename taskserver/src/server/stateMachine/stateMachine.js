@@ -141,10 +141,14 @@ import { whileLoopNode } from './nodeTypes/whileLoopNode';
 import { ifThenElseNode } from './nodeTypes/ifThenElseNode';
 import { arrayIndexNode } from './nodeTypes/arrayIndexNode.js';
 import { arrayIteratorNode } from './nodeTypes/arrayIteratorNode.js';
+import { customComponentNode } from './nodeTypes/customComponentNode.js';
 import { v4 as uuidv4 } from 'uuid';
 import { RecordGraph } from '@src/common/recordgraph';
 import { getMetadataForNodeType } from "@src/common/nodeMetadata";
 import { BaseError, EnsureCorrectErrorType } from '@src/common/errors';
+import { CustomComponentRegistry } from './customComponentRegistry';
+
+const COMPONENT_INPUT_PREFIX = "__component_input__";
 
 export const nodeTypeLookupTable = {
     "start": startNode,
@@ -174,6 +178,7 @@ export const nodeTypeLookupTable = {
     "arrayIndex": arrayIndexNode,
     "arrayIterator": arrayIteratorNode,
     "modelTraining": modelTrainingNode,
+    "customComponent": customComponentNode,
 };
 
 
@@ -195,6 +200,8 @@ export class StateMachine {
         this.lastRecordGraphSnapshotSize = 0;
         this.lastRecordHistoryLoadInfo = { fullReload: true, delta: { newRecords: [], updatedRecords: [], deletedRecordIDs: [] } };
         this.aiPriorityNodeTypeSet = null;
+        this.customComponentRegistry = null;
+        this.componentInstances = new Map();
         this.plan = {
             readyToProcess: [],
             processing: [],
@@ -202,6 +209,28 @@ export class StateMachine {
             blockedNodes: new Map(),
         };
         this.lastRecordStateLog = new Map();
+        this.refreshCustomComponentRegistry();
+    }
+
+    refreshCustomComponentRegistry() {
+        const { Constants } = Config;
+        const maxDepth = Constants?.customComponents?.maxNestingDepth;
+        this.customComponentRegistry = new CustomComponentRegistry({
+            maxNestingDepth: maxDepth,
+        });
+        this.customComponentRegistry.hydrateFromVersionInfo(this.versionInfo);
+        const personalLibrary = this.session?.customComponents;
+        if (Array.isArray(personalLibrary)) {
+            this.customComponentRegistry.registerMany(personalLibrary, { skipDepthCheck: true });
+        }
+        const componentLibraries = this.session?.componentLibraries;
+        if (componentLibraries && typeof componentLibraries === "object") {
+            Object.values(componentLibraries).forEach((definitions) => {
+                this.customComponentRegistry.registerMany(definitions, { skipDepthCheck: true });
+            });
+        }
+        this.componentInstances = new Map();
+        return this.customComponentRegistry;
     }
 
     logNode(instanceName, data = null) {
@@ -257,6 +286,435 @@ export class StateMachine {
 
     logRecords(message, ...args) {
         this.debugLog('stateMachineRecords', message, ...args);
+    }
+
+    getComponentDefinitionForInstance(instanceID) {
+        if (!instanceID) {
+            return null;
+        }
+        if (this.componentInstances.has(instanceID)) {
+            return this.componentInstances.get(instanceID);
+        }
+        const nodes = this.versionInfo?.stateMachineDescription?.nodes || [];
+        const node = nodes.find(entry => entry.instanceID === instanceID);
+        if (!node || node.nodeType !== "customComponent") {
+            return null;
+        }
+        const definition = this.customComponentRegistry?.resolve(node?.params?.componentID);
+        if (definition) {
+            this.componentInstances.set(instanceID, definition);
+        }
+        return definition || null;
+    }
+
+    async executeCustomComponentNode({
+        nodeInstance,
+        definition,
+        record,
+        inputs,
+        channel,
+        debuggingTurnedOn,
+        seed,
+        wasCancelled,
+        keySource,
+    }) {
+        if (!definition || !Array.isArray(definition.nodes)) {
+            throw new Error("Custom Component definition is missing nodes.");
+        }
+
+        const componentName = definition.name || nodeInstance?.fullNodeDescription?.instanceName || "Custom Component";
+        const componentID = definition.componentID || nodeInstance?.fullNodeDescription?.params?.componentID;
+        this.logActivity(`[CustomComponent] Executing ${componentName} (${componentID || "unknown"})`);
+        const breadcrumb = Array.isArray(record?.componentBreadcrumb)
+            ? [...record.componentBreadcrumb, componentID].filter(Boolean)
+            : componentID
+                ? [componentID]
+                : [];
+
+        const componentInputsByHandle = new Map();
+        (inputs || []).forEach(input => {
+            const eventHandles = Array.isArray(input?.events) ? input.events : [];
+            if (input?.values) {
+                Object.entries(input.values).forEach(([handle, value]) => {
+                    const entry = componentInputsByHandle.get(handle) || { value: undefined, events: [] };
+                    entry.value = value;
+                    eventHandles.forEach(eventName => {
+                        if (!entry.events.includes(eventName)) {
+                            entry.events.push(eventName);
+                        }
+                    });
+                    componentInputsByHandle.set(handle, entry);
+                });
+            }
+            eventHandles.forEach(eventName => {
+                if (!componentInputsByHandle.has(eventName)) {
+                    componentInputsByHandle.set(eventName, { value: undefined, events: [eventName] });
+                }
+            });
+        });
+
+        const runtimeIdMap = new Map();
+        const runtimeNodes = definition.nodes.map(originalNode => {
+            const cloned = JSON.parse(JSON.stringify(originalNode));
+            const originalInstanceID = cloned.instanceID;
+            const runtimeInstanceID = `${record.recordID}::${originalInstanceID}`;
+            runtimeIdMap.set(originalInstanceID, runtimeInstanceID);
+            cloned.originalInstanceID = originalInstanceID;
+            cloned.instanceID = runtimeInstanceID;
+            cloned.inputs = Array.isArray(cloned.inputs) ? cloned.inputs : [];
+            cloned.inputs = cloned.inputs
+                .map(input => {
+                    const clonedInput = JSON.parse(JSON.stringify(input));
+                    if (runtimeIdMap.has(clonedInput.producerInstanceID)) {
+                        clonedInput.producerInstanceID = runtimeIdMap.get(clonedInput.producerInstanceID);
+                        return clonedInput;
+                    }
+                    return null;
+                })
+                .filter(Boolean);
+            return cloned;
+        });
+
+        const runtimeNodeMap = new Map();
+        runtimeNodes.forEach(nodeDescription => runtimeNodeMap.set(nodeDescription.instanceID, nodeDescription));
+
+        const nodeParams = nodeInstance?.fullNodeDescription?.params || {};
+        const inputBindings = nodeParams.inputBindings || {};
+        const eventBindings = nodeParams.eventBindings || {};
+
+        const componentInputEntries = new Map();
+        const ensureComponentInputEntry = (targetNode, handle) => {
+            const key = `${targetNode.instanceID}:${handle}`;
+            if (componentInputEntries.has(key)) {
+                return componentInputEntries.get(key);
+            }
+            const entry = {
+                producerInstanceID: `${COMPONENT_INPUT_PREFIX}:${handle}`,
+                includeHistory: false,
+                historyParams: {},
+                variables: [],
+                triggers: [],
+            };
+            targetNode.inputs.push(entry);
+            componentInputEntries.set(key, entry);
+            return entry;
+        };
+
+        Object.entries(inputBindings).forEach(([handle, binding]) => {
+            const targetRuntimeID = runtimeIdMap.get(binding.nodeInstanceID);
+            if (!targetRuntimeID) {
+                return;
+            }
+            const targetNode = runtimeNodeMap.get(targetRuntimeID);
+            if (!targetNode) {
+                return;
+            }
+            const entry = ensureComponentInputEntry(targetNode, handle);
+            entry.variables = entry.variables || [];
+            if (!entry.variables.find(variable => variable.consumerVariable === binding.portName && variable.producerOutput === handle)) {
+                entry.variables.push({
+                    producerOutput: handle,
+                    consumerVariable: binding.portName,
+                });
+            }
+        });
+
+        Object.entries(eventBindings).forEach(([handle, binding]) => {
+            const targetRuntimeID = runtimeIdMap.get(binding.nodeInstanceID);
+            if (!targetRuntimeID) {
+                return;
+            }
+            const targetNode = runtimeNodeMap.get(targetRuntimeID);
+            if (!targetNode) {
+                return;
+            }
+            const entry = ensureComponentInputEntry(targetNode, handle);
+            entry.triggers = entry.triggers || [];
+            if (!entry.triggers.find(trigger => trigger.targetTrigger === binding.portName && trigger.producerEvent === handle)) {
+                entry.triggers.push({
+                    producerEvent: handle,
+                    targetTrigger: binding.portName,
+                });
+            }
+        });
+
+        if (!this.versionInfo.stateMachineDescription) {
+            this.versionInfo.stateMachineDescription = {};
+        }
+        if (!Array.isArray(this.versionInfo.stateMachineDescription.nodes)) {
+            this.versionInfo.stateMachineDescription.nodes = [];
+        }
+        const versionNodes = this.versionInfo.stateMachineDescription.nodes;
+        const runtimeNodeIDs = new Set(runtimeNodes.map(node => node.instanceID));
+        versionNodes.push(...runtimeNodes);
+
+        const runtimeNodeInstances = new Map();
+        runtimeNodes.forEach(nodeDescription => {
+            const NodeClass = nodeTypeLookupTable[nodeDescription.nodeType];
+            if (!NodeClass) {
+                throw new Error(`Custom Component "${componentName}" references unknown node type ${nodeDescription.nodeType}.`);
+            }
+            const nodeInstanceForComponent = new NodeClass({
+                db: this.db,
+                session: this.session,
+                fullNodeDescription: nodeDescription,
+                componentRegistry: this.customComponentRegistry,
+            });
+            runtimeNodeInstances.set(nodeDescription.instanceID, nodeInstanceForComponent);
+        });
+
+        const componentInputRecords = new Map();
+        const getComponentInputRecord = (handle) => {
+            if (componentInputRecords.has(handle)) {
+                return componentInputRecords.get(handle);
+            }
+            const data = componentInputsByHandle.get(handle) || {};
+            const recordInput = {
+                producerInstanceID: `${COMPONENT_INPUT_PREFIX}:${handle}`,
+                recordID: `component-input:${record.recordID}:${handle}`,
+                values: { [handle]: data.value },
+                events: Array.isArray(data.events) ? [...data.events] : [],
+            };
+            componentInputRecords.set(handle, recordInput);
+            return recordInput;
+        };
+
+        const producedRecords = new Map();
+        const componentOutput = nodeInstance.buildEmptyOutputPayload
+            ? nodeInstance.buildEmptyOutputPayload(definition)
+            : {};
+        const componentEvents = new Set(["completed"]);
+
+        const nodeStatus = new Map();
+        runtimeNodes.forEach(nodeDescription => nodeStatus.set(nodeDescription.instanceID, "pending"));
+
+        const getProducerRecord = (producerID) => producedRecords.get(producerID);
+
+        const buildRunInputsForNode = (nodeDescription) => {
+            const runInputs = [];
+            const inputsArray = Array.isArray(nodeDescription.inputs) ? nodeDescription.inputs : [];
+            const requiresAllEvents = Boolean(nodeDescription?.requireAllEventTriggers || nodeDescription?.requireAllInputs);
+            for (let i = 0; i < inputsArray.length; i++) {
+                const inputEntry = inputsArray[i];
+                const isComponentInput = inputEntry.producerInstanceID.startsWith(`${COMPONENT_INPUT_PREFIX}:`);
+                const recordInput = {
+                    producerInstanceID: inputEntry.producerInstanceID,
+                    recordID: null,
+                    includeHistory: inputEntry.includeHistory || false,
+                    historyParams: inputEntry.historyParams || {},
+                    values: {},
+                    events: [],
+                };
+
+                if (isComponentInput) {
+                    const handle = inputEntry.producerInstanceID.slice(COMPONENT_INPUT_PREFIX.length + 1);
+                    const componentRecord = getComponentInputRecord(handle);
+                    recordInput.recordID = componentRecord.recordID;
+                    const data = componentInputsByHandle.get(handle) || {};
+                    const availableEvents = componentRecord.events || [];
+                    const requiredTriggers = Array.isArray(inputEntry.triggers) ? inputEntry.triggers : [];
+
+                    if (requiredTriggers.length > 0) {
+                        const matchingEvents = requiredTriggers
+                            .map(trigger => trigger.producerEvent)
+                            .filter(event => availableEvents.includes(event));
+                        if (matchingEvents.length !== requiredTriggers.length && requiresAllEvents) {
+                            return null;
+                        }
+                        recordInput.events = matchingEvents;
+                    }
+
+                    if (Array.isArray(inputEntry.variables) && inputEntry.variables.length > 0) {
+                        inputEntry.variables.forEach(variable => {
+                            recordInput.values[variable.consumerVariable] = data.value;
+                        });
+                    }
+
+                    runInputs.push(recordInput);
+                    continue;
+                }
+
+                const producerRecord = getProducerRecord(inputEntry.producerInstanceID);
+                if (!producerRecord) {
+                    return null;
+                }
+                recordInput.recordID = producerRecord.recordID;
+
+                const producerEvents = Array.isArray(producerRecord.eventsEmitted) ? producerRecord.eventsEmitted : [];
+                const requiredTriggers = Array.isArray(inputEntry.triggers) ? inputEntry.triggers : [];
+                if (requiredTriggers.length > 0) {
+                    const matchingEvents = requiredTriggers
+                        .map(trigger => trigger.producerEvent)
+                        .filter(event => producerEvents.includes(event));
+                    if (matchingEvents.length !== requiredTriggers.length && requiresAllEvents) {
+                        return null;
+                    }
+                    recordInput.events = matchingEvents;
+                }
+
+                if (Array.isArray(inputEntry.variables) && inputEntry.variables.length > 0) {
+                    inputEntry.variables.forEach(variable => {
+                        recordInput.values[variable.consumerVariable] = producerRecord.output?.[variable.producerOutput];
+                    });
+                }
+
+                runInputs.push(recordInput);
+            }
+            return runInputs;
+        };
+
+        const wasCancelledFn = typeof wasCancelled === "function" ? wasCancelled : null;
+        const checkCancellation = () => (wasCancelledFn ? wasCancelledFn() : null);
+        const ensureNotCancelled = () => {
+            const haltReason = checkCancellation();
+            if (haltReason) {
+                throw new Error(haltReason);
+            }
+        };
+
+        const executeNode = async (nodeDescription, nodeInstanceForComponent) => {
+            const runInputs = buildRunInputsForNode(nodeDescription);
+            if (runInputs === null) {
+                return false;
+            }
+
+            ensureNotCancelled();
+            const runInfo = {
+                nodeInstance: nodeInstanceForComponent,
+                readyTime: new Date(),
+                inputs: runInputs,
+                componentBreadcrumb: breadcrumb,
+            };
+
+            const runtimeRecord = await this.preRunProcessing({
+                runInfo,
+                channel,
+                seed,
+                debuggingTurnedOn,
+                wasCancelled: checkCancellation,
+                onPreNode: () => {},
+            });
+
+            ensureNotCancelled();
+            const results = await nodeInstanceForComponent.run({
+                inputs: runInputs,
+                stateMachine: this,
+                channel,
+                seed,
+                debuggingTurnedOn,
+                wasCancelled: checkCancellation,
+                record: runtimeRecord,
+                keySource,
+            });
+
+            await this.postProcessProcessing({
+                runInfo,
+                results,
+                record: runtimeRecord,
+                channel,
+                seed,
+                debuggingTurnedOn,
+                wasCancelled: checkCancellation,
+                onPostNode: () => {},
+            });
+
+            const finalRecord = {
+                ...runtimeRecord,
+                ...results,
+                state: results.state,
+            };
+            producedRecords.set(nodeDescription.instanceID, finalRecord);
+            nodeStatus.set(nodeDescription.instanceID, "completed");
+            return true;
+        };
+
+        const exposedOutputPorts = Array.isArray(definition.exposedOutputs) ? definition.exposedOutputs : [];
+        const exposedEventPorts = Array.isArray(definition.exposedEvents) ? definition.exposedEvents : [];
+
+        try {
+            while (true) {
+                ensureNotCancelled();
+                const pendingNodes = runtimeNodes.filter(nodeDescription => nodeStatus.get(nodeDescription.instanceID) === "pending");
+                if (pendingNodes.length === 0) {
+                    break;
+                }
+
+                let progressed = false;
+                for (let i = 0; i < pendingNodes.length; i++) {
+                    const nodeDescription = pendingNodes[i];
+                    const nodeInstanceForComponent = runtimeNodeInstances.get(nodeDescription.instanceID);
+                    if (!nodeInstanceForComponent) {
+                        throw new Error(`Custom Component "${componentName}" could not instantiate node ${nodeDescription.instanceID}.`);
+                    }
+
+                    const ran = await executeNode(nodeDescription, nodeInstanceForComponent);
+                    if (ran) {
+                        progressed = true;
+                        const finalRecord = producedRecords.get(nodeDescription.instanceID);
+                        if (finalRecord) {
+                            exposedOutputPorts.forEach(port => {
+                                if ((port.annotations?.direction || "output") !== "output") {
+                                    return;
+                                }
+                                const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
+                                if (runtimeTargetID === nodeDescription.instanceID) {
+                                    const value = finalRecord.output?.[port.portName];
+                                    if (typeof value !== "undefined") {
+                                        componentOutput[port.handle] = value;
+                                    }
+                                }
+                            });
+
+                            exposedEventPorts.forEach(port => {
+                                if ((port.annotations?.direction || "output") !== "output") {
+                                    return;
+                                }
+                                const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
+                                if (runtimeTargetID === nodeDescription.instanceID) {
+                                    const eventsEmitted = Array.isArray(finalRecord.eventsEmitted) ? finalRecord.eventsEmitted : [];
+                                    if (eventsEmitted.includes(port.portName)) {
+                                        componentEvents.add(port.handle || port.portName);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+
+                if (!progressed) {
+                    throw new Error(`Custom Component "${componentName}" could not make progress; verify exposed port bindings.`);
+                }
+            }
+        } finally {
+            if (Array.isArray(this.versionInfo?.stateMachineDescription?.nodes)) {
+                const nodesArray = this.versionInfo.stateMachineDescription.nodes;
+                for (let i = nodesArray.length - 1; i >= 0; i--) {
+                    if (runtimeNodeIDs.has(nodesArray[i].instanceID)) {
+                        nodesArray.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        const output = componentOutput;
+
+        const eventsEmitted = Array.from(componentEvents);
+
+        return {
+            state: "completed",
+            eventsEmitted,
+            output,
+            componentBreadcrumb: breadcrumb,
+            context: {
+                customComponent: {
+                    componentID,
+                    name: componentName,
+                    version: definition?.version || null,
+                    placeholder: false,
+                },
+                componentBreadcrumb: breadcrumb,
+            },
+        };
     }
 
     logGraph(message, ...args) {
@@ -780,6 +1238,7 @@ export class StateMachine {
     }
 
     async load() {
+        this.refreshCustomComponentRegistry();
         this.recordHistory = new RecordHistory(this.db, this.session.sessionID);
         this.aiPriorityNodeTypeSet = null;
         this.clearPlan({ preserveWaitMap: false });
@@ -804,15 +1263,37 @@ export class StateMachine {
 
         this.nodeInstances = {};
 
-        for (let j=0; j< this.versionInfo.stateMachineDescription.nodes.length; j++) {
+        for (let j = 0; j < this.versionInfo.stateMachineDescription.nodes.length; j++) {
             const nodeDescription = this.versionInfo.stateMachineDescription.nodes[j];
-            
-            if (nodeTypeLookupTable[nodeDescription.nodeType]) {
-                let nodeInstance = new nodeTypeLookupTable[nodeDescription.nodeType]({
-                    db: this.db, 
+            const NodeClass = nodeTypeLookupTable[nodeDescription.nodeType];
+
+            if (NodeClass) {
+                const isCustomComponent = nodeDescription.nodeType === "customComponent";
+                const componentDefinition = isCustomComponent
+                    ? this.customComponentRegistry?.resolve(nodeDescription?.params?.componentID)
+                    : null;
+                const fullNodeDescription = isCustomComponent
+                    ? {
+                        ...nodeDescription,
+                        resolvedComponentDefinition: componentDefinition,
+                        componentRegistry: this.customComponentRegistry,
+                    }
+                    : nodeDescription;
+                const nodeInstance = new NodeClass({
+                    db: this.db,
                     session: this.session,
-                    fullNodeDescription: nodeDescription
+                    fullNodeDescription,
+                    componentRegistry: this.customComponentRegistry,
                 });
+                if (isCustomComponent) {
+                    this.componentInstances.set(nodeDescription.instanceID, componentDefinition || null);
+                    if (typeof nodeInstance.setComponentRegistry === "function") {
+                        nodeInstance.setComponentRegistry(this.customComponentRegistry);
+                    }
+                    if (typeof nodeInstance.setComponentDefinition === "function") {
+                        nodeInstance.setComponentDefinition(componentDefinition || null);
+                    }
+                }
                 this.nodeInstances[nodeDescription.instanceID] = nodeInstance;
             } else if (!Object.keys(nodeTypeLookupTable).includes(nodeDescription.nodeType)) {
                 throw new Error(`Node type ${nodeDescription.nodeType} not found!`);
@@ -1002,6 +1483,13 @@ export class StateMachine {
                 readyTime: new Date(0),
                 inputs: [],
             };
+
+            if (node.nodeType === "customComponent") {
+                const definition = this.getComponentDefinitionForInstance(node.instanceID);
+                if (definition?.componentID) {
+                    runInfo.componentBreadcrumb = [definition.componentID];
+                }
+            }
 
             if (!runInfo.nodeInstance) {
                 throw new Error(`Node instance not found for node ${node.instanceID}`);
@@ -1655,6 +2143,11 @@ export class StateMachine {
                 error: null
             };
 
+        if (!Array.isArray(record.componentBreadcrumb)) {
+            record.componentBreadcrumb = Array.isArray(runInfo.componentBreadcrumb)
+                ? [...runInfo.componentBreadcrumb]
+                : [];
+        }
         
         //
         // Allow the node to do stuff like pre-report messages to the client

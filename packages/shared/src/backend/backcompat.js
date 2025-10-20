@@ -72,6 +72,14 @@ export function COMPAT_generateUpdatesForVersion(versionInfo) {
         }
     }
 
+    const graph = versionInfo.stateMachineDescription || {};
+    if (!graph.customComponents) {
+        updatesNeeded.stateMachineDescription = {
+            ...(updatesNeeded.stateMachineDescription || {}),
+            customComponents: []
+        };
+    }
+
 
     return updatesNeeded;
 }

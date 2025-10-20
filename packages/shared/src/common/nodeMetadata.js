@@ -1,5 +1,6 @@
 import { Constants } from "@src/common/defaultconfig";
 import { nullUndefinedOrEmpty } from "./objects";
+import { getComponentPortMetadataForNode } from "./customcomponents";
 
 
 export class nodeMetadata {
@@ -2112,6 +2113,68 @@ export class suggestionsWriterMetadata extends llmDataMetadata {
     static defaultPersona = "builtInDebug";
 }
 
+export class customComponentMetadata extends nodeMetadata {
+    static AllowedVariableOverrides = {};
+
+    static initMenu = [];
+
+    static defaultPersona = "builtInDebug";
+
+    static newNodeTemplate = {
+        nodeType: "customComponent",
+        instanceName: "Custom Component",
+        params: {
+            componentID: null,
+            version: null,
+            inputBindings: {},
+            metadata: {},
+        },
+    };
+
+    static {
+        this.nodeAttributes = {
+            ...super.nodeAttributes,
+            addable: true,
+            label: "Custom Component",
+            tooltip: "Reusable collection of nodes that can be shared across projects.",
+        };
+        this.events = [];
+    }
+
+    constructor({ fullNodeDescription }) {
+        super({ fullNodeDescription });
+        this.portMetadata = getComponentPortMetadataForNode(fullNodeDescription, {
+            registry: fullNodeDescription?.componentRegistry,
+            definitions: fullNodeDescription?.availableComponentDefinitions,
+        });
+    }
+
+    getVariableOverrides() {
+        const overrides = {};
+        if (!this.portMetadata) {
+            return overrides;
+        }
+        this.portMetadata.inputs.forEach((input) => {
+            overrides[input.value] = {
+                label: input.label,
+                mediaType: input.mediaType,
+                nodeInstanceID: input.nodeInstanceID,
+                portType: input.portType,
+                portName: input.portName,
+            };
+        });
+        return overrides;
+    }
+
+    getEvents() {
+        return this.portMetadata?.events || [];
+    }
+
+    getOutputs() {
+        return this.portMetadata?.outputs || [];
+    }
+}
+
 export const nodeTypeLookupTable = {
     "codeBlock": codeBlockMetadata,
     "externalTextInput": externalTextInputMetadata,
@@ -2141,6 +2204,7 @@ export const nodeTypeLookupTable = {
     "perplexitySearch": perplexitySearchMetadata,
     "uiAutomation": uiAutomationMetadata,
     "modelTraining": modelTrainingMetadata,
+    "customComponent": customComponentMetadata,
 };
 
 //

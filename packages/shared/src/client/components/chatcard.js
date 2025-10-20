@@ -11,6 +11,8 @@ import {
   RefreshCcw,
   Loader2,
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { PrettyDate, PrettyElapsedTime } from "@src/common/date";
@@ -140,6 +142,12 @@ export const ChatCard = memo((props) => {
     sessionID,
     onRequestAudioControl,
     playbackState,
+    depth = 0,
+    isComponentRoot: isComponentRootOverride = false,
+    hasChildren = false,
+    collapsed = false,
+    onToggleCollapsed,
+    descendantCount = 0,
   } = props;
 
   const {
@@ -157,7 +165,21 @@ export const ChatCard = memo((props) => {
     nodeType,
     codeLogs,
     hideOutput,
+    isComponentRoot: messageIsComponentRoot = false,
+    component: componentMeta,
   } = message;
+
+  const effectiveIsComponentRoot = isComponentRootOverride || messageIsComponentRoot;
+  const indentStyle = depth > 0 ? { marginLeft: depth * 24 } : undefined;
+  const collapseToggleAvailable =
+    effectiveIsComponentRoot && hasChildren && typeof onToggleCollapsed === "function";
+  const componentStepsLabel = effectiveIsComponentRoot
+    ? descendantCount > 0
+      ? `${descendantCount} ${descendantCount === 1 ? "step" : "steps"}${collapsed ? " • Collapsed" : ""}`
+      : collapsed
+        ? "Collapsed"
+        : null
+    : null;
 
   const mediaTypes = nodeAttributes?.mediaTypes || [];
   const hidden = hideOutput || persona?.hideFromEndUsers;
@@ -213,11 +235,12 @@ export const ChatCard = memo((props) => {
   }, [styling, theme, borderToken]);
 
   const personaLabel = useMemo(() => {
+    if (effectiveIsComponentRoot && componentMeta?.name) return componentMeta.name;
     if (persona?.displayName) return persona.displayName;
     if (!nullUndefinedOrEmpty(instanceName)) return instanceName;
     if (!nullUndefinedOrEmpty(nodeType)) return nodeType;
     return recordID ? `Rec ${recordID}` : 'Assistant';
-  }, [persona, instanceName, nodeType, recordID]);
+  }, [effectiveIsComponentRoot, componentMeta?.name, persona, instanceName, nodeType, recordID]);
 
   const PersonaGlyph = styling?.icon || Bot;
 
@@ -651,7 +674,7 @@ const renderSpinner = (key, label) => (
   }
 
   return (
-    <div className="flex w-full justify-center px-3 py-4">
+    <div className="flex w-full justify-center px-3 py-4" style={indentStyle}>
       <article
         className="relative w-full max-w-4xl overflow-hidden rounded-[30px] border bg-black/30 p-6 shadow-xl backdrop-blur-xl"
         style={{
@@ -668,6 +691,22 @@ const renderSpinner = (key, label) => (
         <header className="flex flex-col gap-4 pb-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
+              {collapseToggleAvailable ? (
+                <button
+                  type="button"
+                  onClick={onToggleCollapsed}
+                  className={clsx(
+                    "inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white transition",
+                    "hover:border-white/40 hover:bg-white/20",
+                  )}
+                  aria-label={collapsed ? "Expand component" : "Collapse component"}
+                  aria-expanded={!collapsed}
+                >
+                  {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+              ) : depth > 0 ? (
+                <span className="inline-block h-8 w-px rounded bg-white/10" />
+              ) : null}
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white shadow-inner">
                 {PersonaGlyph ? (
                   <PersonaGlyph className="h-6 w-6" style={{ color: styling?.iconColor || palette.accent }} />
@@ -682,6 +721,11 @@ const renderSpinner = (key, label) => (
                 <div className="text-[11px] uppercase tracking-[0.3em] text-white/40">
                   {PrettyDate(completionTime)}
                 </div>
+                {componentStepsLabel && (
+                  <div className="text-[10px] uppercase tracking-[0.35em] text-white/40">
+                    {componentStepsLabel}
+                  </div>
+                )}
               </div>
             </div>
 

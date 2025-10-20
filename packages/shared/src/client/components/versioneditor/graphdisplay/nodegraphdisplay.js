@@ -14,7 +14,7 @@ import CustomSmartEdge from './customedges/customsmartedge';
 import { SmartBezierEdge } from '@tisoap/react-flow-smart-edge'
 import CurvyEdge from './customedges/curvyedge';
 import { createPortal } from 'react-dom';
-import { Copy, Trash2, ClipboardPaste, SquareStack } from 'lucide-react';
+import { Copy, Trash2, ClipboardPaste, SquareStack, PackagePlus, SplitSquareHorizontal } from 'lucide-react';
 import FloatingEdge from './customedges/floatingedge';
 import CustomConnectionLine from './customedges/customconnectionline';
 import { copyDataToClipboard, pasteDataFromClipboard } from "@src/client/clipboard";
@@ -550,6 +550,8 @@ export function NodeGraphDisplay(params) {
           onNodeStructureChange?.(null, "add", { templateName: dropAction.template });
         } else if (dropAction.action === "duplicate") {
           onNodeStructureChange?.(dropAction.node, "duplicate", {});
+        } else if (dropAction.action === "addCustomComponent" && dropAction.componentID) {
+          onNodeStructureChange?.(null, "addCustomComponentInstance", { componentID: dropAction.componentID });
         }
       } catch (e) {
         return;
@@ -586,7 +588,9 @@ export function NodeGraphDisplay(params) {
           // doesn't get positioned off-screen.
           const pane = ref.current.getBoundingClientRect();
           const nodeInstance = nodes.find((n) => n.instanceID === node.id);
-          let newNodeMenu = nodeInstance ? { top: event.clientY, left: event.clientX} : null;
+          let newNodeMenu = nodeInstance
+            ? { nodes: [nodeInstance], top: event.clientY, left: event.clientX }
+            : null;
           setNodeMenu(newNodeMenu);
         },
         [setNodeMenu, nodes, readOnly],
@@ -918,6 +922,52 @@ export function NodeGraphDisplay(params) {
         setNodeMenu(null);
     }
 
+    const handleCreateCustomComponent = useCallback((event) => {
+        event.preventDefault();
+        if (readOnly) { return; }
+
+        const selectedInstanceIDs = (nodeMenu?.nodes && nodeMenu.nodes.length > 0)
+            ? nodeMenu.nodes.map((nodeInstance) => nodeInstance.instanceID)
+            : selectedNodes;
+
+        if (!selectedInstanceIDs || selectedInstanceIDs.length === 0) {
+            return;
+        }
+
+        onNodeStructureChange?.(null, "startCustomComponent", {
+            instanceIDs: selectedInstanceIDs,
+        });
+    }, [nodeMenu, onNodeStructureChange, readOnly, selectedNodes]);
+
+    const isCustomComponentSelection = Boolean(
+        nodeMenu?.nodes &&
+        nodeMenu.nodes.length === 1 &&
+        nodeMenu.nodes[0]?.nodeType === "customComponent"
+    );
+
+    const handleUnbundleComponent = useCallback((event) => {
+        event.preventDefault();
+        if (readOnly) { return; }
+
+        const componentNode =
+            nodeMenu?.nodes && nodeMenu.nodes.length === 1 && nodeMenu.nodes[0].nodeType === "customComponent"
+                ? nodeMenu.nodes[0]
+                : null;
+
+        if (!componentNode) {
+            if (selectedNodes.length === 1) {
+                const nodeInstance = nodes.find((n) => n.instanceID === selectedNodes[0]);
+                if (nodeInstance?.nodeType === "customComponent") {
+                    onNodeStructureChange?.(nodeInstance, "unbundleCustomComponent", {});
+                }
+            }
+            return;
+        }
+
+        onNodeStructureChange?.(componentNode, "unbundleCustomComponent", {});
+        setNodeMenu(null);
+    }, [nodeMenu, nodes, onNodeStructureChange, readOnly, selectedNodes, setNodeMenu]);
+
     const handlePaste = (event) => {
         if (readOnly) { return };
         
@@ -1056,6 +1106,18 @@ export function NodeGraphDisplay(params) {
             console.log('Ctrl+C pressed');
             handleCopy(event, selectedNodes);
         }
+
+        if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'g') {
+            const componentNode = nodes.find((node) => selectedNodes.includes(node.instanceID) && node.nodeType === "customComponent");
+            if (componentNode) {
+                onNodeStructureChange?.(componentNode, "unbundleCustomComponent", {});
+                return;
+            }
+        }
+
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'g') {
+            handleCreateCustomComponent(event);
+        }
         
         // Handle paste: Command+V on macOS, Ctrl+V on Windows
         if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
@@ -1143,6 +1205,22 @@ export function NodeGraphDisplay(params) {
             >
               Delete Node
             </ContextMenuItem>
+            {nodeMenu?.nodes && nodeMenu.nodes.length > 0 ? (
+              <ContextMenuItem
+                icon={<PackagePlus className="h-4 w-4" />}
+                onSelect={(event) => handleCreateCustomComponent(event)}
+              >
+                Create Custom Component
+              </ContextMenuItem>
+            ) : null}
+            {isCustomComponentSelection ? (
+              <ContextMenuItem
+                icon={<SplitSquareHorizontal className="h-4 w-4" />}
+                onSelect={(event) => handleUnbundleComponent(event)}
+              >
+                Unbundle Component
+              </ContextMenuItem>
+            ) : null}
             <ContextMenuItem
               icon={<Copy className="h-4 w-4" />}
               onSelect={(event) => handleCopy(event)}

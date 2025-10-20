@@ -37,25 +37,15 @@ const defaultHeight = 120;
 const handleHeight = 22;
 
 const handleBaseStyle = {
-
   width: defaultWidth,
-
   height: `${handleHeight}px`,
-
   background: 'transparent',
-
   border: 'transparent',
-
   justifyContent: 'flex-start',
-
   alignItems: 'center',
-
   display: 'flex',
-
   position: 'absolute',
-
   zIndex: 1000,
-
 };
 
 const targetHandleWidth = 8;
@@ -75,8 +65,6 @@ const targetHandleBaseStyle = {
   pointerEvents: 'auto',
   cursor: 'pointer',
 };
-
-
 
 const handleContainerStyle = {
   display: 'flex',
@@ -175,6 +163,20 @@ const NodeGraphNode = memo((props) => {
     [node, nodeMetadata, usesCustomPersona]
   );
 
+  const nodeForMeta = useMemo(() => {
+    if (!node || node.nodeType !== "customComponent") {
+      return node;
+    }
+    const definitions = versionInfo?.stateMachineDescription?.customComponents;
+    if (!definitions || definitions.length === 0) {
+      return node;
+    }
+    return {
+      ...node,
+      availableComponentDefinitions: definitions,
+    };
+  }, [node, versionInfo?.stateMachineDescription?.customComponents]);
+
   useEffect(() => {
     let baseStyling;
 
@@ -208,10 +210,8 @@ const NodeGraphNode = memo((props) => {
 
 
   useEffect(() => {
-
-    if (node) {
-
-      const meta = getInputsAndOutputsForNode(node);
+    if (nodeForMeta) {
+      const meta = getInputsAndOutputsForNode(nodeForMeta);
 
       const normalizedMeta = {
         ...meta,
@@ -224,7 +224,7 @@ const NodeGraphNode = memo((props) => {
 
     }
 
-  }, [node]);
+  }, [nodeForMeta]);
 
 
 
@@ -280,9 +280,6 @@ const NodeGraphNode = memo((props) => {
           <div style={{ 
             ...leftHandleContainerStyle, 
             color: '#fff',
-            width: defaultWidth,
-            position: 'absolute',
-            left: targetHandleOffset,
           }}>
 
             <Play className="h-3.5 w-3.5" />
@@ -321,9 +318,6 @@ const NodeGraphNode = memo((props) => {
             style={{
               ...leftHandleContainerStyle,
               color: '#fff',
-              width: defaultWidth,
-              position: 'absolute',
-              left: targetHandleOffset,
             }}
           >
 
@@ -339,37 +333,33 @@ const NodeGraphNode = memo((props) => {
 
 
 
-      {!isConnecting && metadata.events.map((event, index) => (
-
+      {metadata.events.map((event, index) => (
         <Handle
-
           key={`event-${event.value}-${index}`}
-
           type="source"
-
           position={Position.Right}
-
           id={`event-${event.value}`}
-
-          style={{ ...handleBaseStyle, right: 0, top: `${IOTopOffset + index * IOHeight}px` }}
-
+          style={{
+            ...handleBaseStyle,
+            right: 0,
+            top: `${IOTopOffset + index * IOHeight}px`,
+          }}
         >
-
-          <div style={{ ...rightHandleContainerStyle, color: '#fff' }}>
-
+          <div
+            style={{
+              ...rightHandleContainerStyle,
+              color: '#fff',
+            }}
+          >
             <span className="text-[10px] uppercase tracking-wider text-white/80">{event.label}</span>
-
             <span className="h-2 w-2 rounded-full bg-white/90" />
-
           </div>
-
         </Handle>
-
       ))}
 
 
 
-      {!isConnecting && metadata.outputs.map((output, index) => (
+      {metadata.outputs.map((output, index) => (
 
         <Handle
 
@@ -381,11 +371,20 @@ const NodeGraphNode = memo((props) => {
 
           id={`output-${output.value}`}
 
-          style={{ ...handleBaseStyle, right: 0, top: `${IOTopOffset + (metadata.events.length + index) * IOHeight}px` }}
+          style={{
+            ...handleBaseStyle,
+            right: 0,
+            top: `${IOTopOffset + (metadata.events.length + index) * IOHeight}px`,
+          }}
 
         >
 
-          <div style={{ ...rightHandleContainerStyle, color: '#fff' }}>
+          <div
+            style={{
+              ...rightHandleContainerStyle,
+              color: '#fff',
+            }}
+          >
 
             <span className="text-[10px] uppercase tracking-wider text-white/80">{output.label}</span>
 

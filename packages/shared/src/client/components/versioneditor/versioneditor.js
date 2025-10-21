@@ -150,6 +150,22 @@ const globalOptions = [
   },
 ];
 
+function toSelectionSetLike(value) {
+  if (value instanceof Set) {
+    return new Set(value);
+  }
+  if (!value) {
+    return new Set();
+  }
+  if (Array.isArray(value)) {
+    return new Set(value);
+  }
+  if (typeof value === "object") {
+    return new Set(Object.values(value));
+  }
+  return new Set();
+}
+
 function parseRgbFromString(color) {
   if (!color || typeof color !== 'string') {
     return null;
@@ -1366,6 +1382,26 @@ function VersionEditor(props) {
     if (!draft) {
       return null;
     }
+
+    const selectedInputsSet = toSelectionSetLike(draft.selectedInputs);
+    const selectedOutputsSet = toSelectionSetLike(draft.selectedOutputs);
+    const selectedEventsSet = toSelectionSetLike(draft.selectedEvents);
+
+    const resolvedSelectedInputs =
+      selectedInputsSet.size > 0
+        ? selectedInputsSet
+        : draft.mode === "editExisting"
+          ? new Set()
+          : new Set((draft.availableInputs || []).map((entry) => entry.id));
+    const resolvedSelectedOutputs =
+      selectedOutputsSet.size > 0
+        ? selectedOutputsSet
+        : new Set();
+    const resolvedSelectedEvents =
+      selectedEventsSet.size > 0
+        ? selectedEventsSet
+        : new Set();
+
     const definition = {
       componentID,
       name: draft.name,
@@ -1384,7 +1420,7 @@ function VersionEditor(props) {
     };
 
     draft.availableInputs.forEach((entry) => {
-      if (!draft.selectedInputs.has(entry.id)) {
+      if (!resolvedSelectedInputs.has(entry.id)) {
         return;
       }
       if (entry.kind === "variable") {
@@ -1402,7 +1438,7 @@ function VersionEditor(props) {
           },
         });
       } else if (entry.kind === "event") {
-        definition.exposedEvents.push({
+        definition.exposedInputs.push({
           handle: entry.handle,
           label: entry.label,
           nodeInstanceID: entry.nodeInstanceID,
@@ -1419,7 +1455,7 @@ function VersionEditor(props) {
     });
 
     draft.availableOutputs.forEach((entry) => {
-      if (!draft.selectedOutputs.has(entry.id)) {
+      if (!resolvedSelectedOutputs.has(entry.id)) {
         return;
       }
       definition.exposedOutputs.push({
@@ -1437,7 +1473,7 @@ function VersionEditor(props) {
     });
 
     draft.availableEvents.forEach((entry) => {
-      if (!draft.selectedEvents.has(entry.id)) {
+      if (!resolvedSelectedEvents.has(entry.id)) {
         return;
       }
       definition.exposedEvents.push({
@@ -1734,9 +1770,10 @@ function VersionEditor(props) {
       .filter((port) => isInputVariablePort(port))
       .forEach((port) => {
         const producerInstanceID = port.annotations?.producerInstanceID;
-        if (!producerInstanceID) {
-          return;
-        }
+        newNode.params.inputBindings[port.handle] = {
+          nodeInstanceID: port.nodeInstanceID,
+          portName: port.portName,
+        };
         if (!inputsByProducer.has(producerInstanceID)) {
           inputsByProducer.set(producerInstanceID, {
             producerInstanceID,
@@ -1752,16 +1789,16 @@ function VersionEditor(props) {
           producerOutput: port.annotations?.producerOutput || port.portName,
           consumerVariable: port.handle,
         });
-        newNode.params.inputBindings[port.handle] = {
-          nodeInstanceID: port.nodeInstanceID,
-          portName: port.portName,
-        };
       });
 
     definition.exposedEvents
       .filter((port) => isInputEventPort(port))
       .forEach((port) => {
         const producerInstanceID = port.annotations?.producerInstanceID;
+        newNode.params.inputBindings[port.handle] = {
+          nodeInstanceID: port.nodeInstanceID,
+          portName: port.portName,
+        };
         if (!producerInstanceID) {
           return;
         }
@@ -1780,10 +1817,6 @@ function VersionEditor(props) {
           producerEvent: port.annotations?.producerEvent || port.portName,
           targetTrigger: port.handle,
         });
-        newNode.params.inputBindings[port.handle] = {
-          nodeInstanceID: port.nodeInstanceID,
-          portName: port.portName,
-        };
       });
 
     newNode.inputs = Array.from(inputsByProducer.values());

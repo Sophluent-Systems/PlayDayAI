@@ -65,14 +65,17 @@ function normalizePort(port = {}, index, kind) {
   const mediaType = port.mediaType || DEFAULT_MEDIA_TYPE;
   const required = coerceBoolean(port.required);
   const node = port.nodeInstanceID || port.node || null;
-  const portType = port.portType || port.type || (kind === "event" ? "event" : "variable");
+  const resolvedPortType = port.portType || port.type || port.annotations?.portType;
+  const portType = resolvedPortType || (kind === "event" ? "event" : "variable");
+  const inferredMediaType =
+    portType === "event" ? "event" : mediaType;
   const portName = port.portName || port.name || null;
   return {
     id: handle,
     handle,
     kind,
     label,
-    mediaType,
+    mediaType: inferredMediaType,
     required,
     nodeInstanceID: node,
     portType,

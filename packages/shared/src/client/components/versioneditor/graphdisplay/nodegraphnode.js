@@ -228,6 +228,59 @@ const NodeGraphNode = memo((props) => {
 
 
 
+  const fallbackInputs = useMemo(() => {
+    if (!node || node.nodeType !== "customComponent") {
+      return [];
+    }
+    if (metadata?.inputs && metadata.inputs.length > 0) {
+      return [];
+    }
+    const bindings = node?.params?.inputBindings || {};
+    return Object.keys(bindings).map((handle) => ({
+      value: handle,
+      label: bindings[handle]?.portName || handle,
+      portType: bindings[handle]?.portType || (bindings[handle]?.mediaType === "event" ? "event" : "variable"),
+      mediaType: bindings[handle]?.mediaType,
+    }));
+  }, [metadata, node]);
+
+  const effectiveInputs =
+    metadata && metadata.inputs && metadata.inputs.length > 0
+      ? metadata.inputs
+      : fallbackInputs;
+
+  useEffect(() => {
+    if (!metadata || node?.nodeType !== "customComponent") {
+      return;
+    }
+    const componentLabel =
+      node?.instanceName ||
+      node?.params?.metadata?.componentName ||
+      node?.params?.componentID ||
+      "Unnamed Custom Component";
+    const inputRows = (effectiveInputs || []).map((entry, index) => ({
+      index: index + 1,
+      name: entry.label || entry.value,
+      handle: entry.value,
+    }));
+    const outputRows = (metadata.outputs || []).map((entry, index) => ({
+      index: index + 1,
+      name: entry.label || entry.value,
+      handle: entry.value,
+    }));
+    const consoleGroup = console.groupCollapsed || console.group;
+    if (consoleGroup) {
+      consoleGroup(`[Custom Component] ${componentLabel}`);
+    }
+    console.log("Inputs:", inputRows.length > 0 ? inputRows : "(none)");
+    console.log("Outputs:", outputRows.length > 0 ? outputRows : "(none)");
+    if (consoleGroup && console.groupEnd) {
+      console.groupEnd();
+    }
+  }, [metadata, node?.instanceID, node?.instanceName, effectiveInputs]);
+
+
+
   if (!metadata) {
 
     return null;
@@ -292,17 +345,20 @@ const NodeGraphNode = memo((props) => {
 
 
 
-      {metadata.inputs.map((variable, index) => (
+      {effectiveInputs.map((variable, index) => {
+        const isEventInput = variable?.portType === "event" || variable?.mediaType === "event";
+        const handlePrefix = isEventInput ? "trigger" : "variable";
+        return (
 
         <Handle
 
-          key={`variable-${variable.value}`}
+          key={`${handlePrefix}-${variable.value}`}
 
           type="target"
 
           position={Position.Left}
 
-          id={`variable-${variable.value}`}
+          id={`${handlePrefix}-${variable.value}`}
 
           style={{
             ...targetHandleBaseStyle,
@@ -328,8 +384,8 @@ const NodeGraphNode = memo((props) => {
           </div>
 
         </Handle>
-
-      ))}
+);
+      })}
 
 
 

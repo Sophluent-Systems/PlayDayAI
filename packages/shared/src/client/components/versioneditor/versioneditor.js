@@ -55,11 +55,19 @@ function slugifyHandleValue(value) {
 }
 
 function makeUniqueHandle(handleSet, prefix, raw) {
-  const baseSlug = slugifyHandleValue(raw ? `${prefix}_${raw}` : prefix);
-  let candidate = baseSlug || `${prefix}_slot`;
-  let counter = 1;
-  while (handleSet.has(candidate)) {
-    candidate = `${baseSlug}_${counter++}`;
+  const baseSlug = raw ? slugifyHandleValue(raw) : slugifyHandleValue(prefix);
+  const prefixSlug = slugifyHandleValue(prefix);
+  let candidate = baseSlug || prefixSlug || "slot";
+  if (candidate.length === 0) {
+    candidate = prefix ? `${prefix}_slot` : "slot";
+  }
+  if (handleSet.has(candidate)) {
+    const prefixed = prefixSlug ? `${prefixSlug}_${candidate}` : candidate;
+    candidate = prefixed;
+    let counter = 1;
+    while (handleSet.has(candidate)) {
+      candidate = `${prefixed}_${counter++}`;
+    }
   }
   handleSet.add(candidate);
   return candidate;
@@ -1393,14 +1401,8 @@ function VersionEditor(props) {
         : draft.mode === "editExisting"
           ? new Set()
           : new Set((draft.availableInputs || []).map((entry) => entry.id));
-    const resolvedSelectedOutputs =
-      selectedOutputsSet.size > 0
-        ? selectedOutputsSet
-        : new Set();
-    const resolvedSelectedEvents =
-      selectedEventsSet.size > 0
-        ? selectedEventsSet
-        : new Set();
+    const resolvedSelectedOutputs = new Set(selectedOutputsSet);
+    const resolvedSelectedEvents = new Set(selectedEventsSet);
 
     const definition = {
       componentID,
@@ -1766,58 +1768,40 @@ function VersionEditor(props) {
 
     const inputsByProducer = new Map();
 
-    definition.exposedInputs
-      .filter((port) => isInputVariablePort(port))
-      .forEach((port) => {
-        const producerInstanceID = port.annotations?.producerInstanceID;
-        newNode.params.inputBindings[port.handle] = {
-          nodeInstanceID: port.nodeInstanceID,
-          portName: port.portName,
-        };
-        if (!inputsByProducer.has(producerInstanceID)) {
-          inputsByProducer.set(producerInstanceID, {
-            producerInstanceID,
-            includeHistory: false,
-            historyParams: {},
-            variables: [],
-            triggers: [],
-          });
-        }
-        const entry = inputsByProducer.get(producerInstanceID);
-        entry.variables = entry.variables || [];
-        entry.variables.push({
-          producerOutput: port.annotations?.producerOutput || port.portName,
-          consumerVariable: port.handle,
+    definition.exposedInputs.forEach((port) => {
+      const isEventInput = port.portType === "event" || port.mediaType === "event";
+      const producerInstanceID = port.annotations?.producerInstanceID;
+      newNode.params.inputBindings[port.handle] = {
+        nodeInstanceID: port.nodeInstanceID,
+        portName: port.portName,
+      };
+      if (!producerInstanceID) {
+        return;
+      }
+      if (!inputsByProducer.has(producerInstanceID)) {
+        inputsByProducer.set(producerInstanceID, {
+          producerInstanceID,
+          includeHistory: false,
+          historyParams: {},
+          variables: [],
+          triggers: [],
         });
-      });
-
-    definition.exposedEvents
-      .filter((port) => isInputEventPort(port))
-      .forEach((port) => {
-        const producerInstanceID = port.annotations?.producerInstanceID;
-        newNode.params.inputBindings[port.handle] = {
-          nodeInstanceID: port.nodeInstanceID,
-          portName: port.portName,
-        };
-        if (!producerInstanceID) {
-          return;
-        }
-        if (!inputsByProducer.has(producerInstanceID)) {
-          inputsByProducer.set(producerInstanceID, {
-            producerInstanceID,
-            includeHistory: false,
-            historyParams: {},
-            variables: [],
-            triggers: [],
-          });
-        }
-        const entry = inputsByProducer.get(producerInstanceID);
+      }
+      const entry = inputsByProducer.get(producerInstanceID);
+      if (isEventInput) {
         entry.triggers = entry.triggers || [];
         entry.triggers.push({
           producerEvent: port.annotations?.producerEvent || port.portName,
           targetTrigger: port.handle,
         });
-      });
+      } else {
+        entry.variables = entry.variables || [];
+        entry.variables.push({
+          producerOutput: port.annotations?.producerOutput || port.portName,
+          consumerVariable: port.handle,
+        });
+      }
+    });
 
     newNode.inputs = Array.from(inputsByProducer.values());
     nodesById.set(newNode.instanceID, newNode);
@@ -1885,7 +1869,7 @@ function VersionEditor(props) {
             targetNode.inputs[existingIndex] = existing;
           }
         }
-        const componentEntry = ensureComponentInputEntry(targetNode);
+          const componentEntry = ensureComponentInputEntry(targetNode);
         if (previousEntry) {
           if (previousEntry.includeHistory) {
             componentEntry.includeHistory = previousEntry.includeHistory;

@@ -556,23 +556,25 @@ function ChatBot(props) {
         },
       };
         
-      let newConnection = nullUndefinedOrEmpty(stateMachineWebsocket.current);
+      let websocket = stateMachineWebsocket.current;
+      const newConnection = nullUndefinedOrEmpty(websocket);
       if (!newConnection) {
         console.log("Attempted to subscribe for state machine updates while already subscribed -- reusing connection");
       } else {
-        stateMachineWebsocket.current = new WebSocketChannel();
+        websocket = new WebSocketChannel();
+        stateMachineWebsocket.current = websocket;
       }
 
       //
       // Set all callbacks
       //
-      stateMachineWebsocket.current.subscribe(commandHandlers);
+      websocket.subscribe(commandHandlers);
       if (typeof messageClientSubscriptionRef.current === 'function') {
         messageClientSubscriptionRef.current();
       }
-      const unsubscribe = subscribeMessageClient(stateMachineWebsocket.current);
+      const unsubscribe = subscribeMessageClient(websocket);
       messageClientSubscriptionRef.current = typeof unsubscribe === 'function' ? unsubscribe : null;
-      stateMachineWebsocket.current.setConnectionCallbacks(connectionCallbacks);
+      websocket.setConnectionCallbacks(connectionCallbacks);
 
       if (newConnection) {
         const wsOptions = preferredWsOptionsRef.current ? {
@@ -583,7 +585,7 @@ function ChatBot(props) {
         } : {};
 
         const url = buildWebsocketUrl(wsOptions);
-        await stateMachineWebsocket.current.connect({url});
+        await websocket.connect({url});
         console.log("Connected to: ", url)
       }
 
@@ -591,11 +593,21 @@ function ChatBot(props) {
       // until we hear otherwise
       setProcessingUnderway(true);
 
-      const websocket = stateMachineWebsocket.current;
-      if (!websocket) {
-        const error = new Error("State machine websocket unavailable during initialization");
-        console.warn("Failed to initialize state machine connection: websocket not ready", error);
+      if (stateMachineWebsocket.current !== websocket) {
         setProcessingUnderway(false);
+        const error = new Error("State machine websocket replaced before initialization completed");
+        if (!reconnectUnderwayRef.current) {
+          attemptWebsocketReconnect();
+        }
+        throw error;
+      }
+
+      if (websocket.connectionStatus !== 'connected') {
+        setProcessingUnderway(false);
+        const error = new Error(`State machine websocket not connected (status: ${websocket.connectionStatus})`);
+        if (!reconnectUnderwayRef.current) {
+          attemptWebsocketReconnect();
+        }
         throw error;
       }
 
@@ -993,4 +1005,3 @@ const handleAudioStateChange = (audioType, newState) => {
 
 
 export default memo(ChatBot);
-

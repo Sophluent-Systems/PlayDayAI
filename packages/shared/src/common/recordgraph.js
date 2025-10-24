@@ -11,6 +11,7 @@ export class RecordGraph {
         this.nodesByInstanceID = {};
         this.consumersOfNode = {};
         this.startEntry = null;
+        this.syntheticComponentInputs = new Set();
 
         this.initialize();
     }
@@ -163,6 +164,7 @@ export class RecordGraph {
         this.nodesByInstanceID = {};
         this.consumersOfNode = {};
         this.startEntry = null;
+        this.syntheticComponentInputs = new Set();
         // first add a graph entry for each record
         this.inputRecords.forEach(record => {
             if (record.deleted) {
@@ -189,6 +191,28 @@ export class RecordGraph {
                     const input = currentRecord.record.inputs[i];
                     
                     let inputRecord = this.recordEntries[input.recordID];
+                    const producerInstanceID = input.producerInstanceID;
+                    const isSyntheticComponentInput =
+                        typeof producerInstanceID === "string" &&
+                        producerInstanceID.startsWith("__component_input__:");
+                    if (!inputRecord && isSyntheticComponentInput) {
+                        const syntheticRecord = {
+                            recordID: input.recordID,
+                            nodeInstanceID: producerInstanceID,
+                            nodeType: "componentInput",
+                            state: "completed",
+                            inputs: [],
+                            output: null,
+                            eventsEmitted: [],
+                            componentBreadcrumb: [],
+                            synthetic: true,
+                        };
+                        if (!this.syntheticComponentInputs.has(input.recordID)) {
+                            this.syntheticComponentInputs.add(input.recordID);
+                            this.addRecord(syntheticRecord);
+                        }
+                        inputRecord = this.recordEntries[input.recordID];
+                    }
                     if (!inputRecord) {
                         const originalRecord = this.inputRecords.find(r => r.recordID === input.recordID);
                         Constants.debug.logFlowControl && console.error("RecordGraph.initialize: input record not found in graph: ", input);
@@ -274,8 +298,13 @@ export class RecordGraph {
         // If any record has no parents, and it's not the start record, then it's an orphan which isn't allowed
         // so throw an error
         Object.keys(this.recordEntries).forEach(recordID => {
-            if (this.recordEntries[recordID].parents.length == 0 && this.recordEntries[recordID].record.nodeInstanceID !== "start") { 
-                throw new Error("RecordGraph.initialize: orphan record found: "  + JSON.stringify(this.recordEntries[recordID].record));
+            const entry = this.recordEntries[recordID];
+            const record = entry.record || {};
+            const isSyntheticComponentInput =
+                record.synthetic === true ||
+                (typeof record.nodeInstanceID === "string" && record.nodeInstanceID.startsWith("__component_input__:"));
+            if (entry.parents.length === 0 && record.nodeInstanceID !== "start" && !isSyntheticComponentInput) {
+                throw new Error("RecordGraph.initialize: orphan record found: " + JSON.stringify(record));
             }
         });
 
@@ -287,9 +316,13 @@ export class RecordGraph {
         const node = this.nodesByInstanceID[recordEntry.record.nodeInstanceID];
 
         if (!node) {
-            // The node may have been deleted
-            console.error("Warning: recordHasBeenConsumedByAllConsumers: node not found for recordID=", recordID, " nodeInstanceID=", recordEntry.record.nodeInstanceID);
-            return;
+            const nodeInstanceID = recordEntry?.record?.nodeInstanceID;
+            const isSyntheticComponentInput = typeof nodeInstanceID === "string" && nodeInstanceID.startsWith("__component_input__:");
+            if (isSyntheticComponentInput || recordEntry?.record?.synthetic === true) {
+                return true;
+            }
+            console.error("Warning: recordHasBeenConsumedByAllConsumers: node not found for recordID=", recordID, " nodeInstanceID=", nodeInstanceID);
+            return false;
         }
 
         const consumersOfNode = this.consumersOfNode[node.instanceID] || [];

@@ -1,0 +1,25 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20251023154003
+Username: LANGAN-OFFICE\tomla
+RunAs User: LANGAN-OFFICE\tomla
+Configuration Name: 
+Machine: LANGAN-OFFICE (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Command Start-Transcript -Path taskserver\stateMachine.log -Append
+Process ID: 146960
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is taskserver\stateMachine.log
+PS>$global:?
+True
+**********************
+Windows PowerShell transcript end
+End time: 20251023154003
+**********************

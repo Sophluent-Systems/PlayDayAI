@@ -322,14 +322,6 @@ export class StateMachine {
             return;
         }
         const registry = this.ensureRuntimeNodeRegistry();
-        if (Array.isArray(nodeDescription.componentPathSegments) && nodeDescription.componentPathSegments.length > 0) {
-            console.error("[StateMachine] registerRuntimeNodeDescription", {
-                instanceID: nodeDescription.instanceID,
-                nodeType: nodeDescription.nodeType,
-                path: nodeDescription.componentPathSegments.join(" > "),
-                originalInstanceID: nodeDescription.originalInstanceID || null,
-            });
-        }
         try {
             registry[nodeDescription.instanceID] = JSON.parse(JSON.stringify(nodeDescription));
         } catch (error) {
@@ -369,7 +361,6 @@ export class StateMachine {
         }
         const NodeClass = nodeTypeLookupTable[nodeDescription.nodeType];
         if (!NodeClass) {
-            console.error("[StateMachine] Unable to instantiate node; unknown type", nodeDescription.nodeType, nodeDescription.instanceID);
             return null;
         }
         try {
@@ -426,28 +417,12 @@ export class StateMachine {
         }
         const state = record.state;
         if (state === "waitingForExternalInput" || state === "pending") {
-            console.error("[StateMachine] shouldKeepRuntimeNode=true (state)", {
-                recordID: record.recordID,
-                nodeInstanceID: record.nodeInstanceID,
-                state,
-            });
             return true;
         }
         const hasComponentPath = Array.isArray(record?.context?.componentPathSegments) && record.context.componentPathSegments.length > 0;
         if (hasComponentPath) {
-            console.error("[StateMachine] shouldKeepRuntimeNode=true (componentPath)", {
-                recordID: record.recordID,
-                nodeInstanceID: record.nodeInstanceID,
-                componentPath: record.context.componentPathSegments,
-                state,
-            });
             return true;
         }
-        console.error("[StateMachine] shouldKeepRuntimeNode=false", {
-            recordID: record.recordID,
-            nodeInstanceID: record.nodeInstanceID,
-            state,
-        });
         return false;
     }
 
@@ -461,15 +436,6 @@ export class StateMachine {
             const existing = registry[instanceID];
             if (!existing) {
                 return;
-            }
-            if (Array.isArray(existing.componentPathSegments) && existing.componentPathSegments.length > 0) {
-                console.error("[StateMachine] removeRuntimeNodeByRecord", {
-                    recordID,
-                    instanceID,
-                    nodeType: existing.nodeType,
-                    path: existing.componentPathSegments.join(" > "),
-                    reason: reasonDescription,
-                });
             }
             if (!recordID || existing.__resolvedFromRecordID === recordID) {
                 delete registry[instanceID];
@@ -491,11 +457,6 @@ export class StateMachine {
 
     registerRuntimeNodeFromRecord(record) {
         if (!this.shouldKeepRuntimeNode(record)) {
-            console.error("[StateMachine] registerRuntimeNodeFromRecord skipping record", {
-                recordID: record?.recordID,
-                nodeInstanceID: record?.nodeInstanceID,
-                state: record?.state,
-            });
             this.removeRuntimeNodeByRecord({ recordID: record?.recordID, nodeInstanceID: record?.nodeInstanceID });
             return;
         }
@@ -505,12 +466,6 @@ export class StateMachine {
         }
         const clone = JSON.parse(JSON.stringify(definition));
         clone.__resolvedFromRecordID = record.recordID;
-        console.error("[StateMachine] registerRuntimeNodeFromRecord", {
-            recordID: record.recordID,
-            nodeInstanceID: record.nodeInstanceID,
-            state: record.state,
-            instanceID: clone.instanceID,
-        });
         this.registerRuntimeNodeDescription(clone);
         this.ensureNodeInstance(record.nodeInstanceID, { definition: clone, record });
     }
@@ -1137,23 +1092,7 @@ export class StateMachine {
                             const sourceRuntimeID = data?.sourceRuntimeID;
                             if (sourceRuntimeID && sourceRuntimeID === nodeDescription.instanceID) {
                                 matchingEvents = requiredEvents;
-                                this.logActivity(`[CustomComponentDebug] ${componentName} auto-satisfied self-sourced handle ${handle} with events ${JSON.stringify(requiredEvents)}.`);
-                                console.error("[CustomComponent] Component input events satisfied via self-source", {
-                                    component: componentName,
-                                    nodeInstanceID: nodeDescription.instanceID,
-                                    nodeLabel: this.formatNodeLabel(nodeDescription),
-                                    handle,
-                                    events: requiredEvents,
-                                });
                             } else {
-                                console.error("[CustomComponent] Component input missing events", {
-                                    component: componentName,
-                                    nodeInstanceID: nodeDescription.instanceID,
-                                    nodeLabel: this.formatNodeLabel(nodeDescription),
-                                    handle,
-                                    requiredEvents,
-                                    availableEvents,
-                                });
                                 return {
                                     ready: false,
                                     reason: {
@@ -1168,13 +1107,6 @@ export class StateMachine {
                         }
                         if (matchingEvents) {
                             recordInput.events = matchingEvents;
-                            console.error("[CustomComponent] Component input events satisfied", {
-                                component: componentName,
-                                nodeInstanceID: nodeDescription.instanceID,
-                                nodeLabel: this.formatNodeLabel(nodeDescription),
-                                handle,
-                                events: matchingEvents,
-                            });
                         }
                     }
 
@@ -1624,7 +1556,14 @@ export class StateMachine {
 
             if (!componentResult) {
             componentEvents.add("completed");
-            const output = componentOutput;
+            let output = componentOutput;
+            if (!output || Object.keys(output).length === 0) {
+                const defaultMessage = { text: "Custom component completed." };
+                output = {
+                    result: defaultMessage,
+                    text: defaultMessage,
+                };
+            }
 
             const eventsEmitted = Array.from(componentEvents);
 
@@ -1819,67 +1758,27 @@ export class StateMachine {
         const waitReasons = Array.isArray(waitRecord?.context?.waitReasons)
             ? waitRecord.context.waitReasons
             : [];
-        console.error("[CustomComponentResumeCheck] evaluating waitRecord", {
-            nodeInstanceID: waitRecord.nodeInstanceID,
-            recordID: waitRecord.recordID,
-            waitReasonsCount: waitReasons.length,
-        });
         if (waitReasons.length === 0) {
             return false;
         }
         const waitTimestamp = this.getRecordTimestamp(waitRecord);
-        console.error("[CustomComponentResumeCheck] waitRecord timestamp", {
-            recordID: waitRecord.recordID,
-            timestamp: waitTimestamp,
-        });
         const hasUpdatedRecord = (runtimeID, predicate, reasonMeta) => {
             if (!runtimeID) {
-                console.error("[CustomComponentResumeCheck] Missing runtimeID for resume check", reasonMeta || {});
                 return false;
             }
             const candidateRecords = recordsByNodeInstanceID?.[runtimeID];
-            console.error("[CustomComponentResumeCheck] candidateRecords", {
-                runtimeID,
-                count: candidateRecords ? candidateRecords.length : 0,
-            });
             if (!Array.isArray(candidateRecords) || candidateRecords.length === 0) {
-                console.error("[CustomComponentResumeCheck] No candidate records for runtime", {
-                    runtimeID,
-                    reasonMeta,
-                });
                 return false;
             }
-            console.error("[CustomComponentResumeCheck] Evaluating candidates", {
-                runtimeID,
-                count: candidateRecords.length,
-            });
             return candidateRecords.some(candidate => {
                 if (!candidate || candidate.deleted) {
                     return false;
                 }
                 const candidateTime = this.getRecordTimestamp(candidate);
                 if (candidateTime <= waitTimestamp) {
-                    console.error("[CustomComponentResumeCheck] Candidate skipped (timestamp too old)", {
-                        candidateRecordID: candidate.recordID,
-                        candidateTime,
-                        waitTimestamp,
-                    });
                     return false;
                 }
                 const predicateResult = predicate(candidate);
-                if (predicateResult) {
-                    console.error("[CustomComponentResumeCheck] Candidate triggers resume", {
-                        candidateRecordID: candidate.recordID,
-                        runtimeID,
-                        reasonMeta,
-                    });
-                } else {
-                    console.error("[CustomComponentResumeCheck] Candidate did not satisfy predicate", {
-                        candidateRecordID: candidate.recordID,
-                        runtimeID,
-                        reasonMeta,
-                    });
-                }
                 return predicateResult;
             });
         };
@@ -1890,27 +1789,13 @@ export class StateMachine {
             }
             if (reason.type === "componentInput") {
                 const runtimeID = reason.sourceRuntimeID;
-                console.error("[CustomComponentResumeCheck] inspecting componentInput reason", {
-                    runtimeID,
-                    handle: reason.handle,
-                    missingEvents: reason.missingEvents,
-                    requiredEvents: reason.requiredEvents,
-                });
                 const requiredEvents = Array.isArray(reason.missingEvents) && reason.missingEvents.length > 0
                     ? reason.missingEvents
                     : Array.isArray(reason.requiredEvents)
                         ? reason.requiredEvents
                         : [];
-                console.error("[CustomComponentResumeCheck] component input required events", {
-                    runtimeID,
-                    requiredEvents,
-                });
                 if (hasUpdatedRecord(runtimeID, candidate => {
                     const events = Array.isArray(candidate.eventsEmitted) ? candidate.eventsEmitted : [];
-                    console.error("[CustomComponentResumeCheck] evaluating candidate events", {
-                        candidateRecordID: candidate.recordID,
-                        events,
-                    });
                     if (requiredEvents.length === 0) {
                         return candidate.state === "completed";
                     }
@@ -1920,26 +1805,13 @@ export class StateMachine {
                 }
             } else if (reason.type === "internalDependency") {
                 const runtimeID = reason.producerInstanceID;
-                console.error("[CustomComponentResumeCheck] inspecting internalDependency reason", {
-                    runtimeID,
-                    missingEvents: reason.missingEvents,
-                    requiredEvents: reason.requiredEvents,
-                });
                 const requiredEvents = Array.isArray(reason.missingEvents) && reason.missingEvents.length > 0
                     ? reason.missingEvents
                     : Array.isArray(reason.requiredEvents)
                         ? reason.requiredEvents
                         : [];
-                console.error("[CustomComponentResumeCheck] internal dependency required events", {
-                    runtimeID,
-                    requiredEvents,
-                });
                 if (hasUpdatedRecord(runtimeID, candidate => {
                     const events = Array.isArray(candidate.eventsEmitted) ? candidate.eventsEmitted : [];
-                    console.error("[CustomComponentResumeCheck] evaluating internal dependency candidate events", {
-                        candidateRecordID: candidate.recordID,
-                        events,
-                    });
                     if (requiredEvents.length === 0) {
                         return candidate.state === "completed";
                     }

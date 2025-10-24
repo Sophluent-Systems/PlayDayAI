@@ -52,6 +52,7 @@ function ChatBot(props) {
   const loadedSessionID = useRef(null);
   const [processingUnderway, setProcessingUnderway] = useState(false);
   const [waitingForInput, setWaitingForInput] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const isReloadingRef = useRef(false);
   const [retryTimeout, setRetryTimeout] = useState(null);
   const [isDocPreviewOpen, setIsDocPreviewOpen] = useState(false);
@@ -369,6 +370,9 @@ function ChatBot(props) {
     reconnectUnderwayRef.current = true;
     reconnectAttemptsRef.current++;
     stateMachineWebsocket.current = null;
+    setConnectionStatus('disconnected');
+    setWaitingForInput(false);
+    setProcessingUnderway(false);
     let reconnectDelayMS = null;
     // find the reconnect thresholdthat applies
     for (let i=0; i<reconnectThresholds.length; i++) {
@@ -541,7 +545,13 @@ function ChatBot(props) {
       };
 
       const connectionCallbacks = {
-            
+        onStatusChange: (status) => {
+          setConnectionStatus(status);
+          if (status !== 'connected') {
+            setWaitingForInput(false);
+            setProcessingUnderway(false);
+          }
+        },
         onNetworkError: (error) => {
           console.warn("WebSockets Network error: ", error);
         },
@@ -560,6 +570,12 @@ function ChatBot(props) {
       const newConnection = nullUndefinedOrEmpty(websocket);
       if (!newConnection) {
         console.log("Attempted to subscribe for state machine updates while already subscribed -- reusing connection");
+        const existingStatus = websocket.connectionStatus ?? 'disconnected';
+        setConnectionStatus(existingStatus);
+        if (existingStatus !== 'connected') {
+          setWaitingForInput(false);
+          setProcessingUnderway(false);
+        }
       } else {
         websocket = new WebSocketChannel();
         stateMachineWebsocket.current = websocket;
@@ -585,6 +601,12 @@ function ChatBot(props) {
         } : {};
 
         const url = buildWebsocketUrl(wsOptions);
+        if (typeof websocket.updateConnectionStatus === 'function') {
+          websocket.updateConnectionStatus('connecting');
+        } else {
+          websocket.connectionStatus = 'connecting';
+        }
+        setConnectionStatus('connecting');
         await websocket.connect({url});
         console.log("Connected to: ", url)
       }
@@ -695,6 +717,10 @@ const handleAudioStateChange = (audioType, newState) => {
   const sendMessage = async (mediaTypes, options = {}) => {
     if (!waitingForInput) {
       console.warn("sendMessage called while not waiting for input; ignoring request.");
+      return;
+    }
+    if (connectionStatus !== 'connected') {
+      console.warn(`sendMessage called while websocket status is ${connectionStatus}; ignoring request.`);
       return;
     }
     if (!inputNodeInstanceID) {
@@ -872,6 +898,10 @@ const handleAudioStateChange = (audioType, newState) => {
 
   const handleRequestStateChange = async (state) => {
     console.log("handleRequestStateChange ", state);
+    if (connectionStatus !== 'connected') {
+      console.warn(`handleRequestStateChange ignored because websocket status is ${connectionStatus}`);
+      return;
+    }
 
     switch(state) {
       case "play":
@@ -943,6 +973,7 @@ const handleAudioStateChange = (audioType, newState) => {
               onHaltRequest={onHaltRequest}
               waitingForProcessingToComplete={processingUnderway}
               waitingForInput={waitingForInput}
+              connectionStatus={connectionStatus}
               theme={themeToUse}
               inputLength={maximumInputLength}
               conversational={conversational}

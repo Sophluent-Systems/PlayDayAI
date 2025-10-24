@@ -26,6 +26,9 @@ import CurvyEdge from './graphdisplay/customedges/curvyedge';
 import FloatingEdge from './graphdisplay/customedges/floatingedge';
 import CustomConnectionLine from './graphdisplay/customedges/customconnectionline';
 import { defaultAppTheme } from '@src/common/theme';
+import { NodeSettingsMenu } from './nodesettingsmenu';
+import { FloatingPanel } from './floatingpanel';
+import { NodeLibraryTree } from './nodelibrarytree';
 
 const INPUT_NODE_ID = '__component_inputs__';
 const OUTPUT_NODE_ID = '__component_outputs__';
@@ -276,13 +279,33 @@ function buildNodeLayout(draftNodes, previousPositions) {
 
   const xs = positionedNodes.map((entry) => entry.position.x);
   const ys = positionedNodes.map((entry) => entry.position.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const midY = ys.length === 0 ? 0 : (Math.min(...ys) + Math.max(...ys)) / 2;
+  const minX = xs.length ? Math.min(...xs) : 0;
+  const maxX = xs.length ? Math.max(...xs) : 0;
+  const minY = ys.length ? Math.min(...ys) : 0;
+  const maxY = ys.length ? Math.max(...ys) : 0;
+  const offsetX = (minX + maxX) / 2;
+  const offsetY = (minY + maxY) / 2;
+
+  const centeredNodes = positionedNodes.map((entry) => ({
+    node: entry.node,
+    position: {
+      x: entry.position.x - offsetX,
+      y: entry.position.y - offsetY,
+    },
+  }));
+
+  const centeredXs = centeredNodes.map((entry) => entry.position.x);
+  const centeredYs = centeredNodes.map((entry) => entry.position.y);
+  const centeredMinX = centeredXs.length ? Math.min(...centeredXs) : -200;
+  const centeredMaxX = centeredXs.length ? Math.max(...centeredXs) : 200;
+  const midY =
+    centeredYs.length === 0
+      ? 0
+      : (Math.min(...centeredYs) + Math.max(...centeredYs)) / 2;
 
   return {
-    nodes: positionedNodes,
-    bounds: { minX, maxX, midY },
+    nodes: centeredNodes,
+    bounds: { minX: centeredMinX, maxX: centeredMaxX, midY },
   };
 }
 
@@ -673,7 +696,13 @@ export function CustomComponentEditor({
   onLibraryChange,
   onAddConnection,
   onRemoveConnection,
-  onNodeClicked,
+  onNodeValueChange,
+  onNodeStructureChange,
+  onSelectionChange,
+  onGraphAction,
+  onPersonaListChange,
+  versionInfo,
+  readOnly = false,
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [graphNodes, setGraphNodes, internalOnNodesChange] = useNodesState([]);
@@ -685,6 +714,10 @@ export function CustomComponentEditor({
   const boundaryPositionsRef = useRef({ input: null, output: null });
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const [wrapperSize, setWrapperSize] = useState({ width: 0, height: 0 });
+  const [, setSelectedNodeIDs] = useState([]);
+  const [inspectorState, setInspectorState] = useState(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [initialFitDone, setInitialFitDone] = useState(false);
   const theme = defaultAppTheme;
 
   useEffect(() => {
@@ -721,13 +754,38 @@ export function CustomComponentEditor({
     return undefined;
   }, []);
 
-  const versionInfo = useMemo(
+  const componentVersionInfo = useMemo(
     () => ({
       stateMachineDescription: {
         nodes: draft?.nodes || [],
       },
     }),
     [draft?.nodes],
+  );
+
+  const libraryVersionInfo = useMemo(() => {
+    const base = versionInfo && typeof versionInfo === 'object' ? versionInfo : {};
+    const description = base.stateMachineDescription || {};
+    return {
+      ...base,
+      stateMachineDescription: {
+        ...description,
+        nodes: draft?.nodes || [],
+      },
+    };
+  }, [versionInfo, draft?.nodes]);
+
+  const handleNodeClick = useCallback(
+    (node) => {
+      if (!node) {
+        return;
+      }
+      setInspectorState({ nodeID: node.instanceID, mode: 'nodeDetails' });
+      setInspectorOpen(true);
+      setSelectedNodeIDs([node.instanceID]);
+      onSelectionChange?.([node.instanceID]);
+    },
+    [onSelectionChange],
   );
 
   useEffect(() => {
@@ -804,11 +862,11 @@ export function CustomComponentEditor({
           dragHandle: '.custom-drag-handle',
           connectable: true,
           data: {
-            versionInfo,
+            versionInfo: componentVersionInfo,
             node: entry.node,
             theme,
-            readOnly: false,
-            onClicked: onNodeClicked ? () => onNodeClicked(entry.node) : undefined,
+            readOnly,
+            onClicked: () => handleNodeClick(entry.node),
           },
         })),
         {
@@ -829,7 +887,7 @@ export function CustomComponentEditor({
       ];
       return flowNodes;
     });
-  }, [draft, setGraphNodes, theme, versionInfo, onNodeClicked]);
+  }, [draft, setGraphNodes, theme, componentVersionInfo, handleNodeClick, readOnly]);
 
   useEffect(() => {
     if (!draft) {
@@ -840,6 +898,27 @@ export function CustomComponentEditor({
     const exposureEdges = buildExposureEdges(draft);
     setEdges([...internalEdges, ...exposureEdges]);
   }, [draft, setEdges]);
+
+  useEffect(() => {
+    const ids = Array.isArray(draft?.selectedNodeIDs) ? draft.selectedNodeIDs : [];
+    setSelectedNodeIDs(ids);
+    if (ids.length > 0) {
+      setInspectorState((previous) => {
+        if (previous?.nodeID === ids[0]) {
+          return previous;
+        }
+        return { nodeID: ids[0], mode: 'nodeDetails' };
+      });
+      setInspectorOpen(true);
+    } else {
+      setInspectorState(null);
+      setInspectorOpen(false);
+    }
+  }, [draft?.selectedNodeIDs]);
+
+  useEffect(() => {
+    setInitialFitDone(false);
+  }, [draft?.id]);
 
   const anchorBoundaryNodes = useCallback(() => {
     if (!reactFlowInstanceRef.current) {
@@ -1293,6 +1372,21 @@ export function CustomComponentEditor({
     ],
   );
 
+  const handleSelectionChange = useCallback(
+    ({ nodes: selected = [] } = {}) => {
+      const ids = Array.isArray(selected) ? selected.map((item) => item.id) : [];
+      setSelectedNodeIDs(ids);
+      onSelectionChange?.(ids);
+      if (ids.length > 0) {
+        setInspectorState({ nodeID: ids[0], mode: 'nodeDetails' });
+        setInspectorOpen(true);
+      } else {
+        setInspectorState(null);
+      }
+    },
+    [onSelectionChange],
+  );
+
   const renderInstructions = (
     <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 text-xs text-slate-300 backdrop-blur">
       <div className="flex items-center gap-2 text-slate-200">
@@ -1325,6 +1419,79 @@ export function CustomComponentEditor({
       </p>
     </div>
   );
+
+  const inspectorNode = useMemo(() => {
+    if (!inspectorState?.nodeID) {
+      return null;
+    }
+    return (draft?.nodes || []).find(
+      (node) => node.instanceID === inspectorState.nodeID,
+    ) || null;
+  }, [draft?.nodes, inspectorState]);
+
+  const inspectorContent = inspectorNode ? (
+    <NodeSettingsMenu
+      node={inspectorNode}
+      nodes={draft?.nodes || []}
+      onChange={onNodeValueChange}
+      onNodeStructureChange={onNodeStructureChange}
+      onPersonaListChange={onPersonaListChange}
+      readOnly={readOnly}
+      versionInfo={libraryVersionInfo}
+    />
+  ) : (
+    <p className="text-sm text-slate-300">Select a node to edit its settings.</p>
+  );
+
+  const handleDragOver = useCallback((event) => {
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+  }, []);
+
+  const handleDrop = useCallback(
+    (event) => {
+      event.preventDefault();
+      const rawPayload = event.dataTransfer?.getData('application/reactflow');
+      if (!rawPayload) {
+        return;
+      }
+      try {
+        const payload = JSON.parse(rawPayload);
+        if (payload?.action === 'add') {
+          onGraphAction?.('addTemplate', { template: payload.template });
+        } else if (payload?.action === 'duplicate') {
+          onGraphAction?.('duplicateNode', { node: payload.node });
+        } else if (payload?.action === 'addCustomComponent') {
+          onGraphAction?.('addCustomComponent', { componentID: payload.componentID });
+        }
+      } catch (error) {
+        console.warn('CustomComponentEditor: Unable to process drop payload', error);
+      }
+    },
+    [onGraphAction],
+  );
+
+  useEffect(() => {
+    if (!reactFlowInstanceRef.current) {
+      return;
+    }
+    if (!graphNodes.length) {
+      return;
+    }
+    if (initialFitDone) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      try {
+        reactFlowInstanceRef.current.fitView({ padding: 0.24, includeHiddenNodes: true });
+      } catch (error) {
+        console.warn('CustomComponentEditor: fitView failed', error);
+      }
+      setInitialFitDone(true);
+    });
+  }, [graphNodes, initialFitDone]);
 
   if (!draft) {
     return null;
@@ -1374,6 +1541,12 @@ export function CustomComponentEditor({
         </header>
 
         <div className="flex min-h-0 flex-1 gap-6 overflow-hidden px-8 py-6">
+          <div className="hidden w-72 shrink-0 lg:flex lg:flex-col lg:gap-4">
+            <div className="flex-1 overflow-hidden rounded-[2.5rem] border border-white/10 bg-slate-950/60 p-3 shadow-[0_35px_90px_-60px_rgba(56,189,248,0.4)] backdrop-blur">
+              <NodeLibraryTree versionInfo={libraryVersionInfo} readOnly={readOnly} />
+            </div>
+            <div className="hidden lg:block">{renderInstructions}</div>
+          </div>
           <div
             ref={wrapperRef}
             className="relative flex-1 overflow-hidden rounded-[2.5rem] border border-white/10 bg-slate-950/70 shadow-[0_45px_120px_-80px_rgba(56,189,248,0.65)]"
@@ -1391,6 +1564,9 @@ export function CustomComponentEditor({
                 onEdgeContextMenu={handleEdgeContextMenu}
                 onPaneClick={handlePaneClick}
                 onPaneContextMenu={handlePaneContextMenu}
+                onSelectionChange={handleSelectionChange}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
                 defaultEdgeOptions={{
@@ -1443,9 +1619,62 @@ export function CustomComponentEditor({
                 )
               : null}
             <div className="pointer-events-none absolute inset-8 rounded-[2rem] border border-white/5" />
+            <FloatingPanel
+              title="Inspector"
+              icon={<Info className="h-4 w-4 text-sky-300" />}
+              positionClass="hidden xl:block absolute right-6 top-1/2 -translate-y-1/2"
+              open={inspectorOpen && Boolean(inspectorNode)}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setInspectorOpen(false);
+                } else if (inspectorNode) {
+                  setInspectorOpen(true);
+                }
+              }}
+              size="lg"
+              actions={
+                inspectorNode ? (
+                  <button
+                    type="button"
+                    onClick={() => setInspectorOpen(false)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-slate-200 transition hover:border-white/30 hover:text-white"
+                    aria-label="Close inspector"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null
+              }
+            >
+              <div className="space-y-4">{inspectorContent}</div>
+            </FloatingPanel>
           </div>
-          <div className="hidden w-80 shrink-0 lg:block">{renderInstructions}</div>
         </div>
+        <div className="px-8 pb-6 lg:hidden">
+          <div className="mb-4 rounded-3xl border border-white/10 bg-slate-950/70 p-3 shadow-[0_30px_80px_-60px_rgba(56,189,248,0.45)] backdrop-blur">
+            <NodeLibraryTree versionInfo={libraryVersionInfo} readOnly={readOnly} />
+          </div>
+          {renderInstructions}
+        </div>
+        {inspectorOpen && inspectorNode ? (
+          <div className="px-8 pb-6 xl:hidden">
+            <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-4 shadow-[0_30px_80px_-60px_rgba(56,189,248,0.55)] backdrop-blur">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-300">
+                  Inspector
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setInspectorOpen(false)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-slate-200 transition hover:border-white/30 hover:text-white"
+                  aria-label="Close inspector"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="space-y-4">{inspectorContent}</div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {settingsOpen ? (

@@ -662,9 +662,41 @@ export class StateMachine {
         const runtimeNodeMap = new Map();
         runtimeNodes.forEach(nodeDescription => runtimeNodeMap.set(nodeDescription.instanceID, nodeDescription));
 
+        const handleProducersByRuntimeID = new Map();
+        const registerHandleProducer = ({ runtimeInstanceID, handle, portName = null, mediaType = null } = {}) => {
+            if (!runtimeInstanceID || !handle) {
+                return;
+            }
+            let handleEntries = handleProducersByRuntimeID.get(runtimeInstanceID);
+            if (!handleEntries) {
+                handleEntries = [];
+                handleProducersByRuntimeID.set(runtimeInstanceID, handleEntries);
+            }
+            handleEntries.push({
+                handle,
+                portName,
+                mediaType,
+            });
+            const existingHandleEntry = componentInputsByHandle.get(handle) || { value: undefined, events: [] };
+            if (!existingHandleEntry.producerRuntimeID) {
+                existingHandleEntry.producerRuntimeID = runtimeInstanceID;
+            }
+            if (portName && !existingHandleEntry.sourcePortName) {
+                existingHandleEntry.sourcePortName = portName;
+            }
+            if (mediaType && !existingHandleEntry.sourceMediaType) {
+                existingHandleEntry.sourceMediaType = mediaType;
+            }
+            componentInputsByHandle.set(handle, existingHandleEntry);
+        };
+
         const nodeParams = nodeInstance?.fullNodeDescription?.params || {};
         const inputBindings = nodeParams.inputBindings || {};
         const eventBindings = nodeParams.eventBindings || {};
+
+        const producedRecords = new Map();
+        const nodeStatus = new Map();
+        runtimeNodes.forEach(nodeDescription => nodeStatus.set(nodeDescription.instanceID, "pending"));
 
         if (Array.isArray(definition.exposedInputs)) {
             console.error("[CustomComponent] Exposed inputs", {
@@ -678,6 +710,19 @@ export class StateMachine {
         }
 
         const componentInputEntries = new Map();
+        const componentInputConsumers = new Map();
+        const nodesForcedPending = new Set();
+        const registerComponentHandleConsumer = (handle, instanceID) => {
+            if (!handle || !instanceID) {
+                return;
+            }
+            let consumers = componentInputConsumers.get(handle);
+            if (!consumers) {
+                consumers = new Set();
+                componentInputConsumers.set(handle, consumers);
+            }
+            consumers.add(instanceID);
+        };
         if (Array.isArray(definition.exposedInputs)) {
             for (const port of definition.exposedInputs) {
                 if (!port?.handle) {
@@ -703,6 +748,16 @@ export class StateMachine {
                                     entry.value = candidateValue;
                                 }
                             }
+                            producedRecords.set(runtimeID, latestRecord);
+                            const recordState = latestRecord.state;
+                            if (recordState === "completed") {
+                                nodeStatus.set(runtimeID, "completed");
+                            } else if (recordState === "waitingForExternalInput" || recordState === "pending") {
+                                nodeStatus.set(runtimeID, "pending");
+                            }
+                            if (nodesForcedPending.has(runtimeID)) {
+                                nodeStatus.set(runtimeID, "pending");
+                            }
                             this.logActivity(`[CustomComponentDebug] ${componentName} primed handle ${port.handle} events=${JSON.stringify(entry.events)} valuePresent=${typeof entry.value !== 'undefined'}`);
                         }
                     } catch (error) {
@@ -723,6 +778,7 @@ export class StateMachine {
             handleEntry.sourceRuntimeID = targetNode.instanceID;
             componentInputsByHandle.set(handle, handleEntry);
             if (componentInputEntries.has(key)) {
+                registerComponentHandleConsumer(handle, targetNode.instanceID);
                 return componentInputEntries.get(key);
             }
             const entry = {
@@ -734,6 +790,7 @@ export class StateMachine {
             };
             targetNode.inputs.push(entry);
             componentInputEntries.set(key, entry);
+            registerComponentHandleConsumer(handle, targetNode.instanceID);
             return entry;
         };
 
@@ -773,6 +830,75 @@ export class StateMachine {
                     targetTrigger: binding.portName,
                 });
             }
+        });
+
+        const runtimeConsumersByProducer = new Map();
+        runtimeNodes.forEach(nodeDescription => {
+            const inputsArray = Array.isArray(nodeDescription.inputs) ? nodeDescription.inputs : [];
+            inputsArray.forEach(inputEntry => {
+                const producerInstanceID = inputEntry.producerInstanceID;
+                if (!producerInstanceID) {
+                    return;
+                }
+                if (producerInstanceID.startsWith(`${COMPONENT_INPUT_PREFIX}:`)) {
+                    const handleName = producerInstanceID.slice(COMPONENT_INPUT_PREFIX.length + 1);
+                    registerComponentHandleConsumer(handleName, nodeDescription.instanceID);
+                    return;
+                }
+                if (!runtimeNodeMap.has(producerInstanceID)) {
+                    return;
+                }
+                let consumers = runtimeConsumersByProducer.get(producerInstanceID);
+                if (!consumers) {
+                    consumers = new Set();
+                    runtimeConsumersByProducer.set(producerInstanceID, consumers);
+                }
+                consumers.add(nodeDescription.instanceID);
+            });
+        });
+        if (runtimeConsumersByProducer.size === 0) {
+            this.logActivity(`[CustomComponentDebug] ${componentName} runtime consumer map is empty; no internal nodes consume others.`);
+        } else {
+            const consumerSummary = Array.from(runtimeConsumersByProducer.entries()).map(([producerID, consumerSet]) => ({
+                producer: producerID,
+                consumers: Array.from(consumerSet),
+            }));
+            this.logActivity(`[CustomComponentDebug] ${componentName} runtime consumer map: ${JSON.stringify(consumerSummary)}`);
+        }
+        if (componentInputConsumers.size === 0) {
+            this.logActivity(`[CustomComponentDebug] ${componentName} component input consumer map is empty.`);
+        } else {
+            const componentConsumerSummary = Array.from(componentInputConsumers.entries()).map(([handle, consumerSet]) => ({
+                handle,
+                consumers: Array.from(consumerSet),
+            }));
+            this.logActivity(`[CustomComponentDebug] ${componentName} component input consumers: ${JSON.stringify(componentConsumerSummary)}`);
+        }
+
+        producedRecords.forEach((record, producerInstanceID) => {
+            if (!record || record.deleted) {
+                return;
+            }
+            if (record.state !== "completed") {
+                return;
+            }
+            const emittedEvents = Array.isArray(record.eventsEmitted) ? record.eventsEmitted : [];
+            if (emittedEvents.length === 0) {
+                return;
+            }
+            nodesForcedPending.delete(producerInstanceID);
+            const consumers = runtimeConsumersByProducer.get(producerInstanceID);
+            if (!consumers || consumers.size === 0) {
+                return;
+            }
+            this.logActivity(`[CustomComponentDebug] ${componentName} primed record for ${producerInstanceID} has events ${JSON.stringify(emittedEvents)}; marking consumers pending.`);
+            consumers.forEach(consumerInstanceID => {
+                if (consumerInstanceID === producerInstanceID) {
+                    return;
+                }
+                nodeStatus.set(consumerInstanceID, "pending");
+                nodesForcedPending.add(consumerInstanceID);
+            });
         });
 
         if (!this.versionInfo.stateMachineDescription) {
@@ -840,15 +966,28 @@ export class StateMachine {
             return recordInput;
         };
 
-        const producedRecords = new Map();
         const componentOutput = nodeInstance.buildEmptyOutputPayload
             ? nodeInstance.buildEmptyOutputPayload(definition)
             : {};
         const componentEvents = new Set();
 
-        const nodeStatus = new Map();
-        runtimeNodes.forEach(nodeDescription => nodeStatus.set(nodeDescription.instanceID, "pending"));
         const nodeBlockers = new Map();
+        const userInputNodeTypes = new Set(["externalMultiInput", "externalTextInput"]);
+        const markRuntimeConsumersPending = (producerInstanceID) => {
+            const consumers = runtimeConsumersByProducer.get(producerInstanceID);
+            if (!consumers || consumers.size === 0) {
+                this.logActivity(`[CustomComponentDebug] ${componentName} no internal consumers to mark pending for ${producerInstanceID}`);
+                return;
+            }
+            this.logActivity(`[CustomComponentDebug] ${componentName} marking pending consumers of ${producerInstanceID}: ${Array.from(consumers).join(", ")}`);
+            consumers.forEach(consumerInstanceID => {
+                if (consumerInstanceID === producerInstanceID) {
+                    return;
+                }
+                nodeStatus.set(consumerInstanceID, "pending");
+                nodesForcedPending.add(consumerInstanceID);
+            });
+        };
 
         const historicalRecords = Array.isArray(this.recordHistory?.records) ? this.recordHistory.records : [];
         const historicalByNodeInstance = new Map();
@@ -941,6 +1080,9 @@ export class StateMachine {
             if (state === "completed") {
                 nodeStatus.set(runtimeInstanceID, "completed");
             } else {
+                nodeStatus.set(runtimeInstanceID, "pending");
+            }
+            if (nodesForcedPending.has(runtimeInstanceID)) {
                 nodeStatus.set(runtimeInstanceID, "pending");
             }
             const nodeDescription = runtimeNodeMap.get(runtimeInstanceID);
@@ -1044,6 +1186,111 @@ export class StateMachine {
             return matches;
         };
 
+        const areEventArraysEqual = (first = [], second = []) => {
+            if (!Array.isArray(first) || !Array.isArray(second)) {
+                return false;
+            }
+            if (first.length !== second.length) {
+                return false;
+            }
+            const sortedFirst = [...first].sort();
+            const sortedSecond = [...second].sort();
+            for (let i = 0; i < sortedFirst.length; i += 1) {
+                if (sortedFirst[i] !== sortedSecond[i]) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        const updateComponentHandlesFromRecord = (runtimeInstanceID, finalRecord) => {
+            const handleEntries = handleProducersByRuntimeID.get(runtimeInstanceID);
+            if (!handleEntries || handleEntries.length === 0) {
+                return;
+            }
+            const eventsEmitted = Array.isArray(finalRecord?.eventsEmitted) ? finalRecord.eventsEmitted : [];
+            handleEntries.forEach(({ handle, portName, mediaType }) => {
+                if (!handle) {
+                    return;
+                }
+                const handleEntry = componentInputsByHandle.get(handle) || { value: undefined, events: [] };
+                let candidateEvents = eventsEmitted;
+                if (portName) {
+                    const normalizedPort = normalizeEventName(portName);
+                    candidateEvents = eventsEmitted.filter(eventName => normalizeEventName(eventName) === normalizedPort);
+                }
+                const aliasEventName = (typeof handle === "string" && handle.length > 0) ? handle : portName;
+                let projectedEvents = Array.isArray(candidateEvents) && candidateEvents.length > 0 && aliasEventName
+                    ? [aliasEventName]
+                    : Array.isArray(candidateEvents)
+                        ? Array.from(new Set(candidateEvents))
+                        : [];
+                if (!Array.isArray(projectedEvents)) {
+                    projectedEvents = [];
+                }
+
+                const previousEvents = Array.isArray(handleEntry.events) ? handleEntry.events : [];
+                const eventsChanged = !areEventArraysEqual(previousEvents, projectedEvents);
+                if (eventsChanged) {
+                    handleEntry.events = projectedEvents;
+                }
+
+                let valueChanged = false;
+                let candidateValue;
+                if (portName && finalRecord && typeof finalRecord === "object") {
+                    candidateValue = finalRecord?.output?.[portName];
+                    if (mediaType && candidateValue && typeof candidateValue === "object" && candidateValue !== null && Object.prototype.hasOwnProperty.call(candidateValue, mediaType)) {
+                        candidateValue = candidateValue[mediaType];
+                    }
+                }
+                if (typeof candidateValue === "undefined") {
+                    const fallbackValue = finalRecord?.output?.text?.text ?? finalRecord?.output?.text ?? finalRecord?.output?.result?.text;
+                    if (typeof fallbackValue !== "undefined") {
+                        candidateValue = fallbackValue;
+                    }
+                }
+                const previousValueSerialized = typeof handleEntry.value === "undefined" ? undefined : JSON.stringify(handleEntry.value);
+                const candidateValueSerialized = typeof candidateValue === "undefined" ? undefined : JSON.stringify(candidateValue);
+                if (previousValueSerialized !== candidateValueSerialized) {
+                    handleEntry.value = candidateValue;
+                    valueChanged = true;
+                }
+
+                if (eventsChanged || valueChanged) {
+                    componentInputsByHandle.set(handle, handleEntry);
+                    if (componentInputRecords.has(handle)) {
+                        const recordInput = componentInputRecords.get(handle);
+                        recordInput.events = Array.isArray(handleEntry.events) ? [...handleEntry.events] : [];
+                        if (typeof handleEntry.value !== "undefined") {
+                            recordInput.values = { [handle]: handleEntry.value };
+                        } else {
+                            delete recordInput.values;
+                        }
+                        componentInputRecords.set(handle, recordInput);
+                    }
+                    const consumers = componentInputConsumers.get(handle);
+                    if (consumers) {
+                        consumers.forEach(consumerInstanceID => {
+                            if (consumerInstanceID !== runtimeInstanceID) {
+                                nodeStatus.set(consumerInstanceID, "pending");
+                            }
+                        });
+                        if (consumers.size > 0) {
+                            this.logActivity(`[CustomComponentDebug] ${componentName} marked component consumers of handle ${handle} pending: ${Array.from(consumers).join(", ")}`);
+                        }
+                    }
+                    this.logActivity(`[CustomComponentDebug] ${componentName} updated handle ${handle} events=${JSON.stringify(handleEntry.events)} valueChanged=${valueChanged}`);
+                    console.error("[CustomComponent] Component handle updated", {
+                        component: componentName,
+                        handle,
+                        events: handleEntry.events,
+                        valueChanged,
+                        runtimeInstanceID,
+                    });
+                }
+            });
+        };
+
         const buildRunInputsForNode = (nodeDescription) => {
             const runInputs = [];
             const inputsArray = Array.isArray(nodeDescription.inputs) ? nodeDescription.inputs : [];
@@ -1072,6 +1319,7 @@ export class StateMachine {
                     const handle = inputEntry.producerInstanceID.slice(COMPONENT_INPUT_PREFIX.length + 1);
                     const componentRecord = getComponentInputRecord(handle);
                     recordInput.recordID = componentRecord.recordID;
+                    recordInput.componentHandle = handle;
                     const data = componentInputsByHandle.get(handle) || {};
                     const availableEvents = componentRecord.events || [];
                     const requiredTriggers = Array.isArray(inputEntry.triggers) ? inputEntry.triggers : [];
@@ -1372,12 +1620,132 @@ export class StateMachine {
                 state: results.state,
             };
             producedRecords.set(nodeDescription.instanceID, finalRecord);
+            updateComponentHandlesFromRecord(nodeDescription.instanceID, finalRecord);
+            markRuntimeConsumersPending(nodeDescription.instanceID);
+
+            const resetComponentHandleState = (handleName) => {
+                if (!handleName || !componentInputsByHandle.has(handleName)) {
+                    return;
+                }
+                const existingEntry = componentInputsByHandle.get(handleName) || {};
+                const resetEntry = {
+                    ...existingEntry,
+                    events: [],
+                };
+                if (Object.prototype.hasOwnProperty.call(resetEntry, "value")) {
+                    resetEntry.value = undefined;
+                }
+                componentInputsByHandle.set(handleName, resetEntry);
+                if (componentInputRecords.has(handleName)) {
+                    const recordInput = componentInputRecords.get(handleName);
+                    recordInput.events = [];
+                    recordInput.values = {};
+                    componentInputRecords.set(handleName, recordInput);
+                }
+                this.logActivity(`[CustomComponentDebug] ${componentName} reset component handle ${handleName} after ${this.formatNodeLabel(nodeDescription)}`);
+            };
+
+            const resetHandlesForSourceRuntime = (runtimeInstanceID) => {
+                if (!runtimeInstanceID) {
+                    return;
+                }
+                componentInputsByHandle.forEach((entry, handleName) => {
+                    if (entry?.sourceRuntimeID === runtimeInstanceID) {
+                        resetComponentHandleState(handleName);
+                    }
+                });
+            };
+
+            const processedComponentHandles = new Set();
+            runInputs.forEach(input => {
+                const handleName = input?.componentHandle;
+                if (!handleName || processedComponentHandles.has(handleName)) {
+                    return;
+                }
+                processedComponentHandles.add(handleName);
+                resetComponentHandleState(handleName);
+            });
+
+            const processedProducerIDs = new Set();
+            runInputs.forEach(input => {
+                const producerInstanceID = input?.producerInstanceID;
+                if (!producerInstanceID || processedProducerIDs.has(producerInstanceID)) {
+                    return;
+                }
+                processedProducerIDs.add(producerInstanceID);
+                if (producerInstanceID.startsWith(`${COMPONENT_INPUT_PREFIX}:`)) {
+                    return;
+                }
+                resetHandlesForSourceRuntime(producerInstanceID);
+                const producerNode = runtimeNodeMap.get(producerInstanceID);
+                if (!producerNode) {
+                    return;
+                }
+                if (producerInstanceID === nodeDescription.instanceID) {
+                    return;
+                }
+                if (!userInputNodeTypes.has(producerNode.nodeType)) {
+                    return;
+                }
+                producedRecords.delete(producerInstanceID);
+                nodeStatus.set(producerInstanceID, "pending");
+                nodesForcedPending.add(producerInstanceID);
+                this.logActivity(`[CustomComponentDebug] ${componentName} re-armed user input node ${producerInstanceID} after ${nodeDescription.instanceID}`);
+                console.error("[CustomComponent] Re-armed user input node", {
+                    component: componentName,
+                    producerInstanceID,
+                    producerNodeType: producerNode.nodeType,
+                    consumerInstanceID: nodeDescription.instanceID,
+                });
+            });
+
             nodeStatus.set(nodeDescription.instanceID, "completed");
+            nodesForcedPending.delete(nodeDescription.instanceID);
             return true;
         };
 
         const exposedOutputPorts = Array.isArray(definition.exposedOutputs) ? definition.exposedOutputs : [];
         const exposedEventPorts = Array.isArray(definition.exposedEvents) ? definition.exposedEvents : [];
+
+        exposedOutputPorts.forEach(port => {
+            if ((port.annotations?.direction || "output") !== "output") {
+                return;
+            }
+            const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
+            if (!runtimeTargetID) {
+                return;
+            }
+            const handleName = port.handle || port.portName;
+            if (!handleName) {
+                return;
+            }
+            registerHandleProducer({
+                runtimeInstanceID: runtimeTargetID,
+                handle: handleName,
+                portName: port.portName || null,
+                mediaType: port.mediaType || null,
+            });
+        });
+
+        exposedEventPorts.forEach(port => {
+            if ((port.annotations?.direction || "output") !== "output") {
+                return;
+            }
+            const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
+            if (!runtimeTargetID) {
+                return;
+            }
+            const handleName = port.handle || port.portName;
+            if (!handleName) {
+                return;
+            }
+            registerHandleProducer({
+                runtimeInstanceID: runtimeTargetID,
+                handle: handleName,
+                portName: port.portName || null,
+                mediaType: port.mediaType || null,
+            });
+        });
 
         let componentResult = null;
 

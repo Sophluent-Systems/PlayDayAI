@@ -83,6 +83,22 @@ function toggleSelectionSet(currentSet, id) {
   return next;
 }
 
+function toSelectionSet(value) {
+  if (value instanceof Set) {
+    return value;
+  }
+  if (!value) {
+    return new Set();
+  }
+  if (Array.isArray(value)) {
+    return new Set(value);
+  }
+  if (typeof value[Symbol.iterator] === "function") {
+    return new Set(Array.from(value));
+  }
+  return new Set();
+}
+
 function deriveUniqueComponentName(versionInfo, selectedNodes) {
   const baseName = selectedNodes.length === 1
     ? `${selectedNodes[0].instanceName} Component`
@@ -117,6 +133,376 @@ function ensureUniqueInstanceName(baseName, nodes) {
     candidate = `${baseName} ${suffix}`;
   }
   return candidate;
+}
+
+function rebuildComponentDraftState(draft) {
+  if (!draft || !Array.isArray(draft.nodes)) {
+    return draft;
+  }
+
+  const nodes = draft.nodes;
+  const nodesById = new Map(nodes.map((node) => [node.instanceID, node]));
+  const metadataCache = new Map();
+
+  const selectedInputs = toSelectionSet(draft.selectedInputs);
+  const selectedOutputs = toSelectionSet(draft.selectedOutputs);
+  const selectedEvents = toSelectionSet(draft.selectedEvents);
+
+  const inputHandles = new Set();
+  const outputHandles = new Set();
+  const eventHandles = new Set();
+
+  const existingInputs = new Map();
+  (draft.availableInputs || []).forEach((entry) => {
+    if (!entry?.nodeInstanceID || !nodesById.has(entry.nodeInstanceID)) {
+      return;
+    }
+    const kind = entry.kind === "event" ? "event" : "variable";
+    const keyName =
+      kind === "event"
+        ? entry.targetTrigger || entry.consumerVariable || entry.handle
+        : entry.consumerVariable || entry.handle;
+    if (!keyName) {
+      return;
+    }
+    const key = `${kind}::${entry.nodeInstanceID}::${keyName}`;
+    existingInputs.set(key, { ...entry });
+    if (entry.handle) {
+      inputHandles.add(entry.handle);
+    }
+  });
+
+  const existingOutputs = new Map();
+  (draft.availableOutputs || []).forEach((entry) => {
+    if (!entry?.nodeInstanceID || !nodesById.has(entry.nodeInstanceID)) {
+      return;
+    }
+    const keyName = entry.producerOutput || entry.handle;
+    if (!keyName) {
+      return;
+    }
+    const key = `variable::${entry.nodeInstanceID}::${keyName}`;
+    existingOutputs.set(key, { ...entry });
+    if (entry.handle) {
+      outputHandles.add(entry.handle);
+    }
+  });
+
+  const existingEvents = new Map();
+  (draft.availableEvents || []).forEach((entry) => {
+    if (!entry?.nodeInstanceID || !nodesById.has(entry.nodeInstanceID)) {
+      return;
+    }
+    const keyName = entry.producerEvent || entry.handle;
+    if (!keyName) {
+      return;
+    }
+    const key = `event::${entry.nodeInstanceID}::${keyName}`;
+    existingEvents.set(key, { ...entry });
+    if (entry.handle) {
+      eventHandles.add(entry.handle);
+    }
+  });
+
+  const nextInputs = [];
+  const nextOutputs = [];
+  const nextEvents = [];
+  const nextSelectedInputs = new Set();
+  const nextSelectedOutputs = new Set();
+  const nextSelectedEvents = new Set();
+
+  const getMetadataPair = (node) => {
+    if (!node) {
+      return null;
+    }
+    if (metadataCache.has(node.instanceID)) {
+      return metadataCache.get(node.instanceID);
+    }
+    try {
+      const metadataClass = getMetadataForNodeType(node.nodeType);
+      if (!metadataClass) {
+        metadataCache.set(node.instanceID, null);
+        return null;
+      }
+      const metadataInstance = new metadataClass({ fullNodeDescription: node });
+      const pair = { metadataClass, metadataInstance };
+      metadataCache.set(node.instanceID, pair);
+      return pair;
+    } catch (error) {
+      metadataCache.set(node.instanceID, null);
+      return null;
+    }
+  };
+
+  nodes.forEach((node) => {
+    const metadataPair = getMetadataPair(node) || {};
+    const metadataInstance = metadataPair.metadataInstance;
+    const metadataClass = metadataPair.metadataClass;
+
+    let variableOverrides = {};
+    if (metadataInstance?.getVariableOverrides) {
+      variableOverrides = metadataInstance.getVariableOverrides() || {};
+    } else if (metadataClass?.AllowedVariableOverrides) {
+      variableOverrides = metadataClass.AllowedVariableOverrides || {};
+    }
+
+    const io = getInputsAndOutputsForNode(node) || {};
+
+    (io.inputs || []).forEach((metaInput, index) => {
+      const consumerVariable =
+        (metaInput &&
+          typeof metaInput === "object" &&
+          (metaInput.value ?? metaInput.key ?? metaInput.id ?? metaInput.name)) ||
+        (typeof metaInput === "string" ? metaInput : `input-${index}`);
+      const label = metaInput?.label || consumerVariable;
+      const key = `variable::${node.instanceID}::${consumerVariable}`;
+      const overrideMeta = variableOverrides?.[consumerVariable] || {};
+      let entry = existingInputs.get(key);
+      if (entry) {
+        entry = {
+          ...entry,
+          nodeInstanceID: node.instanceID,
+          consumerVariable,
+          label: `${node.instanceName} - ${label}`,
+          mediaType: overrideMeta.mediaType || entry.mediaType || "text",
+        };
+        nextInputs.push(entry);
+        if (entry.handle) {
+          inputHandles.add(entry.handle);
+        }
+        if (entry.id && selectedInputs.has(entry.id)) {
+          nextSelectedInputs.add(entry.id);
+        }
+        existingInputs.delete(key);
+      } else {
+        const handle = makeUniqueHandle(inputHandles, "input", consumerVariable);
+        const id = `variable::${node.instanceID}::${consumerVariable}`;
+        entry = {
+          id,
+          kind: "variable",
+          handle,
+          label: `${node.instanceName} - ${label}`,
+          nodeInstanceID: node.instanceID,
+          consumerVariable,
+          mediaType: overrideMeta.mediaType || "text",
+        };
+        nextInputs.push(entry);
+      }
+    });
+
+    const triggers = Array.isArray(metadataClass?.triggers)
+      ? metadataClass.triggers
+      : [];
+
+    triggers.forEach((triggerName, index) => {
+      const triggerKey =
+        typeof triggerName === "string"
+          ? triggerName
+          : (triggerName &&
+              (triggerName.value ?? triggerName.key ?? triggerName.id ?? triggerName.name)) ||
+            `trigger-${index}`;
+      const label =
+        (triggerName && typeof triggerName === "object" && triggerName.label) || triggerKey;
+      const key = `event::${node.instanceID}::${triggerKey}`;
+      let entry = existingInputs.get(key);
+      if (entry) {
+        entry = {
+          ...entry,
+          nodeInstanceID: node.instanceID,
+          targetTrigger: entry.targetTrigger || triggerKey,
+          label: entry.label || `${node.instanceName} - ${label}`,
+          kind: "event",
+        };
+        if (!entry.handle) {
+          entry.handle = makeUniqueHandle(inputHandles, "trigger", triggerKey);
+        } else {
+          inputHandles.add(entry.handle);
+        }
+        nextInputs.push(entry);
+        if (entry.id && selectedInputs.has(entry.id)) {
+          nextSelectedInputs.add(entry.id);
+        }
+        existingInputs.delete(key);
+      } else {
+        const handle = makeUniqueHandle(inputHandles, "trigger", triggerKey);
+        const id = `event::${node.instanceID}::${triggerKey}`;
+        entry = {
+          id,
+          kind: "event",
+          handle,
+          label: `${node.instanceName} - ${label}`,
+          nodeInstanceID: node.instanceID,
+          targetTrigger: triggerKey,
+        };
+        nextInputs.push(entry);
+      }
+    });
+
+    (io.outputs || []).forEach((metaOutput, index) => {
+      let producerOutput;
+      let outputLabel;
+      let outputMediaType;
+      if (metaOutput && typeof metaOutput === "object") {
+        producerOutput =
+          metaOutput.value ??
+          metaOutput.key ??
+          metaOutput.id ??
+          metaOutput.name ??
+          `output-${index}`;
+        outputLabel = metaOutput.label ?? producerOutput;
+        outputMediaType = metaOutput.mediaType;
+      } else if (typeof metaOutput === "string") {
+        producerOutput = metaOutput;
+        outputLabel = metaOutput;
+        outputMediaType = undefined;
+      } else {
+        producerOutput = `output-${index}`;
+        outputLabel = producerOutput;
+        outputMediaType = undefined;
+      }
+      const key = `variable::${node.instanceID}::${producerOutput}`;
+      let entry = existingOutputs.get(key);
+      if (entry) {
+        entry = {
+          ...entry,
+          nodeInstanceID: node.instanceID,
+          producerOutput,
+          label: `${node.instanceName} - ${outputLabel}`,
+          mediaType: outputMediaType || entry.mediaType,
+        };
+        if (!entry.handle) {
+          entry.handle = makeUniqueHandle(outputHandles, "output", producerOutput);
+        } else {
+          outputHandles.add(entry.handle);
+        }
+        nextOutputs.push(entry);
+        if (entry.id && selectedOutputs.has(entry.id)) {
+          nextSelectedOutputs.add(entry.id);
+        }
+        existingOutputs.delete(key);
+      } else {
+        const handle = makeUniqueHandle(outputHandles, "output", producerOutput);
+        const id = `variable::${node.instanceID}::${producerOutput}`;
+        entry = {
+          id,
+          kind: "variable",
+          handle,
+          label: `${node.instanceName} - ${outputLabel}`,
+          nodeInstanceID: node.instanceID,
+          producerOutput,
+          mediaType: outputMediaType,
+          targets: [],
+        };
+        nextOutputs.push(entry);
+      }
+    });
+
+    const eventEntries =
+      (metadataInstance && metadataInstance.getEvents?.()) ||
+      metadataClass?.events ||
+      [];
+
+    eventEntries.forEach((eventEntry, index) => {
+      const producerEvent =
+        (eventEntry &&
+          typeof eventEntry === "object" &&
+          (eventEntry.value ?? eventEntry.key ?? eventEntry.id ?? eventEntry.name)) ||
+        (typeof eventEntry === "string" ? eventEntry : `event-${index}`);
+      const eventLabel =
+        (eventEntry && typeof eventEntry === "object" && eventEntry.label) || producerEvent;
+      const key = `event::${node.instanceID}::${producerEvent}`;
+      let entry = existingEvents.get(key);
+      if (entry) {
+        entry = {
+          ...entry,
+          nodeInstanceID: node.instanceID,
+          producerEvent,
+          label: `${node.instanceName} - ${eventLabel}`,
+        };
+        if (!entry.handle) {
+          entry.handle = makeUniqueHandle(eventHandles, "event", producerEvent);
+        } else {
+          eventHandles.add(entry.handle);
+        }
+        nextEvents.push(entry);
+        if (entry.id && selectedEvents.has(entry.id)) {
+          nextSelectedEvents.add(entry.id);
+        }
+        existingEvents.delete(key);
+      } else {
+        const handle = makeUniqueHandle(eventHandles, "event", producerEvent);
+        const id = `event::${node.instanceID}::${producerEvent}`;
+        entry = {
+          id,
+          kind: "event",
+          handle,
+          label: `${node.instanceName} - ${eventLabel}`,
+          nodeInstanceID: node.instanceID,
+          producerEvent,
+          targets: [],
+        };
+        nextEvents.push(entry);
+      }
+    });
+  });
+
+  existingInputs.forEach((entry) => {
+    nextInputs.push(entry);
+    if (entry.handle) {
+      inputHandles.add(entry.handle);
+    }
+    if (entry.id && selectedInputs.has(entry.id)) {
+      nextSelectedInputs.add(entry.id);
+    }
+  });
+
+  existingOutputs.forEach((entry) => {
+    nextOutputs.push(entry);
+    if (entry.handle) {
+      outputHandles.add(entry.handle);
+    }
+    if (entry.id && selectedOutputs.has(entry.id)) {
+      nextSelectedOutputs.add(entry.id);
+    }
+  });
+
+  existingEvents.forEach((entry) => {
+    nextEvents.push(entry);
+    if (entry.handle) {
+      eventHandles.add(entry.handle);
+    }
+    if (entry.id && selectedEvents.has(entry.id)) {
+      nextSelectedEvents.add(entry.id);
+    }
+  });
+
+  nextInputs.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+  nextOutputs.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+  nextEvents.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+
+  const validInputIDs = new Set(nextInputs.map((entry) => entry.id));
+  const validOutputIDs = new Set(nextOutputs.map((entry) => entry.id));
+  const validEventIDs = new Set(nextEvents.map((entry) => entry.id));
+
+  const cleanedSelectedInputs = new Set(
+    [...selectedInputs, ...nextSelectedInputs].filter((id) => validInputIDs.has(id))
+  );
+  const cleanedSelectedOutputs = new Set(
+    [...selectedOutputs, ...nextSelectedOutputs].filter((id) => validOutputIDs.has(id))
+  );
+  const cleanedSelectedEvents = new Set(
+    [...selectedEvents, ...nextSelectedEvents].filter((id) => validEventIDs.has(id))
+  );
+
+  return {
+    ...draft,
+    availableInputs: nextInputs,
+    availableOutputs: nextOutputs,
+    availableEvents: nextEvents,
+    selectedInputs: cleanedSelectedInputs,
+    selectedOutputs: cleanedSelectedOutputs,
+    selectedEvents: cleanedSelectedEvents,
+  };
 }
 
 function resolvePortDirection(port, fallback = "input") {
@@ -1379,12 +1765,310 @@ function VersionEditor(props) {
       const nextNodes = nodes.map((node, index) =>
         index === targetIndex ? nextNode : node,
       );
-      return {
+      return rebuildComponentDraftState({
         ...previous,
         nodes: nextNodes,
-      };
+      });
     });
   }, []);
+
+  const handleComponentNodeChange = useCallback(
+    (node, relativePath, newValue) => {
+      if (!node) {
+        return;
+      }
+      setComponentEditorState((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const nodes = Array.isArray(previous.nodes)
+          ? previous.nodes.map((entry) => {
+              if (entry.instanceID !== node.instanceID) {
+                return entry;
+              }
+              const updated = JSON.parse(JSON.stringify(node));
+              if (relativePath) {
+                setNestedObjectProperty(updated, relativePath, newValue);
+              }
+              return updated;
+            })
+          : [];
+        return rebuildComponentDraftState({
+          ...previous,
+          nodes,
+        });
+      });
+    },
+    [setComponentEditorState],
+  );
+
+  const handleComponentNodeStructureChange = useCallback(
+    (node, action, optionalParams = {}) => {
+      if (
+        action === "editCustomComponent" ||
+        action === "startCustomComponent" ||
+        action === "commitCustomComponent" ||
+        action === "cancelCustomComponent" ||
+        action === "addCustomComponentInstance"
+      ) {
+        onNodeStructureChange?.(node, action, optionalParams);
+        return;
+      }
+
+      setComponentEditorState((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const nodes = Array.isArray(previous.nodes)
+          ? previous.nodes.map((entry) => JSON.parse(JSON.stringify(entry)))
+          : [];
+        const targetIndex = node
+          ? nodes.findIndex((entry) => entry.instanceID === node.instanceID)
+          : -1;
+        let mutated = false;
+        let createdNodeID = null;
+        let nextSelected = Array.isArray(previous.selectedNodeIDs)
+          ? previous.selectedNodeIDs.filter((id) =>
+              nodes.some((entry) => entry.instanceID === id),
+            )
+          : [];
+
+        switch (action) {
+          case "duplicate": {
+            if (targetIndex === -1) {
+              return previous;
+            }
+            const sourceNode = nodes[targetIndex];
+            const clone = JSON.parse(JSON.stringify(sourceNode));
+            clone.instanceID = uuidv4();
+            clone.instanceName = ensureUniqueInstanceName(clone.instanceName, nodes);
+            nodes.splice(targetIndex + 1, 0, clone);
+            createdNodeID = clone.instanceID;
+            mutated = true;
+            break;
+          }
+          case "delete": {
+            if (targetIndex === -1) {
+              return previous;
+            }
+            const removed = nodes.splice(targetIndex, 1)[0];
+            nextSelected = nextSelected.filter((id) => id !== removed.instanceID);
+            nodes.forEach((entry) => {
+              if (!Array.isArray(entry.inputs)) {
+                return;
+              }
+              entry.inputs = entry.inputs
+                .map((input) => {
+                  if (input.producerInstanceID === removed.instanceID) {
+                    return null;
+                  }
+                  const variables = Array.isArray(input.variables)
+                    ? input.variables.filter(Boolean)
+                    : [];
+                  const triggers = Array.isArray(input.triggers)
+                    ? input.triggers.filter(Boolean)
+                    : [];
+                  if (variables.length === 0 && triggers.length === 0) {
+                    return null;
+                  }
+                  return {
+                    ...input,
+                    variables,
+                    triggers,
+                  };
+                })
+                .filter(Boolean);
+            });
+            mutated = true;
+            break;
+          }
+          case "copyParamsToSameType": {
+            if (targetIndex === -1) {
+              return previous;
+            }
+            const sourceNode = nodes[targetIndex];
+            const metadata = getMetadataForNodeType(sourceNode.nodeType);
+            const paramsToCopy = metadata?.parametersToCopy;
+            if (!Array.isArray(paramsToCopy) || paramsToCopy.length === 0) {
+              return previous;
+            }
+            nodes.forEach((entry) => {
+              if (entry.nodeType !== sourceNode.nodeType || entry.instanceID === sourceNode.instanceID) {
+                return;
+              }
+              paramsToCopy.forEach((path) => {
+                const value = getNestedObjectProperty(sourceNode.params, path);
+                setNestedObjectProperty(entry.params || (entry.params = {}), path, value);
+              });
+            });
+            mutated = true;
+            break;
+          }
+          case "visualUpdateNeeded":
+          case "input": {
+            mutated = true;
+            break;
+          }
+          default: {
+            return previous;
+          }
+        }
+
+        if (!mutated) {
+          return previous;
+        }
+
+        const nextDraft = rebuildComponentDraftState({
+          ...previous,
+          nodes,
+          selectedNodeIDs: nextSelected,
+        });
+        if (createdNodeID) {
+          nextDraft.selectedNodeIDs = [createdNodeID];
+        }
+        return nextDraft;
+      });
+    },
+    [setComponentEditorState, onNodeStructureChange],
+  );
+
+  const handleComponentSelectionChange = useCallback(
+    (selectedIDs) => {
+      setComponentEditorState((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const nextSelected = Array.isArray(selectedIDs) ? [...selectedIDs] : [];
+        const prior = Array.isArray(previous.selectedNodeIDs)
+          ? previous.selectedNodeIDs
+          : [];
+        const sameLength = prior.length === nextSelected.length;
+        const sameContent =
+          sameLength &&
+          prior.every((value, index) => value === nextSelected[index]);
+        if (sameContent) {
+          return previous;
+        }
+        return {
+          ...previous,
+          selectedNodeIDs: nextSelected,
+        };
+      });
+    },
+    [setComponentEditorState],
+  );
+
+  const handleComponentGraphAction = useCallback(
+    (action, detail = {}) => {
+      setComponentEditorState((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const nodes = Array.isArray(previous.nodes)
+          ? previous.nodes.map((entry) => JSON.parse(JSON.stringify(entry)))
+          : [];
+        let createdNode = null;
+
+        switch (action) {
+          case "addTemplate": {
+            const templateName = detail?.template;
+            if (!templateName) {
+              return previous;
+            }
+            const metadata = getMetadataForNodeType(templateName);
+            if (!metadata?.newNodeTemplate) {
+              return previous;
+            }
+            const newNode = JSON.parse(JSON.stringify(metadata.newNodeTemplate));
+            newNode.instanceID = uuidv4();
+            if (!newNode.instanceName) {
+              newNode.instanceName = templateName;
+            }
+            newNode.instanceName = ensureUniqueInstanceName(newNode.instanceName, nodes);
+            newNode.inputs = Array.isArray(newNode.inputs) ? newNode.inputs : [];
+            replaceAllNodePlaceholderSettings(newNode);
+            nodes.push(newNode);
+            createdNode = newNode;
+            break;
+          }
+          case "duplicateNode": {
+            const sourceNode = detail?.node;
+            if (!sourceNode) {
+              return previous;
+            }
+            const clone = JSON.parse(JSON.stringify(sourceNode));
+            clone.instanceID = uuidv4();
+            clone.instanceName = ensureUniqueInstanceName(clone.instanceName, nodes);
+            nodes.push(clone);
+            createdNode = clone;
+            break;
+          }
+          case "addCustomComponent": {
+            const componentID = detail?.componentID;
+            if (!componentID) {
+              return previous;
+            }
+            const versionInfoCurrent = newVersionInfoRef.current;
+            const definitions = Array.isArray(
+              versionInfoCurrent?.stateMachineDescription?.customComponents,
+            )
+              ? versionInfoCurrent.stateMachineDescription.customComponents
+              : [];
+            const definition = definitions.find(
+              (entry) => entry.componentID === componentID,
+            );
+            if (!definition) {
+              return previous;
+            }
+            const metadata = getMetadataForNodeType("customComponent");
+            const template = JSON.parse(JSON.stringify(metadata?.newNodeTemplate || {}));
+            const componentNode = {
+              ...template,
+              instanceID: uuidv4(),
+              nodeType: "customComponent",
+              instanceName: ensureUniqueInstanceName(
+                definition.name || template.instanceName || "Custom Component",
+                nodes,
+              ),
+              params: {
+                ...(template.params || {}),
+                componentID: definition.componentID,
+                version: definition.version || template.params?.version || { major: 0, minor: 1, patch: 0 },
+                metadata: {
+                  ...(template.params?.metadata || {}),
+                  componentName: definition.name,
+                },
+                inputBindings: {},
+                outputBindings: {},
+                eventBindings: {},
+              },
+              inputs: Array.isArray(template.inputs) ? template.inputs : [],
+            };
+            nodes.push(componentNode);
+            createdNode = componentNode;
+            break;
+          }
+          default:
+            return previous;
+        }
+
+        const nextDraftBase = {
+          ...previous,
+          nodes,
+        };
+        const rebuilt = rebuildComponentDraftState(nextDraftBase);
+        if (createdNode) {
+          rebuilt.selectedNodeIDs = [createdNode.instanceID];
+        } else if (Array.isArray(previous.selectedNodeIDs)) {
+          rebuilt.selectedNodeIDs = previous.selectedNodeIDs.filter((id) =>
+            nodes.some((entry) => entry.instanceID === id),
+          );
+        }
+        return rebuilt;
+      });
+    },
+    [setComponentEditorState, newVersionInfoRef, replaceAllNodePlaceholderSettings],
+  );
 
   const buildComponentDefinitionFromDraft = useCallback((draft, componentID) => {
     if (!draft) {
@@ -3022,7 +3706,13 @@ const handleCancelDelete = () => {
           onLibraryChange={handleComponentLibraryChange}
           onAddConnection={handleComponentAddConnection}
           onRemoveConnection={handleComponentRemoveConnection}
-          onNodeClicked={handleOpenNodeSettingsMenu}
+          onNodeValueChange={handleComponentNodeChange}
+          onNodeStructureChange={handleComponentNodeStructureChange}
+          onSelectionChange={handleComponentSelectionChange}
+          onGraphAction={handleComponentGraphAction}
+          onPersonaListChange={onPersonaListChange}
+          versionInfo={newVersionInfoRef.current}
+          readOnly={readOnly}
         />
       ) : null}
 

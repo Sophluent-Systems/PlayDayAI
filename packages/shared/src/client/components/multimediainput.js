@@ -48,6 +48,8 @@ export function MultimediaInput({
   theme,
   inputLength,
   waitingForInput,
+  connectionReady = true,
+  connectionMessage,
   sendAudioOnSpeechEnd,
   supportedMediaTypes,
   supportedInputModes = [],
@@ -55,6 +57,8 @@ export function MultimediaInput({
   debug,
 }) {
   const [media, setMedia] = useState(() => createEmptyMedia());
+  const inputEnabled = waitingForInput && connectionReady;
+  const disabledNotice = !connectionReady ? connectionMessage || "Connection unavailable. Reconnecting..." : "";
 
   const supportsText = nullUndefinedOrEmpty(supportedMediaTypes) || supportedMediaTypes.includes("text");
   const supportsAudio = supportedMediaTypes?.includes("audio");
@@ -172,6 +176,9 @@ export function MultimediaInput({
   };
 
   const doSendMessage = () => {
+    if (!inputEnabled) {
+      return;
+    }
     const payload = { ...media };
     if (!allowText || !payload.text?.data?.trim()) {
       delete payload.text;
@@ -195,13 +202,14 @@ export function MultimediaInput({
   const onKeyDown = (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (waitingForInput && messageHasContent) {
+      if (inputEnabled && messageHasContent) {
         doSendMessage();
       }
     }
   };
 
   const dropzone = useDropzone({
+    disabled: !connectionReady,
     onDrop: (acceptedFiles) => {
       const file = acceptedFiles[0];
       if (!file) {
@@ -244,7 +252,10 @@ export function MultimediaInput({
 
   return (
     <div
-      className="w-full rounded-3xl border border-border/60 bg-surface/90 p-4 shadow-soft"
+      className={clsx(
+        "w-full rounded-3xl border border-border/60 bg-surface/90 p-4 shadow-soft",
+        !connectionReady && "opacity-60"
+      )}
       style={{ 
         backgroundColor: accentBackground, 
         borderColor: accentBorderColor,
@@ -256,12 +267,14 @@ export function MultimediaInput({
         <div
           {...getRootProps({
             className: clsx(
-              "relative flex h-28 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed text-sm transition",
+              "relative flex h-28 w-full flex-col items-center justify-center rounded-2xl border border-dashed text-sm transition",
+              connectionReady ? "cursor-pointer" : "cursor-not-allowed",
               isDragActive
                 ? "border-primary/60 bg-primary/10 text-primary"
                 : "border-border/50 bg-surface/60 text-muted hover:border-primary/40 hover:bg-primary/5",
+              !connectionReady && "hover:border-border/50 hover:bg-surface/60"
             ),
-            style: { pointerEvents: 'auto' }
+            style: { pointerEvents: connectionReady ? 'auto' : 'none' }
           })}
         >
           <input {...getInputProps()} />
@@ -287,8 +300,9 @@ export function MultimediaInput({
               value={media.text?.data ?? ""}
               onChange={(event) => updateText(event.target.value)}
               onKeyDown={onKeyDown}
-              disabled={!waitingForInput}
+              disabled={!inputEnabled}
               placeholder="Type your next turn here..."
+              title={!connectionReady ? disabledNotice : undefined}
               rows={1}
               className="block w-full resize-none rounded-2xl border border-border/60 px-4 py-3 text-base text-emphasis placeholder:text-[var(--placeholder-color)] transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ 
@@ -311,7 +325,7 @@ export function MultimediaInput({
           {allowAudio && !media.audio ? (
             <SpeechRecorder
               onRecordingComplete={handleAudioSave}
-              disableListening={!waitingForInput || !allowAudio}
+              disableListening={!inputEnabled || !allowAudio}
               debug={debug}
             />
           ) : null}
@@ -345,13 +359,14 @@ export function MultimediaInput({
           <button
             type="button"
             onClick={doSendMessage}
-            disabled={!waitingForInput || !messageHasContent}
+            disabled={!inputEnabled || !messageHasContent}
             className={clsx(
               "inline-flex h-11 min-w-[48px] w-full sm:w-auto items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
-              waitingForInput && messageHasContent
+              inputEnabled && messageHasContent
                 ? "bg-primary hover:bg-primary/90"
                 : "bg-border/70 text-muted",
             )}
+            title={!connectionReady ? disabledNotice : undefined}
             style={{ pointerEvents: 'auto' }}
           >
             <SendHorizonal className="h-4 w-4" aria-hidden="true" />

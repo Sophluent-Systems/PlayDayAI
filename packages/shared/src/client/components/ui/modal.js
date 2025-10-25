@@ -7,7 +7,17 @@ import { X } from "lucide-react";
 
 const portalTarget = typeof window !== "undefined" ? () => document.body : null;
 
-export function Modal({ open, onClose, title, description, children, footer, size = "md", showCloseButton = true }) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  size = "md",
+  showCloseButton = true,
+  layerClassName,
+}) {
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -41,7 +51,10 @@ export function Modal({ open, onClose, title, description, children, footer, siz
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+      className={clsx(
+        "fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4",
+        layerClassName ?? "z-[1000]",
+      )}
       role="dialog"
       aria-modal="true"
       onClick={() => onClose?.()}

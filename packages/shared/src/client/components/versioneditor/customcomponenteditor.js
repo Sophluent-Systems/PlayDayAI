@@ -29,6 +29,7 @@ import { defaultAppTheme } from '@src/common/theme';
 import { NodeSettingsMenu } from './nodesettingsmenu';
 import { FloatingPanel } from './floatingpanel';
 import { NodeLibraryTree } from './nodelibrarytree';
+import { TextDialog } from '../standard/textdialog';
 
 const INPUT_NODE_ID = '__component_inputs__';
 const OUTPUT_NODE_ID = '__component_outputs__';
@@ -705,6 +706,7 @@ export function CustomComponentEditor({
   readOnly = false,
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const [graphNodes, setGraphNodes, internalOnNodesChange] = useNodesState([]);
   const [edges, setEdges, internalOnEdgesChange] = useEdgesState([]);
   const [edgeMenu, setEdgeMenu] = useState(null);
@@ -712,7 +714,7 @@ export function CustomComponentEditor({
   const wrapperRef = useRef(null);
   const reactFlowInstanceRef = useRef(null);
   const boundaryPositionsRef = useRef({ input: null, output: null });
-  const autoOpenedForDraftIdRef = useRef(null);
+  const namePromptedDraftIdRef = useRef(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const [wrapperSize, setWrapperSize] = useState({ width: 0, height: 0 });
   const [, setSelectedNodeIDs] = useState([]);
@@ -724,17 +726,6 @@ export function CustomComponentEditor({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
-
-  useEffect(() => {
-    if (!draft?.id || draft.mode !== 'createFromSelection') {
-      return;
-    }
-    if (autoOpenedForDraftIdRef.current === draft.id) {
-      return;
-    }
-    autoOpenedForDraftIdRef.current = draft.id;
-    setSettingsOpen(true);
-  }, [draft?.id, draft?.mode]);
 
   useEffect(() => {
     const element = wrapperRef.current;
@@ -786,6 +777,38 @@ export function CustomComponentEditor({
       },
     };
   }, [versionInfo, draft?.nodes]);
+
+  useEffect(() => {
+    if (!draft) {
+      setNameDialogOpen(false);
+      return;
+    }
+    if (draft.mode !== 'createFromSelection') {
+      setNameDialogOpen(false);
+      return;
+    }
+    if (!draft.id) {
+      return;
+    }
+    if (namePromptedDraftIdRef.current === draft.id) {
+      return;
+    }
+    namePromptedDraftIdRef.current = draft.id;
+    setNameDialogOpen(true);
+  }, [draft]);
+
+  const handleNameDialogResult = useCallback(
+    (value) => {
+      if (draft && typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.length > 0 && trimmed !== draft.name) {
+          onNameChange?.(trimmed);
+        }
+      }
+      setNameDialogOpen(false);
+    },
+    [draft, onNameChange],
+  );
 
   const handleNodeClick = useCallback(
     (node) => {
@@ -1701,6 +1724,14 @@ export function CustomComponentEditor({
           onLibraryChange={onLibraryChange}
         />
       ) : null}
+
+      <TextDialog
+        shown={nameDialogOpen}
+        label="Name Custom Component"
+        currentText={draft?.name || ''}
+        onNewText={handleNameDialogResult}
+        layerClassName="z-[20000]"
+      />
     </>
   );
 }

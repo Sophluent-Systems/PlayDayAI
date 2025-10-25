@@ -712,6 +712,7 @@ export function CustomComponentEditor({
   const wrapperRef = useRef(null);
   const reactFlowInstanceRef = useRef(null);
   const boundaryPositionsRef = useRef({ input: null, output: null });
+  const autoOpenedForDraftIdRef = useRef(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const [wrapperSize, setWrapperSize] = useState({ width: 0, height: 0 });
   const [, setSelectedNodeIDs] = useState([]);
@@ -723,6 +724,17 @@ export function CustomComponentEditor({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
+
+  useEffect(() => {
+    if (!draft?.id || draft.mode !== 'createFromSelection') {
+      return;
+    }
+    if (autoOpenedForDraftIdRef.current === draft.id) {
+      return;
+    }
+    autoOpenedForDraftIdRef.current = draft.id;
+    setSettingsOpen(true);
+  }, [draft?.id, draft?.mode]);
 
   useEffect(() => {
     const element = wrapperRef.current;

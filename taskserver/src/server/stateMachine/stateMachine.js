@@ -110,6 +110,7 @@
  *
  */
 import { Config } from "@src/backend/config";
+import { normalizeCustomComponentDefinition } from "@src/common/customcomponents";
 import { exportRecordsAsMessageList } from '@src/backend/messageHistory';
 import { RecordHistory } from './recordHistory';
 import { imageGeneratorNode } from './nodeTypes/imageGeneratorNode.js';
@@ -150,6 +151,236 @@ import { CustomComponentRegistry } from './customComponentRegistry';
 import { getMostRecentRecordOfInstance } from '@src/backend/records';
 
 const COMPONENT_INPUT_PREFIX = "__component_input__";
+const COMPONENT_INSTANCE_SEPARATOR = "::";
+
+function cloneNodeDeep(node) {
+    if (typeof structuredClone === "function") {
+        try {
+            return structuredClone(node);
+        } catch (error) {
+            // fall back to JSON clone below
+        }
+    }
+    return JSON.parse(JSON.stringify(node));
+}
+
+function buildConsumersByProducer(nodes) {
+    const map = new Map();
+    nodes.forEach(node => {
+        const inputs = Array.isArray(node?.inputs) ? node.inputs : [];
+        inputs.forEach((input, index) => {
+            const producer = input?.producerInstanceID;
+            if (!producer) {
+                return;
+            }
+            if (!map.has(producer)) {
+                map.set(producer, []);
+            }
+            map.get(producer).push({ node, inputIndex: index });
+        });
+    });
+    return map;
+}
+
+function resolveComponentDefinitionFromNode(node, registry) {
+    if (!node) {
+        return null;
+    }
+    const inlineDefinition =
+        node.resolvedComponentDefinition ||
+        node.componentDefinition ||
+        node.params?.customComponentDefinition ||
+        node.params?.definition;
+    if (inlineDefinition) {
+        return normalizeCustomComponentDefinition(inlineDefinition);
+    }
+    const componentID =
+        node.params?.componentID ||
+        node.componentID ||
+        node.params?.definitionID;
+    if (componentID && registry) {
+        const resolved = registry.resolve(componentID);
+        if (resolved) {
+            return resolved;
+        }
+    }
+    return null;
+}
+
+function inlineCustomComponentsInNodeArray(nodes, registry) {
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+        return nodes;
+    }
+    let workingNodes = nodes;
+    while (true) {
+        const index = workingNodes.findIndex(node => node?.nodeType === "customComponent");
+        if (index === -1) {
+            break;
+        }
+        const consumersByProducer = buildConsumersByProducer(workingNodes);
+        const customNode = workingNodes[index];
+        const expandedNodes = expandCustomComponentNode(customNode, consumersByProducer, registry);
+        workingNodes.splice(index, 1, ...expandedNodes);
+    }
+    return workingNodes;
+}
+
+function inlineCustomComponentsInDescription(description, registry) {
+    if (!description || typeof description !== "object") {
+        return;
+    }
+    if (!Array.isArray(description.nodes)) {
+        return;
+    }
+    description.nodes = inlineCustomComponentsInNodeArray(description.nodes, registry);
+}
+
+function expandCustomComponentNode(customNode, consumersByProducer, registry) {
+    const definition = resolveComponentDefinitionFromNode(customNode, registry);
+    if (!definition) {
+        throw new Error(`Unable to resolve definition for custom component node ${customNode.instanceID || customNode.instanceName || "unknown"}.`);
+    }
+
+    const originalNodes = Array.isArray(definition.nodes) ? definition.nodes : [];
+    if (originalNodes.length === 0) {
+        return [];
+    }
+
+    const idMap = new Map();
+    originalNodes.forEach(internalNode => {
+        const newID = `${customNode.instanceID}${COMPONENT_INSTANCE_SEPARATOR}${internalNode.instanceID}`;
+        idMap.set(internalNode.instanceID, newID);
+    });
+
+    const handleBindings = new Map();
+    (customNode.inputs || []).forEach(binding => {
+        const handle = binding?.componentHandle;
+        if (!handle) {
+            return;
+        }
+        if (!handleBindings.has(handle)) {
+            handleBindings.set(handle, []);
+        }
+        handleBindings.get(handle).push(binding);
+    });
+
+    const clonedNodes = originalNodes.map(internalNode => {
+        const cloned = cloneNodeDeep(internalNode);
+        const basePath = Array.isArray(customNode.componentPathSegments) ? [...customNode.componentPathSegments] : [];
+        const baseNamePath = Array.isArray(customNode.componentNamePath) ? [...customNode.componentNamePath] : [];
+        const componentDisplayName = definition.name || customNode.instanceName || "Custom Component";
+        cloned.originalInstanceID = internalNode.instanceID;
+        cloned.instanceID = idMap.get(internalNode.instanceID);
+        cloned.componentPathSegments = [...basePath, customNode.instanceID, internalNode.instanceID];
+        cloned.componentNamePath = [...baseNamePath, componentDisplayName];
+        const pendingHandlePatches = [];
+        cloned.inputs = Array.isArray(cloned.inputs)
+            ? cloned.inputs.map((input, index) => {
+                const patched = cloneNodeDeep(input);
+                if (patched.componentHandle) {
+                    delete patched.componentHandle;
+                }
+                if (idMap.has(patched.producerInstanceID)) {
+                    patched.producerInstanceID = idMap.get(patched.producerInstanceID);
+                } else if (typeof patched.producerInstanceID === "string" && patched.producerInstanceID.startsWith(`${COMPONENT_INPUT_PREFIX}:`)) {
+                    const handle = patched.producerInstanceID.slice(COMPONENT_INPUT_PREFIX.length + 1);
+                    pendingHandlePatches.push({ handle, inputIndex: index });
+                }
+                return patched;
+            })
+            : [];
+        pendingHandlePatches.forEach(({ handle, inputIndex }) => {
+            const bindings = handleBindings.get(handle) || [];
+            if (bindings.length === 0) {
+                throw new Error(`Custom component ${customNode.instanceID} is missing an external binding for exposed input handle "${handle}".`);
+            }
+            if (bindings.length > 1) {
+                throw new Error(`Custom component ${customNode.instanceID} has multiple external bindings for input handle "${handle}". This inliner currently supports only one binding per handle.`);
+            }
+            const binding = bindings[0];
+            const patchedInput = cloned.inputs[inputIndex];
+            patchedInput.producerInstanceID = binding.producerInstanceID;
+            if ((!Array.isArray(patchedInput.triggers) || patchedInput.triggers.length === 0) && Array.isArray(binding.triggers)) {
+                patchedInput.triggers = cloneNodeDeep(binding.triggers);
+            }
+            if ((!Array.isArray(patchedInput.variables) || patchedInput.variables.length === 0) && Array.isArray(binding.variables)) {
+                patchedInput.variables = cloneNodeDeep(binding.variables);
+            }
+        });
+        return cloned;
+    });
+
+    // Recursively inline any nested components inside the cloned nodes.
+    inlineCustomComponentsInNodeArray(clonedNodes, registry);
+
+    const outputHandleMap = new Map();
+    (definition.exposedOutputs || []).forEach(port => {
+        if (!port?.handle || !port?.nodeInstanceID) {
+            return;
+        }
+        const mappedNodeID = idMap.get(port.nodeInstanceID);
+        if (!mappedNodeID) {
+            throw new Error(`Exposed output handle "${port.handle}" for custom component ${customNode.instanceID} references unknown internal node ${port.nodeInstanceID}.`);
+        }
+        outputHandleMap.set(port.handle, {
+            nodeInstanceID: mappedNodeID,
+            portName: port.portName || port.handle,
+        });
+    });
+
+    const eventHandleMap = new Map();
+    (definition.exposedEvents || []).forEach(port => {
+        if (!port?.handle || !port?.nodeInstanceID) {
+            return;
+        }
+        const mappedNodeID = idMap.get(port.nodeInstanceID);
+        if (!mappedNodeID) {
+            throw new Error(`Exposed event handle "${port.handle}" for custom component ${customNode.instanceID} references unknown internal node ${port.nodeInstanceID}.`);
+        }
+        eventHandleMap.set(port.handle, {
+            nodeInstanceID: mappedNodeID,
+            eventName: port.portName || port.handle,
+        });
+    });
+
+    const consumers = consumersByProducer.get(customNode.instanceID) || [];
+    consumers.forEach(({ node: consumerNode, inputIndex }) => {
+        const input = consumerNode.inputs?.[inputIndex];
+        if (!input) {
+            return;
+        }
+        if (input.componentHandle) {
+            delete input.componentHandle;
+        }
+        const variableHandles = new Set((input.variables || []).map(variable => variable?.producerOutput).filter(Boolean));
+        const triggerHandles = new Set((input.triggers || []).map(trigger => trigger?.producerEvent).filter(Boolean));
+        const combinedHandles = new Set([...variableHandles, ...triggerHandles]);
+        if (combinedHandles.size === 0) {
+            throw new Error(`Consumer node ${consumerNode.instanceID} references custom component ${customNode.instanceID} without specifying an exposed handle.`);
+        }
+        if (combinedHandles.size > 1) {
+            throw new Error(`Consumer node ${consumerNode.instanceID} references multiple exposed handles of custom component ${customNode.instanceID}. Split the edges before inlining.`);
+        }
+        const [handle] = combinedHandles;
+        if (outputHandleMap.has(handle)) {
+            const mapping = outputHandleMap.get(handle);
+            input.producerInstanceID = mapping.nodeInstanceID;
+            (input.variables || []).forEach(variable => {
+                variable.producerOutput = mapping.portName;
+            });
+        } else if (eventHandleMap.has(handle)) {
+            const mapping = eventHandleMap.get(handle);
+            input.producerInstanceID = mapping.nodeInstanceID;
+            (input.triggers || []).forEach(trigger => {
+                trigger.producerEvent = mapping.eventName;
+            });
+        } else {
+            throw new Error(`Handle "${handle}" referenced by ${consumerNode.instanceID} is not exposed by custom component ${customNode.instanceID}.`);
+        }
+    });
+
+    return clonedNodes;
+}
 
 export const nodeTypeLookupTable = {
     "start": startNode,
@@ -198,6 +429,7 @@ export class StateMachine {
         this.historyCache = new Map();
         this.historyCacheOrder = [];
         this.cachedRecordGraph = null;
+        this.recordEventFingerprints = new Map();
         this.lastRecordGraphSnapshotSize = 0;
         this.lastRecordHistoryLoadInfo = { fullReload: true, delta: { newRecords: [], updatedRecords: [], deletedRecordIDs: [] } };
         this.aiPriorityNodeTypeSet = null;
@@ -210,8 +442,9 @@ export class StateMachine {
             blockedNodes: new Map(),
         };
         this.lastRecordStateLog = new Map();
-        this.ensureRuntimeNodeRegistry();
         this.refreshCustomComponentRegistry();
+        inlineCustomComponentsInDescription(this.versionInfo?.stateMachineDescription, this.customComponentRegistry);
+        this.ensureRuntimeNodeRegistry();
     }
 
     refreshCustomComponentRegistry() {
@@ -512,1463 +745,6 @@ export class StateMachine {
         return definition || null;
     }
 
-    async executeCustomComponentNode({
-        nodeInstance,
-        definition,
-        record,
-        inputs,
-        channel,
-        debuggingTurnedOn,
-        seed,
-        wasCancelled,
-        keySource,
-    }) {
-        if (this.recordHistory && typeof this.recordHistory.load === "function") {
-            try {
-                const historyLoad = await this.recordHistory.load({ incremental: false });
-                if (historyLoad) {
-                    this.processRecordHistoryLoadResult(historyLoad);
-                }
-            } catch (error) {
-                console.error("[CustomComponent] Failed to refresh record history before execution", error);
-            }
-        }
-
-        if (!definition || !Array.isArray(definition.nodes)) {
-            throw new Error("Custom Component definition is missing nodes.");
-        }
-
-        const componentName = definition.name || nodeInstance?.fullNodeDescription?.instanceName || "Custom Component";
-        const componentID = definition.componentID || nodeInstance?.fullNodeDescription?.params?.componentID;
-
-        const componentInstanceSegment =
-            nodeInstance?.fullNodeDescription?.originalInstanceID
-            || nodeInstance?.fullNodeDescription?.instanceID
-            || componentID
-            || `component-${Date.now()}`;
-
-        let parentPathSegments = Array.isArray(record?.context?.componentPathSegments)
-            ? [...record.context.componentPathSegments]
-            : [];
-        if (parentPathSegments.length > 0) {
-            const lastSegment = parentPathSegments[parentPathSegments.length - 1];
-            if (lastSegment === componentInstanceSegment) {
-                parentPathSegments = parentPathSegments.slice(0, -1);
-            }
-        }
-        const componentPathSegments = [
-            ...parentPathSegments,
-            `${componentInstanceSegment}`,
-        ];
-
-        let parentNamePath = Array.isArray(record?.context?.componentNamePath)
-            ? [...record.context.componentNamePath]
-            : [];
-        if (parentNamePath.length > 0) {
-            const lastName = parentNamePath[parentNamePath.length - 1];
-            if (lastName === componentName) {
-                parentNamePath = parentNamePath.slice(0, -1);
-            }
-        }
-        const componentNamePath = [
-            ...parentNamePath,
-            componentName,
-        ];
-
-        this.logActivity(`[CustomComponent] Executing ${componentName} (${componentID || "unknown"})`);
-        const breadcrumbBase = Array.isArray(record?.componentBreadcrumb)
-            ? [...record.componentBreadcrumb]
-            : [];
-        if (componentID) {
-            if (breadcrumbBase[breadcrumbBase.length - 1] !== componentID) {
-                breadcrumbBase.push(componentID);
-            }
-        }
-        const breadcrumb = breadcrumbBase.filter(Boolean);
-
-        const componentContext = {
-            customComponent: {
-                componentID,
-                instanceID: `${componentInstanceSegment}`,
-                name: componentName,
-                version: definition?.version || null,
-                placeholder: false,
-                path: componentPathSegments,
-                namePath: componentNamePath,
-            },
-            componentBreadcrumb: breadcrumb,
-            componentPathSegments,
-            componentNamePath,
-        };
-
-        const componentInputsByHandle = new Map();
-        (inputs || []).forEach(input => {
-            const eventHandles = Array.isArray(input?.events) ? input.events : [];
-            if (input?.values) {
-                Object.entries(input.values).forEach(([handle, value]) => {
-                    const entry = componentInputsByHandle.get(handle) || { value: undefined, events: [] };
-                    entry.value = value;
-                    eventHandles.forEach(eventName => {
-                        if (!entry.events.includes(eventName)) {
-                            entry.events.push(eventName);
-                        }
-                    });
-                    componentInputsByHandle.set(handle, entry);
-                });
-            }
-            eventHandles.forEach(eventName => {
-                if (!componentInputsByHandle.has(eventName)) {
-                    componentInputsByHandle.set(eventName, { value: undefined, events: [eventName] });
-                }
-            });
-        });
-        const componentHandlesDebug = Array.from(componentInputsByHandle.entries()).map(([handle, info]) => ({ handle, events: info?.events, hasValue: typeof info?.value !== "undefined", sourceRuntimeID: info?.sourceRuntimeID }));
-        this.logActivity(`[CustomComponentDebug] ${componentName} component handles initialized: ${JSON.stringify(componentHandlesDebug)}`);
-        console.error("[CustomComponent] Component input handles initialized", {
-            component: componentName,
-            handles: componentHandlesDebug,
-        });
-
-        const runtimeIdMap = new Map();
-        const runtimeNodes = definition.nodes.map(originalNode => {
-            const cloned = JSON.parse(JSON.stringify(originalNode));
-            const originalInstanceID = cloned.instanceID;
-            const runtimeInstanceSegments = [
-                ...componentPathSegments,
-                `${originalInstanceID}`,
-            ];
-            const runtimeInstanceID = runtimeInstanceSegments.join('-');
-            runtimeIdMap.set(originalInstanceID, runtimeInstanceID);
-            cloned.originalInstanceID = originalInstanceID;
-            cloned.instanceID = runtimeInstanceID;
-            cloned.componentPathSegments = runtimeInstanceSegments;
-            cloned.componentNamePath = componentNamePath;
-            const baseNodeLabel = cloned.instanceName || this.formatNodeTypeForLog(cloned.nodeType);
-            cloned.instanceName = [...componentNamePath, baseNodeLabel].join(' - ');
-            cloned.inputs = Array.isArray(cloned.inputs) ? cloned.inputs : [];
-            cloned.inputs = cloned.inputs
-                .map(input => {
-                    const clonedInput = JSON.parse(JSON.stringify(input));
-                    if (runtimeIdMap.has(clonedInput.producerInstanceID)) {
-                        clonedInput.producerInstanceID = runtimeIdMap.get(clonedInput.producerInstanceID);
-                        return clonedInput;
-                    }
-                    return null;
-                })
-                .filter(Boolean);
-            return cloned;
-        });
-
-        const runtimeNodeMap = new Map();
-        runtimeNodes.forEach(nodeDescription => runtimeNodeMap.set(nodeDescription.instanceID, nodeDescription));
-
-        const handleProducersByRuntimeID = new Map();
-        const registerHandleProducer = ({ runtimeInstanceID, handle, portName = null, mediaType = null } = {}) => {
-            if (!runtimeInstanceID || !handle) {
-                return;
-            }
-            let handleEntries = handleProducersByRuntimeID.get(runtimeInstanceID);
-            if (!handleEntries) {
-                handleEntries = [];
-                handleProducersByRuntimeID.set(runtimeInstanceID, handleEntries);
-            }
-            handleEntries.push({
-                handle,
-                portName,
-                mediaType,
-            });
-            const existingHandleEntry = componentInputsByHandle.get(handle) || { value: undefined, events: [] };
-            if (!existingHandleEntry.producerRuntimeID) {
-                existingHandleEntry.producerRuntimeID = runtimeInstanceID;
-            }
-            if (portName && !existingHandleEntry.sourcePortName) {
-                existingHandleEntry.sourcePortName = portName;
-            }
-            if (mediaType && !existingHandleEntry.sourceMediaType) {
-                existingHandleEntry.sourceMediaType = mediaType;
-            }
-            componentInputsByHandle.set(handle, existingHandleEntry);
-        };
-
-        const nodeParams = nodeInstance?.fullNodeDescription?.params || {};
-        const inputBindings = nodeParams.inputBindings || {};
-        const eventBindings = nodeParams.eventBindings || {};
-
-        const producedRecords = new Map();
-        const nodeStatus = new Map();
-        runtimeNodes.forEach(nodeDescription => nodeStatus.set(nodeDescription.instanceID, "pending"));
-
-        if (Array.isArray(definition.exposedInputs)) {
-            console.error("[CustomComponent] Exposed inputs", {
-                component: componentName,
-                inputs: definition.exposedInputs,
-            });
-        } else {
-            console.error("[CustomComponent] No exposed inputs on component", {
-                component: componentName,
-            });
-        }
-
-        const componentInputEntries = new Map();
-        const componentInputConsumers = new Map();
-        const nodesForcedPending = new Set();
-        const registerComponentHandleConsumer = (handle, instanceID) => {
-            if (!handle || !instanceID) {
-                return;
-            }
-            let consumers = componentInputConsumers.get(handle);
-            if (!consumers) {
-                consumers = new Set();
-                componentInputConsumers.set(handle, consumers);
-            }
-            consumers.add(instanceID);
-        };
-        if (Array.isArray(definition.exposedInputs)) {
-            for (const port of definition.exposedInputs) {
-                if (!port?.handle) {
-                    continue;
-                }
-                const runtimeID = runtimeIdMap.get(port.nodeInstanceID);
-                const entry = componentInputsByHandle.get(port.handle) || { value: undefined, events: [] };
-                if (runtimeID) {
-                    entry.sourceRuntimeID = runtimeID;
-                    this.logActivity(`[CustomComponentDebug] ${componentName} mapped handle ${port.handle} to runtime node ${runtimeID}`);
-                    try {
-                        const latestRecord = await getMostRecentRecordOfInstance(this.db, this.session.sessionID, runtimeID);
-                        if (latestRecord && !latestRecord.deleted) {
-                            const emittedEvents = Array.isArray(latestRecord.eventsEmitted) ? latestRecord.eventsEmitted : [];
-                            if (emittedEvents.length) {
-                                entry.events = Array.from(new Set([...(entry.events || []), ...emittedEvents]));
-                            }
-                            if (nullUndefinedOrEmpty(entry.value)) {
-                                const candidateValue = latestRecord.output?.text?.text
-                                    ?? latestRecord.output?.text
-                                    ?? latestRecord.output?.result?.text;
-                                if (!nullUndefinedOrEmpty(candidateValue)) {
-                                    entry.value = candidateValue;
-                                }
-                            }
-                            producedRecords.set(runtimeID, latestRecord);
-                            const recordState = latestRecord.state;
-                            if (recordState === "completed") {
-                                nodeStatus.set(runtimeID, "completed");
-                            } else if (recordState === "waitingForExternalInput" || recordState === "pending") {
-                                nodeStatus.set(runtimeID, "pending");
-                            }
-                            if (nodesForcedPending.has(runtimeID)) {
-                                nodeStatus.set(runtimeID, "pending");
-                            }
-                            this.logActivity(`[CustomComponentDebug] ${componentName} primed handle ${port.handle} events=${JSON.stringify(entry.events)} valuePresent=${typeof entry.value !== 'undefined'}`);
-                        }
-                    } catch (error) {
-                        console.error("[CustomComponent] Failed to prime exposed input handle", {
-                            component: componentName,
-                            handle: port.handle,
-                            runtimeID,
-                            error: error.message,
-                        });
-                    }
-                }
-                componentInputsByHandle.set(port.handle, entry);
-            }
-        }
-        const ensureComponentInputEntry = (targetNode, handle) => {
-            const key = `${targetNode.instanceID}:${handle}`;
-            const handleEntry = componentInputsByHandle.get(handle) || { value: undefined, events: [] };
-            handleEntry.sourceRuntimeID = targetNode.instanceID;
-            componentInputsByHandle.set(handle, handleEntry);
-            if (componentInputEntries.has(key)) {
-                registerComponentHandleConsumer(handle, targetNode.instanceID);
-                return componentInputEntries.get(key);
-            }
-            const entry = {
-                producerInstanceID: `${COMPONENT_INPUT_PREFIX}:${handle}`,
-                includeHistory: false,
-                historyParams: {},
-                variables: [],
-                triggers: [],
-            };
-            targetNode.inputs.push(entry);
-            componentInputEntries.set(key, entry);
-            registerComponentHandleConsumer(handle, targetNode.instanceID);
-            return entry;
-        };
-
-        Object.entries(inputBindings).forEach(([handle, binding]) => {
-            const targetRuntimeID = runtimeIdMap.get(binding.nodeInstanceID);
-            if (!targetRuntimeID) {
-                return;
-            }
-            const targetNode = runtimeNodeMap.get(targetRuntimeID);
-            if (!targetNode) {
-                return;
-            }
-            const entry = ensureComponentInputEntry(targetNode, handle);
-            entry.variables = entry.variables || [];
-            if (!entry.variables.find(variable => variable.consumerVariable === binding.portName && variable.producerOutput === handle)) {
-                entry.variables.push({
-                    producerOutput: handle,
-                    consumerVariable: binding.portName,
-                });
-            }
-        });
-
-        Object.entries(eventBindings).forEach(([handle, binding]) => {
-            const targetRuntimeID = runtimeIdMap.get(binding.nodeInstanceID);
-            if (!targetRuntimeID) {
-                return;
-            }
-            const targetNode = runtimeNodeMap.get(targetRuntimeID);
-            if (!targetNode) {
-                return;
-            }
-            const entry = ensureComponentInputEntry(targetNode, handle);
-            entry.triggers = entry.triggers || [];
-            if (!entry.triggers.find(trigger => trigger.targetTrigger === binding.portName && trigger.producerEvent === handle)) {
-                entry.triggers.push({
-                    producerEvent: handle,
-                    targetTrigger: binding.portName,
-                });
-            }
-        });
-
-        const runtimeConsumersByProducer = new Map();
-        runtimeNodes.forEach(nodeDescription => {
-            const inputsArray = Array.isArray(nodeDescription.inputs) ? nodeDescription.inputs : [];
-            inputsArray.forEach(inputEntry => {
-                const producerInstanceID = inputEntry.producerInstanceID;
-                if (!producerInstanceID) {
-                    return;
-                }
-                if (producerInstanceID.startsWith(`${COMPONENT_INPUT_PREFIX}:`)) {
-                    const handleName = producerInstanceID.slice(COMPONENT_INPUT_PREFIX.length + 1);
-                    registerComponentHandleConsumer(handleName, nodeDescription.instanceID);
-                    return;
-                }
-                if (!runtimeNodeMap.has(producerInstanceID)) {
-                    return;
-                }
-                let consumers = runtimeConsumersByProducer.get(producerInstanceID);
-                if (!consumers) {
-                    consumers = new Set();
-                    runtimeConsumersByProducer.set(producerInstanceID, consumers);
-                }
-                consumers.add(nodeDescription.instanceID);
-            });
-        });
-        if (runtimeConsumersByProducer.size === 0) {
-            this.logActivity(`[CustomComponentDebug] ${componentName} runtime consumer map is empty; no internal nodes consume others.`);
-        } else {
-            const consumerSummary = Array.from(runtimeConsumersByProducer.entries()).map(([producerID, consumerSet]) => ({
-                producer: producerID,
-                consumers: Array.from(consumerSet),
-            }));
-            this.logActivity(`[CustomComponentDebug] ${componentName} runtime consumer map: ${JSON.stringify(consumerSummary)}`);
-        }
-        if (componentInputConsumers.size === 0) {
-            this.logActivity(`[CustomComponentDebug] ${componentName} component input consumer map is empty.`);
-        } else {
-            const componentConsumerSummary = Array.from(componentInputConsumers.entries()).map(([handle, consumerSet]) => ({
-                handle,
-                consumers: Array.from(consumerSet),
-            }));
-            this.logActivity(`[CustomComponentDebug] ${componentName} component input consumers: ${JSON.stringify(componentConsumerSummary)}`);
-        }
-
-        producedRecords.forEach((record, producerInstanceID) => {
-            if (!record || record.deleted) {
-                return;
-            }
-            if (record.state !== "completed") {
-                return;
-            }
-            const emittedEvents = Array.isArray(record.eventsEmitted) ? record.eventsEmitted : [];
-            if (emittedEvents.length === 0) {
-                return;
-            }
-            nodesForcedPending.delete(producerInstanceID);
-            const consumers = runtimeConsumersByProducer.get(producerInstanceID);
-            if (!consumers || consumers.size === 0) {
-                return;
-            }
-            this.logActivity(`[CustomComponentDebug] ${componentName} primed record for ${producerInstanceID} has events ${JSON.stringify(emittedEvents)}; marking consumers pending.`);
-            consumers.forEach(consumerInstanceID => {
-                if (consumerInstanceID === producerInstanceID) {
-                    return;
-                }
-                nodeStatus.set(consumerInstanceID, "pending");
-                nodesForcedPending.add(consumerInstanceID);
-            });
-        });
-
-        if (!this.versionInfo.stateMachineDescription) {
-            this.versionInfo.stateMachineDescription = {};
-        }
-        if (!Array.isArray(this.versionInfo.stateMachineDescription.nodes)) {
-            this.versionInfo.stateMachineDescription.nodes = [];
-        }
-        const versionNodes = this.versionInfo.stateMachineDescription.nodes;
-        const runtimeNodeIDs = new Set();
-        const runtimeNodeInstances = new Map();
-        runtimeNodes.forEach(nodeDescription => {
-            runtimeNodeIDs.add(nodeDescription.instanceID);
-            if (Array.isArray(versionNodes)) {
-                const existingIndex = versionNodes.findIndex(node => node.instanceID === nodeDescription.instanceID);
-                if (existingIndex >= 0) {
-                    versionNodes[existingIndex] = nodeDescription;
-                } else {
-                    versionNodes.push(nodeDescription);
-                }
-            }
-            const NodeClass = nodeTypeLookupTable[nodeDescription.nodeType];
-            if (!NodeClass) {
-                throw new Error(`Custom Component "${componentName}" references unknown node type ${nodeDescription.nodeType}.`);
-            }
-            let nodeInstanceForComponent = this.nodeInstances[nodeDescription.instanceID];
-            if (!nodeInstanceForComponent) {
-                nodeInstanceForComponent = new NodeClass({
-                    db: this.db,
-                    session: this.session,
-                    fullNodeDescription: nodeDescription,
-                    componentRegistry: this.customComponentRegistry,
-                });
-            } else if (typeof nodeInstanceForComponent.updateFullNodeDescription === "function") {
-                try {
-                    nodeInstanceForComponent.updateFullNodeDescription(nodeDescription);
-                } catch (error) {
-                    console.error("[StateMachine] Failed to update runtime node description", {
-                        instanceID: nodeDescription.instanceID,
-                        nodeType: nodeDescription.nodeType,
-                        error: error.message,
-                    });
-                }
-            }
-            nodeInstanceForComponent.fullNodeDescription = nodeDescription;
-            runtimeNodeInstances.set(nodeDescription.instanceID, nodeInstanceForComponent);
-            this.registerRuntimeNodeDescription(nodeDescription, nodeInstanceForComponent);
-        });
-
-        const componentInputRecords = new Map();
-        const componentInputKeyPrefix = componentPathSegments.join('-');
-        const getComponentInputRecord = (handle) => {
-            if (componentInputRecords.has(handle)) {
-                return componentInputRecords.get(handle);
-            }
-            const data = componentInputsByHandle.get(handle) || {};
-            const recordInput = {
-                producerInstanceID: `${COMPONENT_INPUT_PREFIX}:${handle}`,
-                recordID: `component-input:${componentInputKeyPrefix}:${handle}`,
-                values: { [handle]: data.value },
-                events: Array.isArray(data.events) ? [...data.events] : [],
-            };
-            this.logActivity(`[CustomComponentDebug] ${componentName} creating component record for handle ${handle} events=${JSON.stringify(recordInput.events)} valuePresent=${typeof data.value !== 'undefined'}`);
-            componentInputRecords.set(handle, recordInput);
-            return recordInput;
-        };
-
-        const componentOutput = nodeInstance.buildEmptyOutputPayload
-            ? nodeInstance.buildEmptyOutputPayload(definition)
-            : {};
-        const componentEvents = new Set();
-
-        const nodeBlockers = new Map();
-        const userInputNodeTypes = new Set(["externalMultiInput", "externalTextInput"]);
-        const markRuntimeConsumersPending = (producerInstanceID) => {
-            const consumers = runtimeConsumersByProducer.get(producerInstanceID);
-            if (!consumers || consumers.size === 0) {
-                this.logActivity(`[CustomComponentDebug] ${componentName} no internal consumers to mark pending for ${producerInstanceID}`);
-                return;
-            }
-            this.logActivity(`[CustomComponentDebug] ${componentName} marking pending consumers of ${producerInstanceID}: ${Array.from(consumers).join(", ")}`);
-            consumers.forEach(consumerInstanceID => {
-                if (consumerInstanceID === producerInstanceID) {
-                    return;
-                }
-                nodeStatus.set(consumerInstanceID, "pending");
-                nodesForcedPending.add(consumerInstanceID);
-            });
-        };
-
-        const historicalRecords = Array.isArray(this.recordHistory?.records) ? this.recordHistory.records : [];
-        const historicalByNodeInstance = new Map();
-        if (historicalRecords.length > 0) {
-        historicalRecords.forEach(record => {
-            if (!record || record.deleted) {
-                this.logActivity(`[CustomComponentDebug] ${componentName} skipping historical record (deleted/null) for ${record?.nodeInstanceID}`);
-                console.error("[CustomComponent] Skipping historical record (deleted or null)", {
-                    component: componentName,
-                    nodeInstance: record?.nodeInstanceID,
-                    deleted: record?.deleted,
-                });
-                return;
-            }
-            const runtimeInstanceID = record.nodeInstanceID;
-            if (!runtimeNodeIDs.has(runtimeInstanceID)) {
-                this.logActivity(`[CustomComponentDebug] ${componentName} skipping historical record ${runtimeInstanceID} (not part of runtime set)`);
-                console.error("[CustomComponent] Skipping historical record (not part of runtime set)", {
-                    component: componentName,
-                    nodeInstance: runtimeInstanceID,
-                });
-                return;
-            }
-            const recordState = record.state;
-            if (recordState !== "completed" && recordState !== "waitingForExternalInput" && recordState !== "pending") {
-                this.logActivity(`[CustomComponentDebug] ${componentName} skipping historical record ${runtimeInstanceID} (state ${recordState})`);
-                console.error("[CustomComponent] Skipping historical record (unsupported state)", {
-                    component: componentName,
-                    nodeInstance: runtimeInstanceID,
-                    state: recordState,
-                });
-                return;
-            }
-            const recordComponentPath = Array.isArray(record?.context?.componentPathSegments)
-                ? record.context.componentPathSegments.join('-')
-                : null;
-            const expectedPath = componentPathSegments.join('-');
-            if (recordComponentPath && recordComponentPath !== expectedPath) {
-                this.logActivity(`[CustomComponentDebug] ${componentName} skipping historical record ${runtimeInstanceID} (path mismatch ${recordComponentPath} !== ${expectedPath})`);
-                console.error("[CustomComponent] Skipping historical record (component path mismatch)", {
-                    component: componentName,
-                    nodeInstance: runtimeInstanceID,
-                    recordPath: recordComponentPath,
-                    expectedPath,
-                });
-                return;
-            }
-                const existing = historicalByNodeInstance.get(runtimeInstanceID);
-                const existingTime = existing?.completionTime ? new Date(existing.completionTime).getTime() : -Infinity;
-                const candidateTime = record?.completionTime ? new Date(record.completionTime).getTime() : Date.now();
-                if (!existing || candidateTime >= existingTime) {
-                    historicalByNodeInstance.set(runtimeInstanceID, record);
-                }
-            });
-        }
-
-        for (const runtimeInstanceID of runtimeNodeIDs) {
-            if (historicalByNodeInstance.has(runtimeInstanceID)) {
-                continue;
-            }
-            try {
-                const latestRecord = await getMostRecentRecordOfInstance(this.db, this.session.sessionID, runtimeInstanceID);
-                if (latestRecord && !latestRecord.deleted) {
-                    this.logActivity(`[CustomComponentDebug] ${componentName} fetched latest record for ${runtimeInstanceID} events=${JSON.stringify(latestRecord.eventsEmitted)}`);
-                    historicalByNodeInstance.set(runtimeInstanceID, latestRecord);
-                }
-            } catch (error) {
-                console.error("[CustomComponent] Failed to fetch latest record for runtime node", {
-                    component: componentName,
-                    runtimeInstanceID,
-                    error: error.message,
-                });
-            }
-        }
-
-        historicalByNodeInstance.forEach((historicalRecord, runtimeInstanceID) => {
-            if (!historicalRecord) {
-                return;
-            }
-            this.logActivity(`[CustomComponentDebug] ${componentName} preloading record for ${runtimeInstanceID} events=${JSON.stringify(historicalRecord.eventsEmitted)}`);
-            console.error("[CustomComponent] Preloading runtime record", {
-                component: componentName,
-                runtimeInstanceID,
-                state: historicalRecord.state,
-                eventsEmitted: historicalRecord.eventsEmitted,
-                componentPath: historicalRecord?.context?.componentPathSegments,
-            });
-            producedRecords.set(runtimeInstanceID, historicalRecord);
-            const state = historicalRecord.state;
-            if (state === "completed") {
-                nodeStatus.set(runtimeInstanceID, "completed");
-            } else {
-                nodeStatus.set(runtimeInstanceID, "pending");
-            }
-            if (nodesForcedPending.has(runtimeInstanceID)) {
-                nodeStatus.set(runtimeInstanceID, "pending");
-            }
-            const nodeDescription = runtimeNodeMap.get(runtimeInstanceID);
-            if (nodeDescription) {
-                const finalRecord = historicalRecord;
-                const exposedOutputPorts = Array.isArray(definition.exposedOutputs) ? definition.exposedOutputs : [];
-                const exposedEventPorts = Array.isArray(definition.exposedEvents) ? definition.exposedEvents : [];
-                exposedOutputPorts.forEach(port => {
-                    if ((port.annotations?.direction || "output") !== "output") {
-                        return;
-                    }
-                    const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
-                    if (runtimeTargetID === nodeDescription.instanceID) {
-                        const value = finalRecord.output?.[port.portName];
-                        if (typeof value !== "undefined") {
-                            componentOutput[port.handle] = value;
-                        }
-                    }
-                });
-                exposedEventPorts.forEach(port => {
-                    if ((port.annotations?.direction || "output") !== "output") {
-                        return;
-                    }
-                    const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
-                    if (runtimeTargetID === nodeDescription.instanceID) {
-                        const eventsEmitted = Array.isArray(finalRecord.eventsEmitted) ? finalRecord.eventsEmitted : [];
-                        if (eventsEmitted.includes(port.portName)) {
-                            componentEvents.add(port.handle || port.portName);
-                        }
-                    }
-                });
-                componentInputsByHandle.forEach((entry, handle) => {
-                    if (!entry || entry.sourceRuntimeID !== runtimeInstanceID) {
-                        return;
-                    }
-                    if (Array.isArray(finalRecord.eventsEmitted) && finalRecord.eventsEmitted.length > 0) {
-                        const existingEvents = Array.isArray(entry.events) ? entry.events : [];
-                        entry.events = Array.from(new Set([...existingEvents, ...finalRecord.eventsEmitted]));
-                    }
-                    if (nullUndefinedOrEmpty(entry.value)) {
-                        const candidateValue = finalRecord.output?.text?.text ?? finalRecord.output?.text ?? finalRecord.output?.result?.text;
-                        if (!nullUndefinedOrEmpty(candidateValue)) {
-                            entry.value = candidateValue;
-                        }
-                    }
-                    componentInputsByHandle.set(handle, entry);
-                    if (componentInputRecords.has(handle)) {
-                        const recordInput = componentInputRecords.get(handle);
-                        recordInput.values = { [handle]: entry.value };
-                        recordInput.events = Array.isArray(entry.events) ? [...entry.events] : [];
-                        componentInputRecords.set(handle, recordInput);
-                    }
-                    this.logActivity(`[CustomComponentDebug] ${componentName} merged handle ${handle} events=${JSON.stringify(entry.events)} valuePresent=${typeof entry.value !== 'undefined'}`);
-                    console.error("[CustomComponent] Merged component handle", {
-                        component: componentName,
-                        handle,
-                        events: entry.events,
-                        valuePresent: typeof entry.value !== 'undefined',
-                        runtimeInstanceID,
-                    });
-                });
-            }
-            const mergedSummary = Array.from(componentInputsByHandle.entries()).map(([handle, info]) => ({ handle, events: info?.events, hasValue: typeof info?.value !== 'undefined', sourceRuntimeID: info?.sourceRuntimeID }));
-            this.logActivity(`[CustomComponentDebug] ${componentName} handle state after merge: ${JSON.stringify(mergedSummary)}`);
-        });
-
-        const getProducerRecord = (producerID) => producedRecords.get(producerID);
-
-        const normalizeEventName = (eventName) => {
-            if (typeof eventName !== 'string') {
-                return eventName;
-            }
-            return eventName.startsWith('on_') ? eventName.slice(3) : eventName;
-        };
-
-        const matchRequiredEvents = (requiredEvents, availableEvents) => {
-            if (!Array.isArray(requiredEvents) || requiredEvents.length === 0) {
-                return [];
-            }
-            const matches = [];
-            for (const required of requiredEvents) {
-                const normalizedRequired = normalizeEventName(required);
-                const match = availableEvents.find((event) => normalizeEventName(event) === normalizedRequired);
-                if (!match) {
-                    this.logActivity(`[CustomComponentDebug] ${componentName} event match failed: required=${required} available=${JSON.stringify(availableEvents)}`);
-                    console.error("[CustomComponent] Event match failed", {
-                        component: componentName,
-                        required,
-                        availableEvents,
-                    });
-                    return null;
-                }
-                matches.push(match);
-            }
-            this.logActivity(`[CustomComponentDebug] ${componentName} matched required events ${JSON.stringify(requiredEvents)} -> ${JSON.stringify(matches)}`);
-            console.error("[CustomComponent] Events matched", {
-                component: componentName,
-                requiredEvents,
-                matches,
-            });
-            return matches;
-        };
-
-        const areEventArraysEqual = (first = [], second = []) => {
-            if (!Array.isArray(first) || !Array.isArray(second)) {
-                return false;
-            }
-            if (first.length !== second.length) {
-                return false;
-            }
-            const sortedFirst = [...first].sort();
-            const sortedSecond = [...second].sort();
-            for (let i = 0; i < sortedFirst.length; i += 1) {
-                if (sortedFirst[i] !== sortedSecond[i]) {
-                    return false;
-                }
-            }
-            return true;
-        };
-
-        const updateComponentHandlesFromRecord = (runtimeInstanceID, finalRecord) => {
-            const handleEntries = handleProducersByRuntimeID.get(runtimeInstanceID);
-            if (!handleEntries || handleEntries.length === 0) {
-                return;
-            }
-            const eventsEmitted = Array.isArray(finalRecord?.eventsEmitted) ? finalRecord.eventsEmitted : [];
-            handleEntries.forEach(({ handle, portName, mediaType }) => {
-                if (!handle) {
-                    return;
-                }
-                const handleEntry = componentInputsByHandle.get(handle) || { value: undefined, events: [] };
-                let candidateEvents = eventsEmitted;
-                if (portName) {
-                    const normalizedPort = normalizeEventName(portName);
-                    candidateEvents = eventsEmitted.filter(eventName => normalizeEventName(eventName) === normalizedPort);
-                }
-                const aliasEventName = (typeof handle === "string" && handle.length > 0) ? handle : portName;
-                let projectedEvents = Array.isArray(candidateEvents) && candidateEvents.length > 0 && aliasEventName
-                    ? [aliasEventName]
-                    : Array.isArray(candidateEvents)
-                        ? Array.from(new Set(candidateEvents))
-                        : [];
-                if (!Array.isArray(projectedEvents)) {
-                    projectedEvents = [];
-                }
-
-                const previousEvents = Array.isArray(handleEntry.events) ? handleEntry.events : [];
-                const eventsChanged = !areEventArraysEqual(previousEvents, projectedEvents);
-                if (eventsChanged) {
-                    handleEntry.events = projectedEvents;
-                }
-
-                let valueChanged = false;
-                let candidateValue;
-                if (portName && finalRecord && typeof finalRecord === "object") {
-                    candidateValue = finalRecord?.output?.[portName];
-                    if (mediaType && candidateValue && typeof candidateValue === "object" && candidateValue !== null && Object.prototype.hasOwnProperty.call(candidateValue, mediaType)) {
-                        candidateValue = candidateValue[mediaType];
-                    }
-                }
-                if (typeof candidateValue === "undefined") {
-                    const fallbackValue = finalRecord?.output?.text?.text ?? finalRecord?.output?.text ?? finalRecord?.output?.result?.text;
-                    if (typeof fallbackValue !== "undefined") {
-                        candidateValue = fallbackValue;
-                    }
-                }
-                const previousValueSerialized = typeof handleEntry.value === "undefined" ? undefined : JSON.stringify(handleEntry.value);
-                const candidateValueSerialized = typeof candidateValue === "undefined" ? undefined : JSON.stringify(candidateValue);
-                if (previousValueSerialized !== candidateValueSerialized) {
-                    handleEntry.value = candidateValue;
-                    valueChanged = true;
-                }
-
-                if (eventsChanged || valueChanged) {
-                    componentInputsByHandle.set(handle, handleEntry);
-                    if (componentInputRecords.has(handle)) {
-                        const recordInput = componentInputRecords.get(handle);
-                        recordInput.events = Array.isArray(handleEntry.events) ? [...handleEntry.events] : [];
-                        if (typeof handleEntry.value !== "undefined") {
-                            recordInput.values = { [handle]: handleEntry.value };
-                        } else {
-                            delete recordInput.values;
-                        }
-                        componentInputRecords.set(handle, recordInput);
-                    }
-                    const consumers = componentInputConsumers.get(handle);
-                    if (consumers) {
-                        consumers.forEach(consumerInstanceID => {
-                            if (consumerInstanceID !== runtimeInstanceID) {
-                                nodeStatus.set(consumerInstanceID, "pending");
-                            }
-                        });
-                        if (consumers.size > 0) {
-                            this.logActivity(`[CustomComponentDebug] ${componentName} marked component consumers of handle ${handle} pending: ${Array.from(consumers).join(", ")}`);
-                        }
-                    }
-                    this.logActivity(`[CustomComponentDebug] ${componentName} updated handle ${handle} events=${JSON.stringify(handleEntry.events)} valueChanged=${valueChanged}`);
-                    console.error("[CustomComponent] Component handle updated", {
-                        component: componentName,
-                        handle,
-                        events: handleEntry.events,
-                        valueChanged,
-                        runtimeInstanceID,
-                    });
-                }
-            });
-        };
-
-        const buildRunInputsForNode = (nodeDescription) => {
-            const runInputs = [];
-            const inputsArray = Array.isArray(nodeDescription.inputs) ? nodeDescription.inputs : [];
-            const requiresAllEvents = Boolean(nodeDescription?.requireAllEventTriggers || nodeDescription?.requireAllInputs);
-            this.logActivity(`[CustomComponentDebug] ${componentName} building inputs for ${this.formatNodeLabel(nodeDescription)} requiresAllEvents=${requiresAllEvents}`);
-            console.error("[CustomComponent] Building inputs for node", {
-                component: componentName,
-                nodeInstanceID: nodeDescription.instanceID,
-                nodeLabel: this.formatNodeLabel(nodeDescription),
-                requiresAllEvents,
-                inputCount: inputsArray.length,
-            });
-            for (let i = 0; i < inputsArray.length; i++) {
-                const inputEntry = inputsArray[i];
-                const isComponentInput = inputEntry.producerInstanceID.startsWith(`${COMPONENT_INPUT_PREFIX}:`);
-                const recordInput = {
-                    producerInstanceID: inputEntry.producerInstanceID,
-                    recordID: null,
-                    includeHistory: inputEntry.includeHistory || false,
-                    historyParams: inputEntry.historyParams || {},
-                    values: {},
-                    events: [],
-                };
-
-                if (isComponentInput) {
-                    const handle = inputEntry.producerInstanceID.slice(COMPONENT_INPUT_PREFIX.length + 1);
-                    const componentRecord = getComponentInputRecord(handle);
-                    recordInput.recordID = componentRecord.recordID;
-                    recordInput.componentHandle = handle;
-                    const data = componentInputsByHandle.get(handle) || {};
-                    const availableEvents = componentRecord.events || [];
-                    const requiredTriggers = Array.isArray(inputEntry.triggers) ? inputEntry.triggers : [];
-                    console.error("[CustomComponent] Evaluating component input handle", {
-                        component: componentName,
-                        nodeInstanceID: nodeDescription.instanceID,
-                        nodeLabel: this.formatNodeLabel(nodeDescription),
-                        handle,
-                        availableEvents,
-                        requiredTriggerCount: requiredTriggers.length,
-                        requiresAllEvents,
-                    });
-
-                    if (requiredTriggers.length > 0) {
-                        const requiredEvents = requiredTriggers.map(trigger => trigger.producerEvent);
-                        let matchingEvents = matchRequiredEvents(requiredEvents, availableEvents);
-                        if (!matchingEvents && requiresAllEvents) {
-                            const sourceRuntimeID = data?.sourceRuntimeID;
-                            if (sourceRuntimeID && sourceRuntimeID === nodeDescription.instanceID) {
-                                matchingEvents = requiredEvents;
-                            } else {
-                                return {
-                                    ready: false,
-                                    reason: {
-                                        category: "componentInput",
-                                        reason: "missingEvents",
-                                        handle,
-                                        requiredEvents,
-                                        availableEvents,
-                                    },
-                                };
-                            }
-                        }
-                        if (matchingEvents) {
-                            recordInput.events = matchingEvents;
-                        }
-                    }
-
-                    if (Array.isArray(inputEntry.variables) && inputEntry.variables.length > 0) {
-                        inputEntry.variables.forEach(variable => {
-                            recordInput.values[variable.consumerVariable] = data.value;
-                            console.error("[CustomComponent] Component input variable bound", {
-                                component: componentName,
-                                nodeInstanceID: nodeDescription.instanceID,
-                                handle,
-                                consumerVariable: variable.consumerVariable,
-                                hasValue: typeof data.value !== "undefined",
-                            });
-                            this.logActivity(`[CustomComponentDebug] ${componentName} component handle ${handle} bound variable ${variable.consumerVariable} valuePresent=${typeof data.value !== "undefined"}`);
-                        });
-                    }
-
-                    runInputs.push(recordInput);
-                    this.logActivity(`[CustomComponentDebug] ${componentName} component input ready: handle=${handle} events=${JSON.stringify(recordInput.events)} values=${JSON.stringify(Object.keys(recordInput.values || {}))}`);
-                    console.error("[CustomComponent] Component input ready", {
-                        component: componentName,
-                        nodeInstanceID: nodeDescription.instanceID,
-                        handle,
-                        events: recordInput.events,
-                        values: recordInput.values,
-                    });
-                    continue;
-                }
-
-                const producerRecord = getProducerRecord(inputEntry.producerInstanceID);
-                if (!producerRecord) {
-                    console.error("[CustomComponent] Producer record not ready", {
-                        component: componentName,
-                        nodeInstanceID: nodeDescription.instanceID,
-                        nodeLabel: this.formatNodeLabel(nodeDescription),
-                        producerInstanceID: inputEntry.producerInstanceID,
-                    });
-                    this.logActivity(`[CustomComponentDebug] ${componentName} producer ${inputEntry.producerInstanceID} not ready for ${this.formatNodeLabel(nodeDescription)}`);
-                    return {
-                        ready: false,
-                        reason: {
-                            category: "internalDependency",
-                            reason: "producerNotReady",
-                            producerInstanceID: inputEntry.producerInstanceID,
-                        },
-                    };
-                }
-                recordInput.recordID = producerRecord.recordID;
-
-                const producerEvents = Array.isArray(producerRecord.eventsEmitted) ? producerRecord.eventsEmitted : [];
-                const requiredTriggers = Array.isArray(inputEntry.triggers) ? inputEntry.triggers : [];
-                const currentHandleState = Array.from(componentInputsByHandle.entries()).map(([handle, info]) => ({ handle, events: info?.events, hasValue: typeof info?.value !== 'undefined', sourceRuntimeID: info?.sourceRuntimeID }));
-                this.logActivity(`[CustomComponentDebug] ${componentName} evaluating producer ${this.formatNodeLabelByInstanceID(inputEntry.producerInstanceID) || inputEntry.producerInstanceID} with events=${JSON.stringify(producerEvents)} handleState=${JSON.stringify(currentHandleState)}`);
-                console.error("[CustomComponent] Evaluating producer events", {
-                    component: componentName,
-                    nodeInstanceID: nodeDescription.instanceID,
-                    nodeLabel: this.formatNodeLabel(nodeDescription),
-                    producerInstanceID: inputEntry.producerInstanceID,
-                    producerLabel: this.formatNodeLabelByInstanceID(inputEntry.producerInstanceID),
-                    producerEvents,
-                    requiredTriggerCount: requiredTriggers.length,
-                    requiresAllEvents,
-                });
-                if (requiredTriggers.length > 0) {
-                    const requiredEvents = requiredTriggers.map(trigger => trigger.producerEvent);
-                    const matchingEvents = matchRequiredEvents(requiredEvents, producerEvents);
-                    if (!matchingEvents && requiresAllEvents) {
-                        console.error("[CustomComponent] Internal dependency missing events", {
-                            component: componentName,
-                            nodeInstanceID: nodeDescription.instanceID,
-                            nodeLabel: this.formatNodeLabel(nodeDescription),
-                            producerInstanceID: inputEntry.producerInstanceID,
-                            requiredEvents,
-                            availableEvents: producerEvents,
-                        });
-                        this.logActivity(`[CustomComponentDebug] ${componentName} missing producer events for ${this.formatNodeLabel(nodeDescription)} required=${JSON.stringify(requiredEvents)} available=${JSON.stringify(producerEvents)}`);
-                        return {
-                            ready: false,
-                            reason: {
-                                category: "internalDependency",
-                                reason: "missingEvents",
-                                producerInstanceID: inputEntry.producerInstanceID,
-                                requiredEvents,
-                                availableEvents: producerEvents,
-                            },
-                        };
-                    }
-                    if (matchingEvents) {
-                        recordInput.events = matchingEvents;
-                        console.error("[CustomComponent] Internal dependency events satisfied", {
-                            component: componentName,
-                            nodeInstanceID: nodeDescription.instanceID,
-                            producerInstanceID: inputEntry.producerInstanceID,
-                            events: matchingEvents,
-                        });
-                        this.logActivity(`[CustomComponentDebug] ${componentName} producer ${inputEntry.producerInstanceID} matched events ${JSON.stringify(matchingEvents)}`);
-                    }
-                }
-
-                if (Array.isArray(inputEntry.variables) && inputEntry.variables.length > 0) {
-                    inputEntry.variables.forEach(variable => {
-                        recordInput.values[variable.consumerVariable] = producerRecord.output?.[variable.producerOutput];
-                        console.error("[CustomComponent] Internal dependency variable bound", {
-                            component: componentName,
-                            nodeInstanceID: nodeDescription.instanceID,
-                            producerInstanceID: inputEntry.producerInstanceID,
-                            consumerVariable: variable.consumerVariable,
-                            producerOutput: variable.producerOutput,
-                            hasValue: typeof producerRecord.output?.[variable.producerOutput] !== "undefined",
-                        });
-                        this.logActivity(`[CustomComponentDebug] ${componentName} producer ${inputEntry.producerInstanceID} bound variable ${variable.consumerVariable} valuePresent=${typeof producerRecord.output?.[variable.producerOutput] !== "undefined"}`);
-                    });
-                }
-
-                runInputs.push(recordInput);
-                    this.logActivity(`[CustomComponentDebug] ${componentName} internal input ready: producer=${inputEntry.producerInstanceID} events=${JSON.stringify(recordInput.events)} values=${JSON.stringify(Object.keys(recordInput.values || {}))}`);
-                    console.error("[CustomComponent] Internal dependency ready", {
-                        component: componentName,
-                        nodeInstanceID: nodeDescription.instanceID,
-                        nodeLabel: this.formatNodeLabel(nodeDescription),
-                        producerInstanceID: inputEntry.producerInstanceID,
-                        producerLabel: this.formatNodeLabelByInstanceID(inputEntry.producerInstanceID),
-                        events: recordInput.events,
-                        values: recordInput.values,
-                    });
-            }
-            this.logActivity(`[CustomComponentDebug] ${componentName} built ${runInputs.length} inputs for ${this.formatNodeLabel(nodeDescription)}`);
-            console.error("[CustomComponent] Build inputs result", {
-                component: componentName,
-                nodeInstanceID: nodeDescription.instanceID,
-                nodeLabel: this.formatNodeLabel(nodeDescription),
-                inputSummary: runInputs.map(entry => ({
-                    producerInstanceID: entry.producerInstanceID,
-                    events: entry.events,
-                    values: entry.values,
-                })),
-            });
-            return {
-                ready: true,
-                inputs: runInputs,
-            };
-        };
-
-        const wasCancelledFn = typeof wasCancelled === "function" ? wasCancelled : null;
-        const checkCancellation = () => (wasCancelledFn ? wasCancelledFn() : null);
-        const ensureNotCancelled = () => {
-            const haltReason = checkCancellation();
-            if (haltReason) {
-                throw new Error(haltReason);
-            }
-        };
-
-        const executeNode = async (nodeDescription, nodeInstanceForComponent) => {
-            const runInputsResult = buildRunInputsForNode(nodeDescription);
-            if (!runInputsResult?.ready) {
-                if (runInputsResult?.reason) {
-                    const reason = { ...runInputsResult.reason };
-                    if (!reason.nodeInstanceID) {
-                        reason.nodeInstanceID = nodeDescription.instanceID;
-                    }
-                    if (Array.isArray(reason.requiredEvents) && Array.isArray(reason.availableEvents)) {
-                        reason.missingEvents = reason.requiredEvents.filter(event => !(reason.availableEvents || []).includes(event));
-                    }
-                    const reasonDetails = [];
-                    if (Array.isArray(reason.missingEvents) && reason.missingEvents.length > 0) {
-                        reasonDetails.push(`missing events: ${reason.missingEvents.join(', ')}`);
-                    }
-                    if (Array.isArray(reason.requiredEvents) && reason.requiredEvents.length > 0 && !reasonDetails.length) {
-                        reasonDetails.push(`required events: ${reason.requiredEvents.join(', ')}`);
-                    }
-                    if (reason.producerInstanceID) {
-                        reasonDetails.push(`producer: ${this.formatNodeLabelByInstanceID(reason.producerInstanceID) || reason.producerInstanceID}`);
-                    }
-                    const reasonSummary = reasonDetails.length > 0 ? reasonDetails.join('; ') : JSON.stringify(reason);
-                    this.logActivity(`[CustomComponent] ${componentName} blocker: ${this.formatNodeLabel(nodeDescription)} (${reasonSummary})`);
-                    nodeBlockers.set(nodeDescription.instanceID, {
-                        node: nodeDescription,
-                        reason,
-                    });
-                } else {
-                    this.logActivity(`[CustomComponent] ${componentName} blocker: ${this.formatNodeLabel(nodeDescription)} (unknown reason)`);
-                }
-                return false;
-            }
-            nodeBlockers.delete(nodeDescription.instanceID);
-            const runInputs = runInputsResult.inputs;
-            console.error("[CustomComponent] Node ready for execution", {
-                component: componentName,
-                nodeInstanceID: nodeDescription.instanceID,
-                nodeLabel: this.formatNodeLabel(nodeDescription),
-                inputCount: runInputs.length,
-                inputs: runInputs.map(entry => ({
-                    producerInstanceID: entry.producerInstanceID,
-                    recordID: entry.recordID,
-                    events: entry.events,
-                    values: Object.keys(entry.values || {}),
-                })),
-            });
-
-            ensureNotCancelled();
-            const runInfo = {
-                nodeInstance: nodeInstanceForComponent,
-                readyTime: new Date(),
-                inputs: runInputs,
-                componentBreadcrumb: breadcrumb,
-            };
-
-            const runtimeRecord = await this.preRunProcessing({
-                runInfo,
-                channel,
-                seed,
-                debuggingTurnedOn,
-                wasCancelled: checkCancellation,
-                onPreNode: () => {},
-            });
-
-            if (!runtimeRecord.context || typeof runtimeRecord.context !== "object") {
-                runtimeRecord.context = {};
-            }
-            runtimeRecord.context.customComponent = componentContext.customComponent;
-            runtimeRecord.context.componentPathSegments = componentContext.componentPathSegments;
-            runtimeRecord.context.componentNamePath = componentContext.componentNamePath;
-            const serializedNodeDefinition = JSON.parse(JSON.stringify(nodeInstanceForComponent.fullNodeDescription));
-            runtimeRecord.context.resolvedNodeDefinition = serializedNodeDefinition;
-
-            ensureNotCancelled();
-            const results = await nodeInstanceForComponent.run({
-                inputs: runInputs,
-                stateMachine: this,
-                channel,
-                seed,
-                debuggingTurnedOn,
-                wasCancelled: checkCancellation,
-                record: runtimeRecord,
-                keySource,
-            });
-
-            if (results && typeof results === "object") {
-                const existingContext = (results.context && typeof results.context === "object") ? results.context : {};
-                results.context = {
-                    ...existingContext,
-                    customComponent: componentContext.customComponent,
-                    componentPathSegments: componentContext.componentPathSegments,
-                    componentNamePath: componentContext.componentNamePath,
-                    resolvedNodeDefinition: serializedNodeDefinition,
-                };
-            }
-
-            await this.postProcessProcessing({
-                runInfo,
-                results,
-                record: runtimeRecord,
-                channel,
-                seed,
-                debuggingTurnedOn,
-                wasCancelled: checkCancellation,
-                onPostNode: () => {},
-            });
-
-            const finalRecord = {
-                ...runtimeRecord,
-                ...results,
-                state: results.state,
-            };
-            producedRecords.set(nodeDescription.instanceID, finalRecord);
-            updateComponentHandlesFromRecord(nodeDescription.instanceID, finalRecord);
-            markRuntimeConsumersPending(nodeDescription.instanceID);
-
-            const resetComponentHandleState = (handleName) => {
-                if (!handleName || !componentInputsByHandle.has(handleName)) {
-                    return;
-                }
-                const existingEntry = componentInputsByHandle.get(handleName) || {};
-                const resetEntry = {
-                    ...existingEntry,
-                    events: [],
-                };
-                if (Object.prototype.hasOwnProperty.call(resetEntry, "value")) {
-                    resetEntry.value = undefined;
-                }
-                componentInputsByHandle.set(handleName, resetEntry);
-                if (componentInputRecords.has(handleName)) {
-                    const recordInput = componentInputRecords.get(handleName);
-                    recordInput.events = [];
-                    recordInput.values = {};
-                    componentInputRecords.set(handleName, recordInput);
-                }
-                this.logActivity(`[CustomComponentDebug] ${componentName} reset component handle ${handleName} after ${this.formatNodeLabel(nodeDescription)}`);
-            };
-
-            const resetHandlesForSourceRuntime = (runtimeInstanceID) => {
-                if (!runtimeInstanceID) {
-                    return;
-                }
-                componentInputsByHandle.forEach((entry, handleName) => {
-                    if (entry?.sourceRuntimeID === runtimeInstanceID) {
-                        resetComponentHandleState(handleName);
-                    }
-                });
-            };
-
-            const processedComponentHandles = new Set();
-            runInputs.forEach(input => {
-                const handleName = input?.componentHandle;
-                if (!handleName || processedComponentHandles.has(handleName)) {
-                    return;
-                }
-                processedComponentHandles.add(handleName);
-                resetComponentHandleState(handleName);
-            });
-
-            const processedProducerIDs = new Set();
-            runInputs.forEach(input => {
-                const producerInstanceID = input?.producerInstanceID;
-                if (!producerInstanceID || processedProducerIDs.has(producerInstanceID)) {
-                    return;
-                }
-                processedProducerIDs.add(producerInstanceID);
-                if (producerInstanceID.startsWith(`${COMPONENT_INPUT_PREFIX}:`)) {
-                    return;
-                }
-                resetHandlesForSourceRuntime(producerInstanceID);
-                const producerNode = runtimeNodeMap.get(producerInstanceID);
-                if (!producerNode) {
-                    return;
-                }
-                if (producerInstanceID === nodeDescription.instanceID) {
-                    return;
-                }
-                if (!userInputNodeTypes.has(producerNode.nodeType)) {
-                    return;
-                }
-                producedRecords.delete(producerInstanceID);
-                nodeStatus.set(producerInstanceID, "pending");
-                nodesForcedPending.add(producerInstanceID);
-                this.logActivity(`[CustomComponentDebug] ${componentName} re-armed user input node ${producerInstanceID} after ${nodeDescription.instanceID}`);
-                console.error("[CustomComponent] Re-armed user input node", {
-                    component: componentName,
-                    producerInstanceID,
-                    producerNodeType: producerNode.nodeType,
-                    consumerInstanceID: nodeDescription.instanceID,
-                });
-            });
-
-            nodeStatus.set(nodeDescription.instanceID, "completed");
-            nodesForcedPending.delete(nodeDescription.instanceID);
-            return true;
-        };
-
-        const exposedOutputPorts = Array.isArray(definition.exposedOutputs) ? definition.exposedOutputs : [];
-        const exposedEventPorts = Array.isArray(definition.exposedEvents) ? definition.exposedEvents : [];
-
-        exposedOutputPorts.forEach(port => {
-            if ((port.annotations?.direction || "output") !== "output") {
-                return;
-            }
-            const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
-            if (!runtimeTargetID) {
-                return;
-            }
-            const handleName = port.handle || port.portName;
-            if (!handleName) {
-                return;
-            }
-            registerHandleProducer({
-                runtimeInstanceID: runtimeTargetID,
-                handle: handleName,
-                portName: port.portName || null,
-                mediaType: port.mediaType || null,
-            });
-        });
-
-        exposedEventPorts.forEach(port => {
-            if ((port.annotations?.direction || "output") !== "output") {
-                return;
-            }
-            const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
-            if (!runtimeTargetID) {
-                return;
-            }
-            const handleName = port.handle || port.portName;
-            if (!handleName) {
-                return;
-            }
-            registerHandleProducer({
-                runtimeInstanceID: runtimeTargetID,
-                handle: handleName,
-                portName: port.portName || null,
-                mediaType: port.mediaType || null,
-            });
-        });
-
-        let componentResult = null;
-
-        try {
-            while (true) {
-                ensureNotCancelled();
-                nodeBlockers.clear();
-                const pendingNodes = runtimeNodes.filter(nodeDescription => nodeStatus.get(nodeDescription.instanceID) === "pending");
-                if (pendingNodes.length === 0) {
-                    break;
-                }
-
-                let progressed = false;
-                for (let i = 0; i < pendingNodes.length; i++) {
-                    const nodeDescription = pendingNodes[i];
-                    const nodeInstanceForComponent = runtimeNodeInstances.get(nodeDescription.instanceID);
-                    if (!nodeInstanceForComponent) {
-                        throw new Error(`Custom Component "${componentName}" could not instantiate node ${nodeDescription.instanceID}.`);
-                    }
-
-                    const ran = await executeNode(nodeDescription, nodeInstanceForComponent);
-                    if (ran) {
-                        progressed = true;
-                        const finalRecord = producedRecords.get(nodeDescription.instanceID);
-                        if (finalRecord) {
-                            exposedOutputPorts.forEach(port => {
-                                if ((port.annotations?.direction || "output") !== "output") {
-                                    return;
-                                }
-                                const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
-                                if (runtimeTargetID === nodeDescription.instanceID) {
-                                    const value = finalRecord.output?.[port.portName];
-                                    if (typeof value !== "undefined") {
-                                        componentOutput[port.handle] = value;
-                                    }
-                                }
-                            });
-
-                            exposedEventPorts.forEach(port => {
-                                if ((port.annotations?.direction || "output") !== "output") {
-                                    return;
-                                }
-                                const runtimeTargetID = runtimeIdMap.get(port.nodeInstanceID);
-                                if (runtimeTargetID === nodeDescription.instanceID) {
-                                    const eventsEmitted = Array.isArray(finalRecord.eventsEmitted) ? finalRecord.eventsEmitted : [];
-                                    if (eventsEmitted.includes(port.portName)) {
-                                        componentEvents.add(port.handle || port.portName);
-                                    }
-                                }
-                            });
-                        }
-                    }
-                }
-
-                if (!progressed) {
-                    const blockingEntries = Array.from(nodeBlockers.values());
-                    const waitingReasons = [];
-
-                    const waitingOnComponentInput = blockingEntries.some(entry => entry?.reason?.category === "componentInput");
-                    if (waitingOnComponentInput) {
-                    const componentWaits = blockingEntries
-                        .filter(entry => entry?.reason?.category === "componentInput")
-                        .map(entry => {
-                            const { reason } = entry;
-                            const handleEntry = reason?.handle ? componentInputsByHandle.get(reason.handle) : null;
-                            return {
-                                type: "componentInput",
-                                nodeInstanceID: entry.node?.instanceID,
-                                nodeLabel: this.formatNodeLabel(entry.node),
-                                handle: reason.handle,
-                                sourceRuntimeID: handleEntry?.sourceRuntimeID || null,
-                                missingEvents: Array.isArray(reason.requiredEvents)
-                                    ? reason.requiredEvents.filter(event => !(reason.availableEvents || []).includes(event))
-                                    : [],
-                                requiredEvents: Array.isArray(reason?.requiredEvents) ? reason.requiredEvents : [],
-                            };
-                        });
-                        waitingReasons.push(...componentWaits);
-                        if (componentWaits.length > 0) {
-                            this.logActivity(`[CustomComponent] ${componentName} stalled waiting on component input handles: ${componentWaits.map(item => item.handle).join(", ")}`);
-                        }
-                    }
-
-                    const dependencyWaits = blockingEntries
-                        .filter(entry => entry?.reason?.category === "internalDependency")
-                        .map(entry => {
-                            const { reason } = entry;
-                            const missingEvents = Array.isArray(reason?.missingEvents)
-                                ? reason.missingEvents
-                                : Array.isArray(reason?.requiredEvents)
-                                    ? reason.requiredEvents.filter(event => !(reason.availableEvents || []).includes(event))
-                                    : [];
-                            return {
-                                type: "internalDependency",
-                                nodeInstanceID: entry.node?.instanceID,
-                                nodeLabel: this.formatNodeLabel(entry.node),
-                                producerInstanceID: reason?.producerInstanceID,
-                                missingEvents,
-                                requiredEvents: Array.isArray(reason?.requiredEvents) ? reason.requiredEvents : [],
-                                availableEvents: Array.isArray(reason?.availableEvents) ? reason.availableEvents : [],
-                            };
-                        });
-                    if (dependencyWaits.length > 0) {
-                        dependencyWaits.forEach(wait => {
-                            this.logActivity(`[CustomComponent] ${componentName} dependency waiting: ${wait.nodeLabel || this.formatNodeLabelByInstanceID(wait.nodeInstanceID) || wait.nodeInstanceID} missing events ${wait.missingEvents.join(", ")}`);
-                        });
-                        waitingReasons.push(...dependencyWaits);
-                    }
-
-                    const runtimeWaitingStates = Array.from(producedRecords.entries()).filter(([, record]) => {
-                        const state = record?.state;
-                        return state === "waitingForExternalInput" || state === "pending";
-                    });
-                    if (runtimeWaitingStates.length > 0) {
-                        const internalWaits = runtimeWaitingStates.map(([instanceID, record]) => ({
-                            type: "internalNode",
-                            nodeInstanceID: instanceID,
-                            nodeLabel: this.formatNodeLabelByInstanceID(instanceID),
-                            waitingFor: record?.waitingForInput || record?.waitingFor || null,
-                            state: record?.state || null,
-                            lastEvents: Array.isArray(record?.eventsEmitted) ? record.eventsEmitted : [],
-                        }));
-                        waitingReasons.push(...internalWaits);
-                        this.logActivity(`[CustomComponent] ${componentName} paused; ${internalWaits.length} internal node${internalWaits.length === 1 ? "" : "s"} waiting for external input.`);
-                    }
-
-                    if (waitingReasons.length > 0) {
-                        const waitingForSet = new Set();
-                        waitingReasons.forEach((reason) => {
-                            if (Array.isArray(reason?.waitingFor)) {
-                                reason.waitingFor.forEach((entry) => {
-                                    if (typeof entry === "string" && entry.trim().length > 0) {
-                                        waitingForSet.add(entry);
-                                    }
-                                });
-                            }
-                        });
-                        const params = nodeInstance?.fullNodeDescription?.params || {};
-                        if (waitingForSet.size === 0) {
-                            const supportedTypes = Array.isArray(params.supportedTypes) ? params.supportedTypes : [];
-                            supportedTypes.forEach((type) => {
-                                if (typeof type === "string" && type.trim().length > 0) {
-                                    waitingForSet.add(type);
-                                }
-                            });
-                        }
-                        if (waitingForSet.size === 0) {
-                            const supportedModes = Array.isArray(params.supportedModes) ? params.supportedModes : [];
-                            supportedModes.forEach((mode) => {
-                                if (mode === "text") {
-                                    waitingForSet.add("text");
-                                }
-                                if (mode === "audio" || mode === "stt") {
-                                    waitingForSet.add("audio");
-                                }
-                            });
-                        }
-                        const waitingFor = Array.from(waitingForSet);
-                        componentResult = {
-                            state: "waitingForExternalInput",
-                            eventsEmitted: Array.from(componentEvents),
-                            output: componentOutput,
-                            componentBreadcrumb: breadcrumb,
-                            context: {
-                                ...componentContext,
-                                waitReasons: waitingReasons,
-                            },
-                            waitingFor: waitingFor.length > 0 ? waitingFor : undefined,
-                        };
-                        break;
-                    }
-
-                    throw new Error(`Custom Component "${componentName}" could not make progress; verify exposed port bindings.`);
-                }
-            }
-
-            if (!componentResult) {
-            componentEvents.add("completed");
-            let output = componentOutput;
-            if (!output || Object.keys(output).length === 0) {
-                const defaultMessage = { text: "Custom component completed." };
-                output = {
-                    result: defaultMessage,
-                    text: defaultMessage,
-                };
-            }
-
-            const eventsEmitted = Array.from(componentEvents);
-
-            componentResult = {
-                state: "completed",
-                    eventsEmitted,
-                    output,
-                    componentBreadcrumb: breadcrumb,
-                    context: componentContext,
-                };
-            }
-        } finally {
-            const shouldPreserveRuntimeNodes = componentResult?.state === "waitingForExternalInput";
-            if (!shouldPreserveRuntimeNodes && Array.isArray(this.versionInfo?.stateMachineDescription?.nodes)) {
-                const nodesArray = this.versionInfo.stateMachineDescription.nodes;
-                for (let i = nodesArray.length - 1; i >= 0; i--) {
-                    if (runtimeNodeIDs.has(nodesArray[i].instanceID)) {
-                        nodesArray.splice(i, 1);
-                    }
-                }
-            }
-            const runtimeRegistry = this.ensureRuntimeNodeRegistry();
-            runtimeNodeIDs.forEach((runtimeInstanceID) => {
-                const finalRecord = producedRecords.get(runtimeInstanceID);
-                const isWaiting = finalRecord?.state === "waitingForExternalInput" || finalRecord?.state === "pending";
-                if (shouldPreserveRuntimeNodes || isWaiting) {
-                    return;
-                }
-                delete this.nodeInstances[runtimeInstanceID];
-                if (runtimeRegistry && typeof runtimeRegistry === "object") {
-                    delete runtimeRegistry[runtimeInstanceID];
-                }
-            });
-        }
-
-        return componentResult;
-    }
 
     logGraph(message, ...args) {
         this.debugLog('stateMachineGraph', message, ...args);
@@ -2460,7 +1236,20 @@ export class StateMachine {
     }
 
     updateConsumerCursorWithRecord(record) {
-        if (!record || record.deleted || record.state !== "completed" || nullUndefinedOrEmpty(record.inputs)) {
+        if (!record || record.deleted || nullUndefinedOrEmpty(record.inputs)) {
+            return;
+        }
+        const hasTriggerableEvents = Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0;
+        let nodeAttributes = {};
+        try {
+            nodeAttributes = getMetadataForNodeType(record.nodeType)?.nodeAttributes || {};
+        } catch (error) {
+            this.debugLog('logStateMachineCursor', `Failed to load metadata for node type ${record.nodeType}: ${error?.message || error}`);
+        }
+        const treatWaitingAsConsumed =
+            record.state === "waitingForExternalInput" &&
+            (hasTriggerableEvents || nodeAttributes.userInput === true);
+        if (record.state !== "completed" && !treatWaitingAsConsumed) {
             return;
         }
         const consumerInstanceID = record.nodeInstanceID;
@@ -2578,6 +1367,78 @@ export class StateMachine {
         this.handleCursorDeletions(deletedRecordIDs);
     }
 
+    resetConsumerCursorForProducer(producerInstanceID) {
+        if (!producerInstanceID || !this.consumerInputCursor) {
+            return;
+        }
+        Object.keys(this.consumerInputCursor).forEach(consumerInstanceID => {
+            const producerMap = this.consumerInputCursor[consumerInstanceID];
+            if (!producerMap || typeof producerMap !== "object") {
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(producerMap, producerInstanceID)) {
+                delete producerMap[producerInstanceID];
+                this.debugLog('logStateMachineCursor', `Cursor reset: ${consumerInstanceID} <= ${producerInstanceID}`);
+                if (Object.keys(producerMap).length === 0) {
+                    delete this.consumerInputCursor[consumerInstanceID];
+                }
+            }
+        });
+    }
+
+    updateRecordEventFingerprints({ newRecords = [], updatedRecords = [], deletedRecordIDs = [] } = {}) {
+        const computeFingerprint = (record) => {
+            if (!record || record.deleted) {
+                return null;
+            }
+            const events = Array.isArray(record.eventsEmitted) ? [...record.eventsEmitted].sort().join('|') : '';
+            const state = record.state || '';
+            const nonce = record?.context?.__eventEmissionNonce || '';
+            return `${state}::${events}::${nonce}`;
+        };
+
+        const trackRecord = (record, { resetOnChange = false, forceReset = false } = {}) => {
+            if (!record || !record.recordID) {
+                return;
+            }
+            const fingerprint = computeFingerprint(record);
+            const previous = this.recordEventFingerprints.get(record.recordID);
+            if (fingerprint === null) {
+                this.recordEventFingerprints.delete(record.recordID);
+                return;
+            }
+            const shouldReset = forceReset || (resetOnChange && fingerprint !== previous);
+            if (shouldReset) {
+                this.resetConsumerCursorForProducer(record.nodeInstanceID);
+                console.error("[StateMachine] Reset consumer cursor due to event fingerprint change", {
+                    recordID: record.recordID,
+                    nodeInstanceID: record.nodeInstanceID,
+                    previousFingerprint: previous,
+                    nextFingerprint: fingerprint,
+                    forceReset,
+                    resetOnChange,
+                });
+            }
+            this.recordEventFingerprints.set(record.recordID, fingerprint);
+        };
+
+        newRecords.forEach(record => trackRecord(record, { resetOnChange: false }));
+        updatedRecords.forEach(record => {
+            const shouldForceReset =
+                record &&
+                !record.deleted &&
+                record.state === "waitingForExternalInput" &&
+                Array.isArray(record.eventsEmitted) &&
+                record.eventsEmitted.length > 0;
+            trackRecord(record, { resetOnChange: true, forceReset: shouldForceReset });
+        });
+        deletedRecordIDs.forEach(recordID => {
+            if (this.recordEventFingerprints.has(recordID)) {
+                this.recordEventFingerprints.delete(recordID);
+            }
+        });
+    }
+
     ensureRecordGraphInitialized(records, nodes, { forceRebuild = false } = {}) {
         if (forceRebuild || !this.cachedRecordGraph) {
             this.cachedRecordGraph = new RecordGraph(records, nodes);
@@ -2618,10 +1479,23 @@ export class StateMachine {
         const deletedRecordIDs = Array.isArray(delta.deletedRecordIDs) ? delta.deletedRecordIDs : [];
         const records = this.recordHistory?.records || [];
         this.updateConsumerCursorWithDelta({ newRecords, updatedRecords, deletedRecordIDs });
+        this.updateRecordEventFingerprints({ newRecords, updatedRecords, deletedRecordIDs });
+        const isGraphEligibleRecord = (record) => {
+            if (!record || record.deleted) {
+                return false;
+            }
+            if (record.state === "completed") {
+                return true;
+            }
+            if (record.state === "waitingForExternalInput" && Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0) {
+                return true;
+            }
+            return false;
+        };
         const removedRecordIDs = [
             ...deletedRecordIDs,
             ...updatedRecords
-                .filter(record => record && (record.deleted || record.state !== "completed"))
+                .filter(record => record && !isGraphEligibleRecord(record))
                 .map(record => record.recordID)
         ];
         const affectedRecordIDs = [
@@ -2634,8 +1508,8 @@ export class StateMachine {
             this.rebuildConsumerCursorFromRecords(records);
             this.clearHistoryCache();
         }
-        const completedNewRecords = newRecords.filter(record => record && !record.deleted && record.state === "completed");
-        const completedUpdatedRecords = updatedRecords.filter(record => record && !record.deleted && record.state === "completed");
+        const graphNewRecords = newRecords.filter(isGraphEligibleRecord);
+        const graphUpdatedRecords = updatedRecords.filter(isGraphEligibleRecord);
         this.updateRuntimeNodeRegistryAfterRecordChanges({
             newRecords,
             updatedRecords,
@@ -2644,8 +1518,8 @@ export class StateMachine {
             fullReload
         });
         const graphDelta = {
-            newRecords: completedNewRecords,
-            updatedRecords: completedUpdatedRecords,
+            newRecords: graphNewRecords,
+            updatedRecords: graphUpdatedRecords,
             deletedRecordIDs: removedRecordIDs
         };
         this.invalidateHistoryCacheForRecords(removedRecordIDs);
@@ -2668,6 +1542,7 @@ export class StateMachine {
 
     async load() {
         this.refreshCustomComponentRegistry();
+        inlineCustomComponentsInDescription(this.versionInfo?.stateMachineDescription, this.customComponentRegistry);
         this.recordHistory = new RecordHistory(this.db, this.session.sessionID);
         this.aiPriorityNodeTypeSet = null;
         this.clearPlan({ preserveWaitMap: false });
@@ -2765,7 +1640,12 @@ export class StateMachine {
         
         if (input.triggers || input.variables) {
             recordsForProducerNode = recordsForProducerNode.filter(record => {
-                if (record.deleted || record.state != "completed") {
+                if (!record || record.deleted) {
+                    return false;
+                }
+                const hasTriggerableEvents = Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0;
+                const isWaitingWithEvents = record.state === "waitingForExternalInput" && hasTriggerableEvents;
+                if (record.state !== "completed" && !isWaitingWithEvents) {
                     return false;
                 }
                 // is at least one of the record.eventsEmitted in the triggers list?
@@ -2803,8 +1683,8 @@ export class StateMachine {
             if (latestConsumedRecordID && (record.recordID == latestConsumedRecordID)) {
                 Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `    ${producerInstanceID} latest consumed index = ${i} record=${record.recordID}`)
                 break;
-            } else if (record.state == "completed") {
-                Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `    ${producerInstanceID} unconsumed index = ${i} record=${record.recordID}`)
+            } else if (record.state === "completed" || (record.state === "waitingForExternalInput" && Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0)) {
+                Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `    ${producerInstanceID} unconsumed index = ${i} record=${record.recordID} state=${record.state}`)
                 allUnconsumed.push(record);
             } else {
                 Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `    ${producerInstanceID} ignoring index = ${i} record=${record.recordID} state=${record.state}`)

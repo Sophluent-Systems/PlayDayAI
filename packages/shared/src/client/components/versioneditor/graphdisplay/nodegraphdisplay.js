@@ -378,6 +378,10 @@ export function NodeGraphDisplay(params) {
                                 for (let k=0; k<node.inputs.length; k++) {
                                     const input = node.inputs[k];
                                     const inputNode = stateMachineNodesMap[input.producerInstanceID];
+                                    if (!inputNode) {
+                                        console.warn("calculateLayersForSubgraph: missing producer node", input.producerInstanceID);
+                                        continue;
+                                    }
 
                                     if (!subgraph.positioned[inputNode.instanceID]) {
                                         let targetLayer = currentLayerIndex-1;
@@ -896,6 +900,25 @@ export function NodeGraphDisplay(params) {
         let sourceNode = nodes.find((node) => node.instanceID === source);
         let targetNode = nodes.find((node) => node.instanceID === target);
         if (sourceNode && targetNode) {
+            if (targetNode.nodeType === "customComponent") {
+                const targetInputs = Array.isArray(targetNode.inputs) ? targetNode.inputs : [];
+                const handleAlreadyBound = targetInputs.some(input => {
+                    if (!input || input.producerInstanceID === source) {
+                        return false;
+                    }
+                    if (targetType === "variable") {
+                        return Array.isArray(input.variables) && input.variables.some(variable => variable.consumerVariable === targetName);
+                    }
+                    if (targetType === "trigger") {
+                        return Array.isArray(input.triggers) && input.triggers.some(trigger => trigger.targetTrigger === targetName);
+                    }
+                    return false;
+                });
+                if (handleAlreadyBound) {
+                    console.warn(`Custom component handle "${targetName}" is already connected. Remove the existing connection before adding a new one.`);
+                    return;
+                }
+            }
             
             // If they're already connected, onNodeStructureChange will find and ignore it. So just submit it.
 

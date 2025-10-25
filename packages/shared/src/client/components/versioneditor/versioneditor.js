@@ -1090,11 +1090,12 @@ function VersionEditor(props) {
       });
     });
 
+    const initialSelectionIDs = Array.from(selectedSet);
     const draft = {
       id: uuidv4(),
       name: deriveUniqueComponentName(versionInfoCurrent, selectedNodes),
       description: "",
-      selectedNodeIDs: Array.from(selectedSet),
+      selectedNodeIDs: [...initialSelectionIDs],
       nodes: selectedNodes.map((nodeDesc) => JSON.parse(JSON.stringify(nodeDesc))),
       availableInputs,
       availableOutputs,
@@ -1112,6 +1113,10 @@ function VersionEditor(props) {
           ? new Set(defaultSelectedEvents)
           : new Set(),
       library: "personal",
+      metadata: {
+        originalNodeInstanceIDs: [...initialSelectionIDs],
+      },
+      mode: "createFromSelection",
     };
     return draft;
   }, []);
@@ -2088,6 +2093,23 @@ function VersionEditor(props) {
     const resolvedSelectedOutputs = new Set(selectedOutputsSet);
     const resolvedSelectedEvents = new Set(selectedEventsSet);
 
+    const resolvedOriginalSelection = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(draft.metadata?.originalNodeInstanceIDs)
+            ? draft.metadata.originalNodeInstanceIDs
+            : []),
+          ...(Array.isArray(draft.metadata?.selectedNodeInstanceIDs)
+            ? draft.metadata.selectedNodeInstanceIDs
+            : []),
+          ...(Array.isArray(draft.selectedNodeIDs) ? draft.selectedNodeIDs : []),
+          ...(Array.isArray(draft.nodes)
+            ? draft.nodes.map((node) => node?.instanceID).filter(Boolean)
+            : []),
+        ].filter(Boolean),
+      ),
+    );
+
     const definition = {
       componentID,
       name: draft.name,
@@ -2099,6 +2121,7 @@ function VersionEditor(props) {
       metadata: {
         createdAt: new Date().toISOString(),
         selectedNodeInstanceIDs: [...(draft.selectedNodeIDs || [])],
+        originalNodeInstanceIDs: resolvedOriginalSelection,
       },
       allowNesting: true,
       library: draft.library,
@@ -2179,6 +2202,41 @@ function VersionEditor(props) {
     return definition;
   }, []);
 
+  const sanitizeNodeInputs = useCallback((nodes, validNodeIDs) => {
+    nodes.forEach((node) => {
+      const inputs = Array.isArray(node.inputs) ? node.inputs : [];
+      const nextInputs = [];
+      inputs.forEach((input) => {
+        if (!input || !validNodeIDs.has(input.producerInstanceID)) {
+          return;
+        }
+        const nextInput = {
+          producerInstanceID: input.producerInstanceID,
+          includeHistory: Boolean(input.includeHistory),
+          historyParams: input.historyParams ? { ...input.historyParams } : {},
+          variables: Array.isArray(input.variables)
+            ? input.variables.filter(
+                (variable) =>
+                  variable &&
+                  variable.consumerVariable &&
+                  variable.producerOutput
+              )
+            : [],
+          triggers: Array.isArray(input.triggers)
+            ? input.triggers.filter(
+                (trigger) =>
+                  trigger && trigger.producerEvent && trigger.targetTrigger
+              )
+            : [],
+        };
+        if (nextInput.variables.length || nextInput.triggers.length) {
+          nextInputs.push(nextInput);
+        }
+      });
+      node.inputs = nextInputs;
+    });
+  }, []);
+
   const commitComponentDraft = useCallback((draft) => {
     if (!draft) {
       return;
@@ -2243,147 +2301,168 @@ function VersionEditor(props) {
           nodeDesc.params?.componentID === draft.componentID
       );
 
-      const validInputHandles = new Set();
-      definition.exposedInputs
-        .filter((port) => isInputVariablePort(port))
-        .forEach((port) => validInputHandles.add(port.handle));
-      definition.exposedEvents
-        .filter((port) => isInputEventPort(port))
-        .forEach((port) => validInputHandles.add(port.handle));
-
-      const validOutputHandles = new Set(
-        definition.exposedOutputs
-          .filter((port) => isOutputVariablePort(port))
-          .map((port) => port.handle)
-      );
-      const validEventOutputHandles = new Set(
-        definition.exposedEvents
-          .filter((port) => isOutputEventPort(port))
-          .map((port) => port.handle)
-      );
-
-      componentNodes.forEach((componentNode) => {
-        componentNode.params = componentNode.params || {};
-        componentNode.params.version = definition.version;
-        componentNode.params.metadata = {
-          ...(componentNode.params.metadata || {}),
-          componentName: draft.name,
-        };
-
-        componentNode.params.inputBindings = componentNode.params.inputBindings || {};
-        Object.keys(componentNode.params.inputBindings).forEach((handle) => {
-          if (!validInputHandles.has(handle)) {
-            delete componentNode.params.inputBindings[handle];
-          }
-        });
+      if (componentNodes.length > 0) {
+        const validInputHandles = new Set();
         definition.exposedInputs
           .filter((port) => isInputVariablePort(port))
-          .forEach((port) => {
-            componentNode.params.inputBindings[port.handle] = {
-              nodeInstanceID: port.nodeInstanceID,
-              portName: port.portName,
-            };
-          });
+          .forEach((port) => validInputHandles.add(port.handle));
         definition.exposedEvents
           .filter((port) => isInputEventPort(port))
-          .forEach((port) => {
-            componentNode.params.inputBindings[port.handle] = {
-              nodeInstanceID: port.nodeInstanceID,
-              portName: port.portName,
-            };
-          });
+          .forEach((port) => validInputHandles.add(port.handle));
 
-        componentNode.params.outputBindings = componentNode.params.outputBindings || {};
-        Object.keys(componentNode.params.outputBindings).forEach((handle) => {
-          if (!validOutputHandles.has(handle)) {
-            delete componentNode.params.outputBindings[handle];
-          }
+        const validOutputHandles = new Set(
+          definition.exposedOutputs
+            .filter((port) => isOutputVariablePort(port))
+            .map((port) => port.handle)
+        );
+        const validEventOutputHandles = new Set(
+          definition.exposedEvents
+            .filter((port) => isOutputEventPort(port))
+            .map((port) => port.handle)
+        );
+
+        componentNodes.forEach((componentNode) => {
+          componentNode.params = componentNode.params || {};
+          componentNode.params.version = definition.version;
+          componentNode.params.metadata = {
+            ...(componentNode.params.metadata || {}),
+            componentName: draft.name,
+          };
+
+          componentNode.params.inputBindings = componentNode.params.inputBindings || {};
+          Object.keys(componentNode.params.inputBindings).forEach((handle) => {
+            if (!validInputHandles.has(handle)) {
+              delete componentNode.params.inputBindings[handle];
+            }
+          });
+          definition.exposedInputs
+            .filter((port) => isInputVariablePort(port))
+            .forEach((port) => {
+              componentNode.params.inputBindings[port.handle] = {
+                nodeInstanceID: port.nodeInstanceID,
+                portName: port.portName,
+              };
+            });
+          definition.exposedEvents
+            .filter((port) => isInputEventPort(port))
+            .forEach((port) => {
+              componentNode.params.inputBindings[port.handle] = {
+                nodeInstanceID: port.nodeInstanceID,
+                portName: port.portName,
+              };
+            });
+
+          componentNode.params.outputBindings = componentNode.params.outputBindings || {};
+          Object.keys(componentNode.params.outputBindings).forEach((handle) => {
+            if (!validOutputHandles.has(handle)) {
+              delete componentNode.params.outputBindings[handle];
+            }
+          });
+          definition.exposedOutputs
+            .filter((port) => isOutputVariablePort(port))
+            .forEach((port) => {
+              componentNode.params.outputBindings[port.handle] = {
+                nodeInstanceID: port.nodeInstanceID,
+                portName: port.portName,
+              };
+            });
+
+          componentNode.params.eventBindings = componentNode.params.eventBindings || {};
+          Object.keys(componentNode.params.eventBindings).forEach((handle) => {
+            if (!validEventOutputHandles.has(handle)) {
+              delete componentNode.params.eventBindings[handle];
+            }
+          });
+          definition.exposedEvents
+            .filter((port) => isOutputEventPort(port))
+            .forEach((port) => {
+              componentNode.params.eventBindings[port.handle] = {
+                nodeInstanceID: port.nodeInstanceID,
+                portName: port.portName,
+              };
+            });
+
+          componentNode.inputs = Array.isArray(componentNode.inputs) ? componentNode.inputs : [];
+          componentNode.inputs = componentNode.inputs
+            .map((entry) => {
+              const variables = Array.isArray(entry.variables)
+                ? entry.variables.filter((variable) => validInputHandles.has(variable.consumerVariable))
+                : [];
+              const triggers = Array.isArray(entry.triggers)
+                ? entry.triggers.filter((trigger) => validInputHandles.has(trigger.targetTrigger))
+                : [];
+              if (variables.length === 0 && triggers.length === 0) {
+                return null;
+              }
+              return {
+                ...entry,
+                variables,
+                triggers,
+              };
+            })
+            .filter(Boolean);
         });
-        definition.exposedOutputs
-          .filter((port) => isOutputVariablePort(port))
-          .forEach((port) => {
-            componentNode.params.outputBindings[port.handle] = {
-              nodeInstanceID: port.nodeInstanceID,
-              portName: port.portName,
-            };
-          });
 
-        componentNode.params.eventBindings = componentNode.params.eventBindings || {};
-        Object.keys(componentNode.params.eventBindings).forEach((handle) => {
-          if (!validEventOutputHandles.has(handle)) {
-            delete componentNode.params.eventBindings[handle];
+        const componentInstanceIDs = new Set(componentNodes.map((nodeDesc) => nodeDesc.instanceID));
+        graph.nodes = graph.nodes.map((graphNode) => {
+          if (componentInstanceIDs.has(graphNode.instanceID)) {
+            return graphNode;
           }
+          const inputList = Array.isArray(graphNode.inputs) ? graphNode.inputs : [];
+          const nextInputs = inputList
+            .map((entry) => {
+              if (!componentInstanceIDs.has(entry.producerInstanceID)) {
+                return entry;
+              }
+              const variables = Array.isArray(entry.variables)
+                ? entry.variables.filter((variable) => validOutputHandles.has(variable.producerOutput))
+                : [];
+              const triggers = Array.isArray(entry.triggers)
+                ? entry.triggers.filter((trigger) => validEventOutputHandles.has(trigger.producerEvent))
+                : [];
+              if (variables.length === 0 && triggers.length === 0) {
+                return null;
+              }
+              return {
+                ...entry,
+                variables,
+                triggers,
+              };
+            })
+            .filter(Boolean);
+          return {
+            ...graphNode,
+            inputs: nextInputs,
+          };
         });
-        definition.exposedEvents
-          .filter((port) => isOutputEventPort(port))
-          .forEach((port) => {
-            componentNode.params.eventBindings[port.handle] = {
-              nodeInstanceID: port.nodeInstanceID,
-              portName: port.portName,
-            };
-          });
 
-        componentNode.inputs = Array.isArray(componentNode.inputs) ? componentNode.inputs : [];
-        componentNode.inputs = componentNode.inputs
-          .map((entry) => {
-            const variables = Array.isArray(entry.variables)
-              ? entry.variables.filter((variable) => validInputHandles.has(variable.consumerVariable))
-              : [];
-            const triggers = Array.isArray(entry.triggers)
-              ? entry.triggers.filter((trigger) => validInputHandles.has(trigger.targetTrigger))
-              : [];
-            if (variables.length === 0 && triggers.length === 0) {
-              return null;
-            }
-            return {
-              ...entry,
-              variables,
-              triggers,
-            };
-          })
-          .filter(Boolean);
-      });
+        updateVersionInfo(versionInfoCopy);
+        setComponentEditorState(null);
+        setInspectorPanelOpen(false);
+        return;
+      }
 
-      const componentInstanceIDs = new Set(componentNodes.map((nodeDesc) => nodeDesc.instanceID));
-      graph.nodes = graph.nodes.map((graphNode) => {
-        if (componentInstanceIDs.has(graphNode.instanceID)) {
-          return graphNode;
-        }
-        const inputList = Array.isArray(graphNode.inputs) ? graphNode.inputs : [];
-        const nextInputs = inputList
-          .map((entry) => {
-            if (!componentInstanceIDs.has(entry.producerInstanceID)) {
-              return entry;
-            }
-            const variables = Array.isArray(entry.variables)
-              ? entry.variables.filter((variable) => validOutputHandles.has(variable.producerOutput))
-              : [];
-            const triggers = Array.isArray(entry.triggers)
-              ? entry.triggers.filter((trigger) => validEventOutputHandles.has(trigger.producerEvent))
-              : [];
-            if (variables.length === 0 && triggers.length === 0) {
-              return null;
-            }
-            return {
-              ...entry,
-              variables,
-              triggers,
-            };
-          })
-          .filter(Boolean);
-        return {
-          ...graphNode,
-          inputs: nextInputs,
-        };
-      });
-
-      updateVersionInfo(versionInfoCopy);
-      setComponentEditorState(null);
-      setInspectorPanelOpen(false);
-      return;
     }
 
-    const selectedIDs = new Set(draft.selectedNodeIDs || []);
+    const selectedIDSet = new Set();
+    const addIDsFrom = (value) => {
+      toSelectionSetLike(value).forEach((id) => {
+        if (id) {
+          selectedIDSet.add(id);
+        }
+      });
+    };
+    addIDsFrom(draft.selectedNodeIDs);
+    addIDsFrom(draft.metadata?.selectedNodeInstanceIDs);
+    addIDsFrom(draft.metadata?.originalNodeInstanceIDs);
+    if (Array.isArray(draft.nodes)) {
+      draft.nodes.forEach((node) => {
+        if (node?.instanceID) {
+          selectedIDSet.add(node.instanceID);
+        }
+      });
+    }
+    const selectedIDs = selectedIDSet;
     if (selectedIDs.size === 0) {
       setComponentEditorState(null);
       setInspectorPanelOpen(false);
@@ -2653,6 +2732,9 @@ function VersionEditor(props) {
       selectedIndexes.length > 0 ? Math.min(...selectedIndexes) : remainingNodes.length;
     remainingNodes.splice(insertIndex, 0, newNode);
 
+    const validNodeIDs = new Set(remainingNodes.map((node) => node.instanceID));
+    sanitizeNodeInputs(remainingNodes, validNodeIDs);
+
     definition.metadata = {
       ...definition.metadata,
       componentIndex: insertIndex,
@@ -2669,10 +2751,14 @@ function VersionEditor(props) {
     updateVersionInfo(versionInfoCopy);
     setComponentEditorState(null);
     setInspectorPanelOpen(false);
-  }, [buildComponentDefinitionFromDraft, newVersionInfoRef, setComponentEditorState, setInspectorPanelOpen, updateVersionInfo]);
-
-
-
+  }, [
+    buildComponentDefinitionFromDraft,
+    newVersionInfoRef,
+    sanitizeNodeInputs,
+    setComponentEditorState,
+    setInspectorPanelOpen,
+    updateVersionInfo,
+  ]);
 
   const handleKeyDown = (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 's') {
@@ -3101,6 +3187,8 @@ const handleCancelDelete = () => {
           graph.nodes.length
         );
         graph.nodes.splice(insertionIndex, 0, ...definitionNodes);
+        const validNodeIDs = new Set(graph.nodes.map((entry) => entry.instanceID));
+        sanitizeNodeInputs(graph.nodes, validNodeIDs);
 
         const externalConsumers = Array.isArray(definition.metadata?.externalConsumers)
           ? definition.metadata.externalConsumers
@@ -3345,6 +3433,18 @@ const handleCancelDelete = () => {
 
         // See if there's an existing input for this producer
         nodeToUse.inputs = nodeToUse.inputs ? nodeToUse.inputs : [];
+        if (nodeToUse.nodeType === "customComponent") {
+          const conflictingBinding = nodeToUse.inputs.some((input) => {
+            if (!input || input.producerInstanceID === producerInstanceID) {
+              return false;
+            }
+            return Array.isArray(input.triggers) && input.triggers.some((trigger) => trigger.targetTrigger === targetTrigger);
+          });
+          if (conflictingBinding) {
+            console.warn(`Custom component handle "${targetTrigger}" already has an event binding. Remove the existing connection before adding a new one.`);
+            return;
+          }
+        }
         let inputForProducer = nodeToUse.inputs.find((input) => input.producerInstanceID == producerInstanceID);
         
         if (!inputForProducer) {
@@ -3408,6 +3508,18 @@ const handleCancelDelete = () => {
 
         // See if there's an existing input for this producer
         nodeToUse.inputs = nodeToUse.inputs ? nodeToUse.inputs : [];
+        if (nodeToUse.nodeType === "customComponent") {
+          const conflictingBinding = nodeToUse.inputs.some((input) => {
+            if (!input || input.producerInstanceID === producerInstanceID) {
+              return false;
+            }
+            return Array.isArray(input.variables) && input.variables.some((variable) => variable.consumerVariable === consumerVariable);
+          });
+          if (conflictingBinding) {
+            console.warn(`Custom component handle "${consumerVariable}" already has a variable binding. Remove the existing connection before adding a new one.`);
+            return;
+          }
+        }
         let inputForProducer = nodeToUse.inputs.find((input) => input.producerInstanceID == producerInstanceID);
         
         const nodeMetadata = getMetadataForNodeType(nodeToUse.nodeType);

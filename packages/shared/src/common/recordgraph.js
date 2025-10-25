@@ -80,8 +80,21 @@ export class RecordGraph {
         }
     }
 
-    addCompletedRecord(record) {
-        if (!record || record.deleted || record.state !== "completed") {
+    isEligibleRecord(record) {
+        if (!record || record.deleted) {
+            return false;
+        }
+        if (record.state === "completed") {
+            return true;
+        }
+        if (record.state === "waitingForExternalInput" && Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0) {
+            return true;
+        }
+        return false;
+    }
+
+    addEligibleRecord(record) {
+        if (!this.isEligibleRecord(record)) {
             return;
         }
         if (this.recordEntries[record.recordID]) {
@@ -129,7 +142,7 @@ export class RecordGraph {
         try {
             if (Array.isArray(newRecords)) {
                 newRecords.forEach(record => {
-                    if (!record || record.deleted || record.state !== "completed") {
+                    if (!this.isEligibleRecord(record)) {
                         return;
                     }
                     if (this.recordEntries[record.recordID]) {
@@ -137,7 +150,7 @@ export class RecordGraph {
                         requiresFullRebuild = true;
                         return;
                     }
-                    this.addCompletedRecord(record);
+                    this.addEligibleRecord(record);
                 });
             }
         } catch (error) {
@@ -167,10 +180,7 @@ export class RecordGraph {
         this.syntheticComponentInputs = new Set();
         // first add a graph entry for each record
         this.inputRecords.forEach(record => {
-            if (record.deleted) {
-                return;
-            }
-            if (record.state != "completed") {
+            if (!this.isEligibleRecord(record)) {
                 return;
             }
             if (!this.recordEntries[record.recordID]) {
@@ -179,10 +189,7 @@ export class RecordGraph {
         });
         // Now connect all the parents
         this.inputRecords.forEach(record => {
-            if (record.deleted) {
-                return;
-            }
-            if (record.state != "completed") {
+            if (!this.isEligibleRecord(record)) {
                 return;
             }
             const currentRecord = this.recordEntries[record.recordID];

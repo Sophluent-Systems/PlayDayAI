@@ -2514,6 +2514,26 @@ export class StateMachine {
                 ? [...runInfo.componentBreadcrumb]
                 : [];
         }
+
+        if (!record.context || typeof record.context !== "object") {
+            record.context = {};
+        }
+
+        if (!record.context.resolvedNodeDefinition && nodeInstance?.fullNodeDescription) {
+            try {
+                record.context.resolvedNodeDefinition = cloneNodeDeep(nodeInstance.fullNodeDescription);
+            } catch (error) {
+                record.context.resolvedNodeDefinition = { ...nodeInstance.fullNodeDescription };
+            }
+        }
+
+        if (!Array.isArray(record.context.componentPathSegments) && Array.isArray(nodeInstance?.fullNodeDescription?.componentPathSegments)) {
+            record.context.componentPathSegments = [...nodeInstance.fullNodeDescription.componentPathSegments];
+        }
+
+        if (!Array.isArray(record.context.componentNamePath) && Array.isArray(nodeInstance?.fullNodeDescription?.componentNamePath)) {
+            record.context.componentNamePath = [...nodeInstance.fullNodeDescription.componentNamePath];
+        }
         
         //
         // Allow the node to do stuff like pre-report messages to the client

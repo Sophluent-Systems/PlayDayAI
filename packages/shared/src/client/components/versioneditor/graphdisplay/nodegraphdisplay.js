@@ -59,6 +59,8 @@ const defaultEdgeOptions = {
     markerEnd: makerEndStyle,
   };
 
+const SELECTION_DRAG_THRESHOLD = 5;
+
 
 const INLINE_PAYLOAD_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
 const BASE64_DELIMITER = 'base64,';
@@ -179,6 +181,7 @@ export function NodeGraphDisplay(params) {
     const [edgeMenu, setEdgeMenu] = useState(null);
     const [paneMenu, setPaneMenu] = useState(null);
     const ref = useRef(null);
+    const paneDragStartRef = useRef(null);
     const [doneInitialFitView, setDoneInitialFitView] = useState(false);
     const { session } = useContext(stateManager);
     const activeSessionID = session?.sessionID ?? null;
@@ -1413,11 +1416,45 @@ export function NodeGraphDisplay(params) {
         }));
     };
 
+    const handlePaneMouseDownCapture = useCallback(
+        (event) => {
+            if (readOnly || event.button !== 0) {
+                paneDragStartRef.current = null;
+                return;
+            }
+            const target = event.target;
+            if (!(target instanceof Element) || !target.classList.contains('react-flow__pane')) {
+                paneDragStartRef.current = null;
+                return;
+            }
+            paneDragStartRef.current = {
+                x: event.clientX,
+                y: event.clientY,
+            };
+        },
+        [readOnly],
+    );
+
 
     const onPaneClick = useCallback((event) => {
-        event.preventDefault();
         if (readOnly) { return };
 
+        let shouldClearSelection = true;
+        if (paneDragStartRef.current) {
+            const deltaX = Math.abs(event.clientX - paneDragStartRef.current.x);
+            const deltaY = Math.abs(event.clientY - paneDragStartRef.current.y);
+            paneDragStartRef.current = null;
+
+            if (deltaX > SELECTION_DRAG_THRESHOLD || deltaY > SELECTION_DRAG_THRESHOLD) {
+                shouldClearSelection = false;
+            }
+        }
+
+        if (!shouldClearSelection) {
+            return;
+        }
+
+        event.preventDefault();
         setNodeMenu(null);
         setEdgeMenu(null);
         clearSelection();
@@ -1514,6 +1551,7 @@ export function NodeGraphDisplay(params) {
               onNodeContextMenu={onNodeContextMenu}
               onDrop={onDrop}
               onDragOver={onDragOver}
+              onMouseDownCapture={handlePaneMouseDownCapture}
               onPaneClick={onPaneClick}
               onPaneContextMenu={handlePaneContextMenu}
               onConnect={onConnect}

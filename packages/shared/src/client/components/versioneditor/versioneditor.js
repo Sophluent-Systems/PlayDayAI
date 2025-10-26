@@ -1816,6 +1816,10 @@ function VersionEditor(props) {
         action === "cancelCustomComponent" ||
         action === "addCustomComponentInstance"
       ) {
+        if (action === "startCustomComponent" && componentEditorState) {
+          alert("Nested custom components are not supported yet. Please finish editing the current component before creating another.");
+          return;
+        }
         onNodeStructureChange?.(node, action, optionalParams);
         return;
       }
@@ -1934,7 +1938,7 @@ function VersionEditor(props) {
         return nextDraft;
       });
     },
-    [setComponentEditorState, onNodeStructureChange],
+    [setComponentEditorState, onNodeStructureChange, componentEditorState],
   );
 
   const handleComponentSelectionChange = useCallback(
@@ -2052,6 +2056,56 @@ function VersionEditor(props) {
             nodes.push(componentNode);
             createdNode = componentNode;
             break;
+          }
+          case "deleteNodes": {
+            const instanceIDs = Array.isArray(detail?.instanceIDs)
+              ? detail.instanceIDs.filter(Boolean)
+              : [];
+            if (instanceIDs.length === 0) {
+              return previous;
+            }
+            const removalSet = new Set(instanceIDs);
+            const remainingNodes = nodes.filter((node) => !removalSet.has(node.instanceID));
+            if (remainingNodes.length === nodes.length) {
+              return previous;
+            }
+            remainingNodes.forEach((node) => {
+              if (!Array.isArray(node.inputs)) {
+                return;
+              }
+              node.inputs = node.inputs
+                .filter((input) => input && !removalSet.has(input.producerInstanceID))
+                .map((input) => ({
+                  ...input,
+                  variables: Array.isArray(input.variables)
+                    ? input.variables.filter(
+                        (variable) =>
+                          variable &&
+                          variable.consumerVariable &&
+                          variable.producerOutput,
+                      )
+                    : [],
+                  triggers: Array.isArray(input.triggers)
+                    ? input.triggers.filter(
+                        (trigger) =>
+                          trigger &&
+                          trigger.producerEvent &&
+                          trigger.targetTrigger,
+                      )
+                    : [],
+                }));
+            });
+            const nextDraftBase = {
+              ...previous,
+              nodes: remainingNodes,
+              selectedNodeIDs: [],
+              selectedInputs: [],
+              selectedOutputs: [],
+              selectedEvents: [],
+            };
+            const rebuilt = rebuildComponentDraftState(nextDraftBase);
+            rebuilt.selectedNodeIDs = [];
+            return rebuilt;
           }
           default:
             return previous;

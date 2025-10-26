@@ -124,8 +124,6 @@ const NodeGraphNode = memo((props) => {
 
   const [metadata, setMetadata] = useState(null);
 
-  const [styling, setStyling] = useState(null);
-
 
 
   const persona = getNodePersonaDetails(versionInfo, node);
@@ -177,7 +175,7 @@ const NodeGraphNode = memo((props) => {
     };
   }, [node, versionInfo?.stateMachineDescription?.customComponents]);
 
-  useEffect(() => {
+  const styling = useMemo(() => {
     let baseStyling;
 
     if (usesCustomPersona) {
@@ -204,7 +202,7 @@ const NodeGraphNode = memo((props) => {
       ),
     };
 
-    setStyling(newStyling);
+    return newStyling;
   }, [paletteVisuals, persona, usesCustomPersona, isSelected, isTarget]);
 
 

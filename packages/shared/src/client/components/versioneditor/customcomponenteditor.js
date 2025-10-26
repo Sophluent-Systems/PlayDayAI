@@ -15,7 +15,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Handle, Position } from 'reactflow';
-import { X, Settings2, Info } from 'lucide-react';
+import { X, Settings2, Info, Trash2, PackagePlus, SquareStack } from 'lucide-react';
 import { SmartBezierEdge } from '@tisoap/react-flow-smart-edge';
 import { createPortal } from 'react-dom';
 
@@ -70,6 +70,38 @@ const markerEnd = {
   height: 14,
   color: '#38bdf8',
 };
+
+const SELECTION_DRAG_THRESHOLD = 5;
+
+function areIdListsEqual(a, b) {
+  if (a === b) {
+    return true;
+  }
+  if (!Array.isArray(a) || !Array.isArray(b)) {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function getContextMenuPosition(clientX, clientY, menuWidth = 220, menuHeight = 200) {
+  let x = clientX;
+  let y = clientY;
+  if (typeof window !== 'undefined') {
+    const maxLeft = Math.max(16, window.innerWidth - menuWidth);
+    const maxTop = Math.max(16, window.innerHeight - menuHeight);
+    x = Math.min(Math.max(16, clientX), maxLeft);
+    y = Math.min(Math.max(16, clientY), maxTop);
+  }
+  return { x, y };
+}
 
 function toSelectionSet(value) {
   if (value instanceof Set) {
@@ -710,14 +742,17 @@ export function CustomComponentEditor({
   const [graphNodes, setGraphNodes, internalOnNodesChange] = useNodesState([]);
   const [edges, setEdges, internalOnEdgesChange] = useEdgesState([]);
   const [edgeMenu, setEdgeMenu] = useState(null);
+  const [nodeMenu, setNodeMenu] = useState(null);
+  const [paneMenu, setPaneMenu] = useState(null);
   const edgesRef = useRef([]);
   const wrapperRef = useRef(null);
   const reactFlowInstanceRef = useRef(null);
   const boundaryPositionsRef = useRef({ input: null, output: null });
+  const paneDragStartRef = useRef(null);
   const namePromptedDraftIdRef = useRef(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const [wrapperSize, setWrapperSize] = useState({ width: 0, height: 0 });
-  const [, setSelectedNodeIDs] = useState([]);
+  const [selectedNodeIDs, setSelectedNodeIDs] = useState([]);
   const [inspectorState, setInspectorState] = useState(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [initialFitDone, setInitialFitDone] = useState(false);
@@ -817,8 +852,11 @@ export function CustomComponentEditor({
       }
       setInspectorState({ nodeID: node.instanceID, mode: 'nodeDetails' });
       setInspectorOpen(true);
-      setSelectedNodeIDs([node.instanceID]);
-      onSelectionChange?.([node.instanceID]);
+      const nextSelection = [node.instanceID];
+      setSelectedNodeIDs((current) =>
+        areIdListsEqual(current, nextSelection) ? current : nextSelection,
+      );
+      onSelectionChange?.(nextSelection);
     },
     [onSelectionChange],
   );
@@ -936,7 +974,7 @@ export function CustomComponentEditor({
 
   useEffect(() => {
     const ids = Array.isArray(draft?.selectedNodeIDs) ? draft.selectedNodeIDs : [];
-    setSelectedNodeIDs(ids);
+    setSelectedNodeIDs((current) => (areIdListsEqual(current, ids) ? current : ids));
     if (ids.length > 0) {
       setInspectorState((previous) => {
         if (previous?.nodeID === ids[0]) {
@@ -950,6 +988,32 @@ export function CustomComponentEditor({
       setInspectorOpen(false);
     }
   }, [draft?.selectedNodeIDs]);
+
+  useEffect(() => {
+    const selectedSet = new Set(selectedNodeIDs);
+    setGraphNodes((nodes) => {
+      let changed = false;
+      const nextNodes = nodes.map((graphNode) => {
+        const isSelected = selectedSet.has(graphNode.id);
+        const matches =
+          Boolean(graphNode.selected) === isSelected &&
+          Boolean(graphNode.data?.isSelected) === isSelected;
+        if (matches) {
+          return graphNode;
+        }
+        changed = true;
+        return {
+          ...graphNode,
+          selected: isSelected,
+          data: {
+            ...(graphNode.data || {}),
+            isSelected,
+          },
+        };
+      });
+      return changed ? nextNodes : nodes;
+    });
+  }, [selectedNodeIDs, setGraphNodes]);
 
   useEffect(() => {
     setInitialFitDone(false);
@@ -1141,6 +1205,9 @@ export function CustomComponentEditor({
       if (!edge) {
         return;
       }
+      setNodeMenu(null);
+      setPaneMenu(null);
+      paneDragStartRef.current = null;
       let x = event.clientX;
       let y = event.clientY;
       if (typeof window !== 'undefined') {
@@ -1158,14 +1225,249 @@ export function CustomComponentEditor({
     [],
   );
 
-  const handlePaneClick = useCallback(() => {
-    setEdgeMenu(null);
-  }, []);
+  const handleNodeContextMenu = useCallback(
+    (event, graphNode) => {
+      event.preventDefault();
+      if (readOnly || !graphNode) {
+        return;
+      }
 
-  const handlePaneContextMenu = useCallback((event) => {
-    event.preventDefault();
+      setEdgeMenu(null);
+      setPaneMenu(null);
+      paneDragStartRef.current = null;
+
+      const nextSelected = graphNode.selected ? [...selectedNodeIDs] : [graphNode.id];
+      setSelectedNodeIDs((current) =>
+        areIdListsEqual(current, nextSelected) ? current : nextSelected,
+      );
+      onSelectionChange?.(nextSelected);
+      if (nextSelected.length > 0) {
+        setInspectorState({ nodeID: nextSelected[0], mode: 'nodeDetails' });
+        setInspectorOpen(true);
+      }
+
+      const selectedInstances = (draft?.nodes || []).filter((node) =>
+        nextSelected.includes(node.instanceID),
+      );
+
+      if (selectedInstances.length === 0) {
+        setNodeMenu(null);
+        return;
+      }
+
+      const { x, y } = getContextMenuPosition(event.clientX, event.clientY, 220, 168);
+      setNodeMenu({
+        ids: nextSelected,
+        nodes: selectedInstances,
+        x,
+        y,
+      });
+    },
+    [
+      draft?.nodes,
+      onSelectionChange,
+      readOnly,
+      selectedNodeIDs,
+      setEdgeMenu,
+      setInspectorOpen,
+      setInspectorState,
+      setPaneMenu,
+    ],
+  );
+
+  const handleSelectionContextMenu = useCallback(
+    (event, selected = []) => {
+      event.preventDefault();
+      if (readOnly) {
+        return;
+      }
+
+      const selectionIds = Array.isArray(selected) ? selected.map((node) => node.id) : [];
+      if (selectionIds.length === 0) {
+        return;
+      }
+
+      setEdgeMenu(null);
+      setPaneMenu(null);
+      paneDragStartRef.current = null;
+      setSelectedNodeIDs((current) =>
+        areIdListsEqual(current, selectionIds) ? current : selectionIds,
+      );
+      onSelectionChange?.(selectionIds);
+      if (selectionIds.length > 0) {
+        setInspectorState({ nodeID: selectionIds[0], mode: 'nodeDetails' });
+        setInspectorOpen(true);
+      }
+
+      const selectedInstances = (draft?.nodes || []).filter((node) =>
+        selectionIds.includes(node.instanceID),
+      );
+      if (selectedInstances.length === 0) {
+        setNodeMenu(null);
+        return;
+      }
+
+      const { x, y } = getContextMenuPosition(event.clientX, event.clientY, 220, 168);
+      setNodeMenu({
+        ids: selectionIds,
+        nodes: selectedInstances,
+        x,
+        y,
+      });
+    },
+    [
+      draft?.nodes,
+      onSelectionChange,
+      readOnly,
+      setEdgeMenu,
+      setInspectorOpen,
+      setInspectorState,
+      setPaneMenu,
+    ],
+  );
+
+  const clearSelection = useCallback(() => {
+    if (readOnly) {
+      paneDragStartRef.current = null;
+      return;
+    }
+    setSelectedNodeIDs((current) => (current.length === 0 ? current : []));
+    onSelectionChange?.([]);
+    setGraphNodes((nodes) =>
+      nodes.map((graphNode) => {
+        if (!graphNode.selected && !graphNode.data?.isSelected) {
+          return graphNode;
+        }
+        return {
+          ...graphNode,
+          selected: false,
+          data: {
+            ...(graphNode.data || {}),
+            isSelected: false,
+          },
+        };
+      }),
+    );
+    paneDragStartRef.current = null;
+  }, [onSelectionChange, readOnly, setGraphNodes]);
+
+  const handlePaneMouseDownCapture = useCallback(
+    (event) => {
+      if (readOnly || event.button !== 0) {
+        paneDragStartRef.current = null;
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element) || !target.classList.contains('react-flow__pane')) {
+        paneDragStartRef.current = null;
+        return;
+      }
+      paneDragStartRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+      };
+    },
+    [readOnly],
+  );
+
+  const handlePaneClick = useCallback(
+    (event) => {
+      setEdgeMenu(null);
+      setNodeMenu(null);
+      setPaneMenu(null);
+
+      if (readOnly) {
+        paneDragStartRef.current = null;
+        return;
+      }
+
+      if (paneDragStartRef.current && event) {
+        const deltaX = Math.abs(event.clientX - paneDragStartRef.current.x);
+        const deltaY = Math.abs(event.clientY - paneDragStartRef.current.y);
+        paneDragStartRef.current = null;
+        if (deltaX > SELECTION_DRAG_THRESHOLD || deltaY > SELECTION_DRAG_THRESHOLD) {
+          return;
+        }
+      } else {
+        paneDragStartRef.current = null;
+      }
+
+      clearSelection();
+    },
+    [clearSelection, readOnly],
+  );
+
+  const handlePaneContextMenu = useCallback(
+    (event) => {
+      event.preventDefault();
+      if (readOnly) {
+        return;
+      }
+      paneDragStartRef.current = null;
+      setEdgeMenu(null);
+      setNodeMenu(null);
+      const { x, y } = getContextMenuPosition(event.clientX, event.clientY, 200, 120);
+      setPaneMenu({ x, y });
+    },
+    [readOnly],
+  );
+
+  const handleSelectAll = useCallback(() => {
+    if (readOnly) {
+      return;
+    }
+    const selectableIds = graphNodes
+      .filter(
+        (node) =>
+          node.id !== INPUT_NODE_ID && node.id !== OUTPUT_NODE_ID && node.selectable !== false,
+      )
+      .map((node) => node.id);
+    setSelectedNodeIDs((current) =>
+      areIdListsEqual(current, selectableIds) ? current : selectableIds,
+    );
+    onSelectionChange?.(selectableIds);
+    if (selectableIds.length > 0) {
+      setInspectorState({ nodeID: selectableIds[0], mode: 'nodeDetails' });
+      setInspectorOpen(true);
+    } else {
+      setInspectorState(null);
+    }
+    paneDragStartRef.current = null;
+    setNodeMenu(null);
+    setPaneMenu(null);
+  }, [graphNodes, onSelectionChange, readOnly]);
+
+  const handleDeleteSelectedNodes = useCallback(() => {
+    if (readOnly) {
+      return;
+    }
+    const selectionSource =
+      nodeMenu?.ids && nodeMenu.ids.length > 0 ? nodeMenu.ids : selectedNodeIDs;
+    const selection = Array.isArray(selectionSource) ? selectionSource : [];
+    if (selection.length === 0) {
+      return;
+    }
+    onGraphAction?.('deleteNodes', { instanceIDs: selection });
+    setNodeMenu(null);
     setEdgeMenu(null);
-  }, []);
+    setPaneMenu(null);
+    paneDragStartRef.current = null;
+  }, [nodeMenu, onGraphAction, readOnly, selectedNodeIDs]);
+
+  const handleCreateNestedComponent = useCallback(() => {
+    if (readOnly) {
+      return;
+    }
+    const selectionSource =
+      nodeMenu?.ids && nodeMenu.ids.length > 0 ? nodeMenu.ids : selectedNodeIDs;
+    const selection = Array.isArray(selectionSource) ? selectionSource : [];
+    if (selection.length === 0) {
+      return;
+    }
+    alert('Nested custom components are not supported yet. Please finish editing the current component before creating another.');
+    setNodeMenu(null);
+    paneDragStartRef.current = null;
+  }, [nodeMenu, readOnly, selectedNodeIDs]);
 
   const handleDeleteContextEdge = useCallback(() => {
     if (!edgeMenu?.edge) {
@@ -1173,6 +1475,9 @@ export function CustomComponentEditor({
     }
     removeEdges([edgeMenu.edge]);
     setEdgeMenu(null);
+    setNodeMenu(null);
+    setPaneMenu(null);
+    paneDragStartRef.current = null;
   }, [edgeMenu, removeEdges]);
 
   const handleEdgesDelete = useCallback(
@@ -1410,7 +1715,7 @@ export function CustomComponentEditor({
   const handleSelectionChange = useCallback(
     ({ nodes: selected = [] } = {}) => {
       const ids = Array.isArray(selected) ? selected.map((item) => item.id) : [];
-      setSelectedNodeIDs(ids);
+      setSelectedNodeIDs((current) => (areIdListsEqual(current, ids) ? current : ids));
       onSelectionChange?.(ids);
       if (ids.length > 0) {
         setInspectorState({ nodeID: ids[0], mode: 'nodeDetails' });
@@ -1593,16 +1898,19 @@ export function CustomComponentEditor({
                 onInit={handleInit}
                 onMove={handleMove}
                 onNodesChange={internalOnNodesChange}
-                onEdgesChange={handleEdgesChange}
-                onConnect={handleConnect}
-                onEdgesDelete={handleEdgesDelete}
-                onEdgeContextMenu={handleEdgeContextMenu}
-                onPaneClick={handlePaneClick}
-                onPaneContextMenu={handlePaneContextMenu}
-                onSelectionChange={handleSelectionChange}
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                nodeTypes={nodeTypes}
+              onEdgesChange={handleEdgesChange}
+              onConnect={handleConnect}
+              onEdgesDelete={handleEdgesDelete}
+              onEdgeContextMenu={handleEdgeContextMenu}
+              onNodeContextMenu={handleNodeContextMenu}
+              onSelectionContextMenu={handleSelectionContextMenu}
+              onMouseDownCapture={handlePaneMouseDownCapture}
+              onPaneClick={handlePaneClick}
+              onPaneContextMenu={handlePaneContextMenu}
+              onSelectionChange={handleSelectionChange}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
                 defaultEdgeOptions={{
                   type: 'customsmartedge',
@@ -1618,6 +1926,7 @@ export function CustomComponentEditor({
                 className="!bg-transparent"
                 panOnDrag={[2]}
                 selectionOnDrag
+                selectionMode="full"
                 autoPanOnConnect
                 autoPanOnNodeDrag={false}
                 nodesConnectable
@@ -1629,11 +1938,71 @@ export function CustomComponentEditor({
                 <Controls className="!bg-slate-900/80 !text-slate-100" />
               </ReactFlow>
             </ReactFlowProvider>
+            {nodeMenu
+              ? createPortal(
+                  <div
+                    className="fixed inset-0 z-[13040]"
+                    onClick={() => setNodeMenu(null)}
+                    onContextMenu={(event) => event.preventDefault()}
+                  >
+                    <div
+                      className="absolute min-w-[200px] overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 p-1 text-sm text-slate-100 shadow-xl backdrop-blur"
+                      style={{ top: nodeMenu.y, left: nodeMenu.x }}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left font-medium hover:bg-white/10"
+                        onClick={handleDeleteSelectedNodes}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        <span>
+                          Delete {nodeMenu.ids && nodeMenu.ids.length > 1 ? 'Nodes' : 'Node'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left font-medium hover:bg-white/10"
+                        onClick={handleCreateNestedComponent}
+                      >
+                        <PackagePlus className="h-4 w-4" />
+                        <span>Create Custom Component</span>
+                      </button>
+                    </div>
+                  </div>,
+                  document.body,
+                )
+              : null}
+            {paneMenu
+              ? createPortal(
+                  <div
+                    className="fixed inset-0 z-[13035]"
+                    onClick={() => setPaneMenu(null)}
+                    onContextMenu={(event) => event.preventDefault()}
+                  >
+                    <div
+                      className="absolute min-w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 p-1 text-sm text-slate-100 shadow-xl backdrop-blur"
+                      style={{ top: paneMenu.y, left: paneMenu.x }}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left font-medium hover:bg-white/10"
+                        onClick={handleSelectAll}
+                      >
+                        <SquareStack className="h-4 w-4" />
+                        <span>Select All</span>
+                      </button>
+                    </div>
+                  </div>,
+                  document.body,
+                )
+              : null}
             {edgeMenu
               ? createPortal(
                   <div
                     className="fixed inset-0 z-[13040]"
-                    onClick={handlePaneClick}
+                    onClick={() => setEdgeMenu(null)}
                     onContextMenu={(event) => event.preventDefault()}
                   >
                     <div

@@ -781,6 +781,44 @@ export function CustomComponentEditor({
   const [initialFitDone, setInitialFitDone] = useState(false);
   const theme = defaultAppTheme;
 
+  const handleNodeClick = useCallback(
+    (event, node) => {
+      if (!node) {
+        return;
+      }
+      const isModifierClick = event?.shiftKey || event?.metaKey || event?.ctrlKey;
+      
+      let nextSelection;
+      if (isModifierClick) {
+        // Multi-select: toggle the node in the selection
+        if (selectedNodeIDs.includes(node.instanceID)) {
+          // Remove from selection
+          nextSelection = selectedNodeIDs.filter(id => id !== node.instanceID);
+        } else {
+          // Add to selection
+          nextSelection = [...selectedNodeIDs, node.instanceID];
+        }
+      } else {
+        // Single select: replace selection with just this node
+        nextSelection = [node.instanceID];
+      }
+      
+      setSelectedNodeIDs((current) =>
+        areIdListsEqual(current, nextSelection) ? current : nextSelection,
+      );
+      onSelectionChange?.(nextSelection);
+      
+      if (nextSelection.length > 0) {
+        setInspectorState({ nodeID: nextSelection[0], mode: 'nodeDetails' });
+        setInspectorOpen(true);
+      } else {
+        setInspectorState(null);
+        setInspectorOpen(false);
+      }
+    },
+    [onSelectionChange, selectedNodeIDs],
+  );
+
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
@@ -846,22 +884,6 @@ export function CustomComponentEditor({
       setNameDialogOpen(false);
     },
     [draft, onNameChange],
-  );
-
-  const handleNodeClick = useCallback(
-    (node) => {
-      if (!node) {
-        return;
-      }
-      setInspectorState({ nodeID: node.instanceID, mode: 'nodeDetails' });
-      setInspectorOpen(true);
-      const nextSelection = [node.instanceID];
-      setSelectedNodeIDs((current) =>
-        areIdListsEqual(current, nextSelection) ? current : nextSelection,
-      );
-      onSelectionChange?.(nextSelection);
-    },
-    [onSelectionChange],
   );
 
   useEffect(() => {
@@ -1078,7 +1100,7 @@ export function CustomComponentEditor({
             node: entry.node,
             theme,
             readOnly,
-            onClicked: () => handleNodeClick(entry.node),
+            onClicked: (event) => handleNodeClick(event, entry.node),
           },
         })),
         {
@@ -1262,7 +1284,7 @@ export function CustomComponentEditor({
             node: entry.node,
             theme,
             readOnly,
-            onClicked: () => handleNodeClick(entry.node),
+            onClicked: (event) => handleNodeClick(event, entry.node),
           },
         })),
         {
@@ -2107,7 +2129,9 @@ export function CustomComponentEditor({
                 className="!bg-transparent"
                 panOnDrag={[2]}
                 selectionOnDrag
-                selectionMode="full"
+                selectNodesOnDrag
+                selectionMode="partial"
+                selectionKeyCode={null}
                 autoPanOnConnect
                 autoPanOnNodeDrag={false}
                 nodesConnectable

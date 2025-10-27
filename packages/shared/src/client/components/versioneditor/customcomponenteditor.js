@@ -72,6 +72,26 @@ const markerEnd = {
 };
 
 const SELECTION_DRAG_THRESHOLD = 5;
+const POSITION_EPSILON = 0.01;
+const VIEWPORT_POSITION_EPSILON = 0.5;
+const VIEWPORT_ZOOM_EPSILON = 0.001;
+
+function positionsAreClose(a, b, epsilon = POSITION_EPSILON) {
+  if (!a || !b) {
+    return false;
+  }
+  return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon;
+}
+
+function viewportsAreClose(a, b) {
+  if (!a || !b) {
+    return false;
+  }
+  const xClose = Math.abs(a.x - b.x) <= VIEWPORT_POSITION_EPSILON;
+  const yClose = Math.abs(a.y - b.y) <= VIEWPORT_POSITION_EPSILON;
+  const zoomClose = Math.abs(a.zoom - b.zoom) <= VIEWPORT_ZOOM_EPSILON;
+  return xClose && yClose && zoomClose;
+}
 
 function areIdListsEqual(a, b) {
   if (a === b) {
@@ -750,7 +770,10 @@ export function CustomComponentEditor({
   const boundaryPositionsRef = useRef({ input: null, output: null });
   const paneDragStartRef = useRef(null);
   const namePromptedDraftIdRef = useRef(null);
-  const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
+  const viewportRef = useRef({ x: 0, y: 0, zoom: 1 });
+  const anchorFrameRef = useRef(null);
+  const anchorGuardFrameRef = useRef(null);
+  const isAnchoringRef = useRef(false);
   const [wrapperSize, setWrapperSize] = useState({ width: 0, height: 0 });
   const [selectedNodeIDs, setSelectedNodeIDs] = useState([]);
   const [inspectorState, setInspectorState] = useState(null);
@@ -761,36 +784,6 @@ export function CustomComponentEditor({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
-
-  useEffect(() => {
-    const element = wrapperRef.current;
-    if (!element) {
-      return;
-    }
-
-    const updateSize = () => {
-      const rect = element.getBoundingClientRect();
-      setWrapperSize({
-        width: rect.width,
-        height: rect.height,
-      });
-    };
-
-    updateSize();
-
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(() => updateSize());
-      observer.observe(element);
-      return () => observer.disconnect();
-    }
-
-    if (typeof window !== 'undefined') {
-      window.addEventListener('resize', updateSize);
-      return () => window.removeEventListener('resize', updateSize);
-    }
-
-    return undefined;
-  }, []);
 
   const componentVersionInfo = useMemo(
     () => ({
@@ -812,6 +805,16 @@ export function CustomComponentEditor({
       },
     };
   }, [versionInfo, draft?.nodes]);
+
+  useEffect(() => {
+    if (!draft) {
+      setEdges([]);
+      return;
+    }
+    const internalEdges = buildInternalEdges(draft.nodes);
+    const exposureEdges = buildExposureEdges(draft);
+    setEdges([...internalEdges, ...exposureEdges]);
+  }, [draft, setEdges]);
 
   useEffect(() => {
     if (!draft) {
@@ -863,15 +866,151 @@ export function CustomComponentEditor({
 
   useEffect(() => {
     if (!draft) {
-      setGraphNodes([]);
       setEdges([]);
+      return;
+    }
+    const internalEdges = buildInternalEdges(draft.nodes);
+    const exposureEdges = buildExposureEdges(draft);
+    setEdges([...internalEdges, ...exposureEdges]);
+  }, [draft, setEdges]);
+
+  useEffect(() => {
+    const ids = Array.isArray(draft?.selectedNodeIDs) ? draft.selectedNodeIDs : [];
+    setSelectedNodeIDs((current) => (areIdListsEqual(current, ids) ? current : ids));
+    if (ids.length > 0) {
+      setInspectorState((previous) => {
+        if (previous?.nodeID === ids[0]) {
+          return previous;
+        }
+        return { nodeID: ids[0], mode: 'nodeDetails' };
+      });
+      setInspectorOpen(true);
+    } else {
+      setInspectorState(null);
+      setInspectorOpen(false);
+    }
+  }, [draft?.selectedNodeIDs]);
+
+  useEffect(() => {
+    const selectedSet = new Set(selectedNodeIDs);
+    setGraphNodes((nodes) => {
+      let changed = false;
+      const nextNodes = nodes.map((graphNode) => {
+        const isSelected = selectedSet.has(graphNode.id);
+        const matches =
+          Boolean(graphNode.selected) === isSelected &&
+          Boolean(graphNode.data?.isSelected) === isSelected;
+        if (matches) {
+          return graphNode;
+        }
+        changed = true;
+        return {
+          ...graphNode,
+          selected: isSelected,
+          data: {
+            ...(graphNode.data || {}),
+            isSelected,
+          },
+        };
+      });
+      return changed ? nextNodes : nodes;
+    });
+  }, [selectedNodeIDs, setGraphNodes]);
+
+  useEffect(() => {
+    setInitialFitDone(false);
+  }, [draft?.id]);
+
+  const anchorBoundaryNodes = useCallback(() => {
+    if (!reactFlowInstanceRef.current) {
+      return;
+    }
+    if (!wrapperSize.width || !wrapperSize.height) {
+      return;
+    }
+    const projectedInput = reactFlowInstanceRef.current.project({
+      x: 80,
+      y: wrapperSize.height / 2,
+    });
+    const projectedOutput = reactFlowInstanceRef.current.project({
+      x: Math.max(wrapperSize.width - 80, 80),
+      y: wrapperSize.height / 2,
+    });
+
+    const previousPositions = boundaryPositionsRef.current || {};
+    const inputChanged =
+      !previousPositions.input || !positionsAreClose(previousPositions.input, projectedInput);
+    const outputChanged =
+      !previousPositions.output || !positionsAreClose(previousPositions.output, projectedOutput);
+
+    if (!inputChanged && !outputChanged) {
+      return;
+    }
+
+    boundaryPositionsRef.current = {
+      input: { x: projectedInput.x, y: projectedInput.y },
+      output: { x: projectedOutput.x, y: projectedOutput.y },
+    };
+    isAnchoringRef.current = true;
+
+    setGraphNodes((nodes) => {
+      let changed = false;
+      const nextNodes = nodes.map((node) => {
+        if (node.id === INPUT_NODE_ID) {
+          const position = boundaryPositionsRef.current.input;
+          if (!positionsAreClose(node.position, position)) {
+            changed = true;
+            return {
+              ...node,
+              position: { ...position },
+            };
+          }
+          return node;
+        }
+        if (node.id === OUTPUT_NODE_ID) {
+          const position = boundaryPositionsRef.current.output;
+          if (!positionsAreClose(node.position, position)) {
+            changed = true;
+            return {
+              ...node,
+              position: { ...position },
+            };
+          }
+          return node;
+        }
+        return node;
+      });
+      return changed ? nextNodes : nodes;
+    });
+    if (anchorGuardFrameRef.current !== null) {
+      cancelAnimationFrame(anchorGuardFrameRef.current);
+    }
+    anchorGuardFrameRef.current = requestAnimationFrame(() => {
+      anchorGuardFrameRef.current = null;
+      isAnchoringRef.current = false;
+    });
+  }, [setGraphNodes, wrapperSize.height, wrapperSize.width]);
+
+  const scheduleAnchorBoundary = useCallback(() => {
+    if (anchorFrameRef.current !== null) {
+      return;
+    }
+    anchorFrameRef.current = requestAnimationFrame(() => {
+      anchorFrameRef.current = null;
+      anchorBoundaryNodes();
+    });
+  }, [anchorBoundaryNodes]);
+
+  useEffect(() => {
+    if (!draft) {
+      setGraphNodes([]);
+      boundaryPositionsRef.current = { input: null, output: null };
+      scheduleAnchorBoundary();
       return;
     }
 
     setGraphNodes((previous) => {
-      const previousPositions = new Map(
-        previous.map((node) => [node.id, node.position]),
-      );
+      const previousPositions = new Map(previous.map((node) => [node.id, node.position]));
       const layout = buildNodeLayout(draft.nodes || [], previousPositions);
 
       const aggregatorOffset = 360;
@@ -960,128 +1099,27 @@ export function CustomComponentEditor({
       ];
       return flowNodes;
     });
-  }, [draft, setGraphNodes, theme, componentVersionInfo, handleNodeClick, readOnly]);
+    scheduleAnchorBoundary();
+  }, [componentVersionInfo, draft, handleNodeClick, readOnly, scheduleAnchorBoundary, setGraphNodes, theme]);
+
+  useEffect(
+    () => () => {
+      if (anchorFrameRef.current !== null) {
+        cancelAnimationFrame(anchorFrameRef.current);
+        anchorFrameRef.current = null;
+      }
+      if (anchorGuardFrameRef.current !== null) {
+        cancelAnimationFrame(anchorGuardFrameRef.current);
+        anchorGuardFrameRef.current = null;
+      }
+      isAnchoringRef.current = false;
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!draft) {
-      setEdges([]);
-      return;
-    }
-    const internalEdges = buildInternalEdges(draft.nodes);
-    const exposureEdges = buildExposureEdges(draft);
-    setEdges([...internalEdges, ...exposureEdges]);
-  }, [draft, setEdges]);
-
-  useEffect(() => {
-    const ids = Array.isArray(draft?.selectedNodeIDs) ? draft.selectedNodeIDs : [];
-    setSelectedNodeIDs((current) => (areIdListsEqual(current, ids) ? current : ids));
-    if (ids.length > 0) {
-      setInspectorState((previous) => {
-        if (previous?.nodeID === ids[0]) {
-          return previous;
-        }
-        return { nodeID: ids[0], mode: 'nodeDetails' };
-      });
-      setInspectorOpen(true);
-    } else {
-      setInspectorState(null);
-      setInspectorOpen(false);
-    }
-  }, [draft?.selectedNodeIDs]);
-
-  useEffect(() => {
-    const selectedSet = new Set(selectedNodeIDs);
-    setGraphNodes((nodes) => {
-      let changed = false;
-      const nextNodes = nodes.map((graphNode) => {
-        const isSelected = selectedSet.has(graphNode.id);
-        const matches =
-          Boolean(graphNode.selected) === isSelected &&
-          Boolean(graphNode.data?.isSelected) === isSelected;
-        if (matches) {
-          return graphNode;
-        }
-        changed = true;
-        return {
-          ...graphNode,
-          selected: isSelected,
-          data: {
-            ...(graphNode.data || {}),
-            isSelected,
-          },
-        };
-      });
-      return changed ? nextNodes : nodes;
-    });
-  }, [selectedNodeIDs, setGraphNodes]);
-
-  useEffect(() => {
-    setInitialFitDone(false);
-  }, [draft?.id]);
-
-  const anchorBoundaryNodes = useCallback(() => {
-    if (!reactFlowInstanceRef.current) {
-      return;
-    }
-    if (!wrapperSize.width || !wrapperSize.height) {
-      return;
-    }
-    const nextInput = reactFlowInstanceRef.current.project({
-      x: 80,
-      y: wrapperSize.height / 2,
-    });
-    const nextOutput = reactFlowInstanceRef.current.project({
-      x: Math.max(wrapperSize.width - 80, 80),
-      y: wrapperSize.height / 2,
-    });
-
-    boundaryPositionsRef.current = {
-      input: { ...nextInput },
-      output: { ...nextOutput },
-    };
-
-    setGraphNodes((nodes) => {
-      let changed = false;
-      const nextNodes = nodes.map((node) => {
-        if (node.id === INPUT_NODE_ID) {
-          const position = boundaryPositionsRef.current.input;
-          if (
-            !node.position ||
-            node.position.x !== position.x ||
-            node.position.y !== position.y
-          ) {
-            changed = true;
-            return {
-              ...node,
-              position: { ...position },
-            };
-          }
-          return node;
-        }
-        if (node.id === OUTPUT_NODE_ID) {
-          const position = boundaryPositionsRef.current.output;
-          if (
-            !node.position ||
-            node.position.x !== position.x ||
-            node.position.y !== position.y
-          ) {
-            changed = true;
-            return {
-              ...node,
-              position: { ...position },
-            };
-          }
-          return node;
-        }
-        return node;
-      });
-      return changed ? nextNodes : nodes;
-    });
-  }, [setGraphNodes, wrapperSize.height, wrapperSize.width]);
-
-  useEffect(() => {
-    anchorBoundaryNodes();
-  }, [anchorBoundaryNodes, viewport, draft]);
+    scheduleAnchorBoundary();
+  }, [scheduleAnchorBoundary, draft?.id]);
 
   const handleInit = useCallback(
     (instance) => {
@@ -1090,27 +1128,171 @@ export function CustomComponentEditor({
         typeof instance.getViewport === 'function'
           ? instance.getViewport()
           : { x: 0, y: 0, zoom: 1 };
-      setViewport(initialViewport);
-      requestAnimationFrame(() => anchorBoundaryNodes());
+      viewportRef.current = initialViewport;
+      scheduleAnchorBoundary();
     },
-    [anchorBoundaryNodes],
+    [scheduleAnchorBoundary],
   );
 
   const handleMove = useCallback((_, nextViewport) => {
     if (!nextViewport) {
       return;
     }
-    setViewport((previous) => {
-      if (
-        previous.x === nextViewport.x &&
-        previous.y === nextViewport.y &&
-        previous.zoom === nextViewport.zoom
-      ) {
-        return previous;
+    const previous = viewportRef.current;
+    if (viewportsAreClose(previous, nextViewport)) {
+      return;
+    }
+    viewportRef.current = nextViewport;
+    if (isAnchoringRef.current) {
+      return;
+    }
+    scheduleAnchorBoundary();
+  }, [scheduleAnchorBoundary]);
+
+  useEffect(() => {
+    const element = wrapperRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const updateSize = () => {
+      const rect = element.getBoundingClientRect();
+      const nextSize = {
+        width: rect.width,
+        height: rect.height,
+      };
+      const sameWidth = Math.abs(nextSize.width - wrapperSize.width) <= 0.5;
+      const sameHeight = Math.abs(nextSize.height - wrapperSize.height) <= 0.5;
+      if (!sameWidth || !sameHeight) {
+        setWrapperSize(nextSize);
+        scheduleAnchorBoundary();
       }
-      return nextViewport;
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => updateSize());
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', updateSize);
+      return () => window.removeEventListener('resize', updateSize);
+    }
+
+    return undefined;
+  }, [scheduleAnchorBoundary, wrapperSize.height, wrapperSize.width]);
+
+  useEffect(() => {
+    if (!draft) {
+      setGraphNodes([]);
+      boundaryPositionsRef.current = { input: null, output: null };
+      scheduleAnchorBoundary();
+      return;
+    }
+
+    setGraphNodes((previous) => {
+      const previousPositions = new Map(previous.map((node) => [node.id, node.position]));
+      const layout = buildNodeLayout(draft.nodes || [], previousPositions);
+
+      const aggregatorOffset = 360;
+      const fallbackInput = {
+        x: (layout.bounds.minX ?? 0) - aggregatorOffset,
+        y: layout.bounds.midY ?? 0,
+      };
+      const fallbackOutput = {
+        x: (layout.bounds.maxX ?? 0) + aggregatorOffset,
+        y: layout.bounds.midY ?? 0,
+      };
+
+      if (!boundaryPositionsRef.current.input || !boundaryPositionsRef.current.output) {
+        boundaryPositionsRef.current = {
+          input: fallbackInput,
+          output: fallbackOutput,
+        };
+      }
+
+      const allowedInputHandles = new Set();
+      (draft.availableInputs || []).forEach((entry) => {
+        if (entry?.kind === 'event' && entry?.targetTrigger) {
+          allowedInputHandles.add(`trigger-${entry.targetTrigger}`);
+        } else if (entry?.kind === 'variable' && entry?.consumerVariable) {
+          allowedInputHandles.add(`variable-${entry.consumerVariable}`);
+        }
+      });
+
+      const allowedOutputHandles = new Set();
+      (draft.availableOutputs || []).forEach((entry) => {
+        if (entry?.producerOutput) {
+          allowedOutputHandles.add(`output-${entry.producerOutput}`);
+        }
+      });
+      (draft.availableEvents || []).forEach((entry) => {
+        if (entry?.producerEvent) {
+          allowedOutputHandles.add(`event-${entry.producerEvent}`);
+        }
+      });
+
+      const flowNodes = [
+        {
+          id: INPUT_NODE_ID,
+          type: 'componentBoundary',
+          position: boundaryPositionsRef.current.input,
+          selectable: false,
+          draggable: false,
+          focusable: false,
+          connectable: true,
+          data: {
+            orientation: 'input',
+            label: 'Inputs',
+            ghostText: 'Drag to connect inputs',
+            allowedHandleIds: Array.from(allowedInputHandles),
+          },
+        },
+        ...layout.nodes.map((entry) => ({
+          id: entry.node.instanceID,
+          type: 'nodeGraphNode',
+          position: entry.position,
+          dragHandle: '.custom-drag-handle',
+          connectable: true,
+          data: {
+            versionInfo: componentVersionInfo,
+            node: entry.node,
+            theme,
+            readOnly,
+            onClicked: () => handleNodeClick(entry.node),
+          },
+        })),
+        {
+          id: OUTPUT_NODE_ID,
+          type: 'componentBoundary',
+          position: boundaryPositionsRef.current.output,
+          selectable: false,
+          draggable: false,
+          focusable: false,
+          connectable: true,
+          data: {
+            orientation: 'output',
+            label: 'Outputs',
+            ghostText: 'Connect node outputs here',
+            allowedHandleIds: Array.from(allowedOutputHandles),
+          },
+        },
+      ];
+      return flowNodes;
     });
-  }, []);
+    scheduleAnchorBoundary();
+  }, [
+    componentVersionInfo,
+    draft,
+    handleNodeClick,
+    readOnly,
+    scheduleAnchorBoundary,
+    setGraphNodes,
+    theme,
+  ]);
 
   const inputLookup = useMemo(() => buildInputLookup(draft), [draft]);
   const outputLookup = useMemo(() => buildOutputLookup(draft), [draft]);
@@ -1922,7 +2104,6 @@ export function CustomComponentEditor({
                 defaultViewport={defaultViewport}
                 minZoom={0.2}
                 maxZoom={1.8}
-                fitView
                 className="!bg-transparent"
                 panOnDrag={[2]}
                 selectionOnDrag

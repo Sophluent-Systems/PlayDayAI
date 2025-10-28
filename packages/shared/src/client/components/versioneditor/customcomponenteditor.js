@@ -769,6 +769,7 @@ export function CustomComponentEditor({
   const reactFlowInstanceRef = useRef(null);
   const boundaryPositionsRef = useRef({ input: null, output: null });
   const paneDragStartRef = useRef(null);
+  const skipNextPaneClearRef = useRef(false);
   const namePromptedDraftIdRef = useRef(null);
   const viewportRef = useRef({ x: 0, y: 0, zoom: 1 });
   const anchorFrameRef = useRef(null);
@@ -898,6 +899,7 @@ export function CustomComponentEditor({
 
   useEffect(() => {
     const ids = Array.isArray(draft?.selectedNodeIDs) ? draft.selectedNodeIDs : [];
+    console.log('#MULTISELECT draft selectedNodeIDs changed', ids);
     setSelectedNodeIDs((current) => (areIdListsEqual(current, ids) ? current : ids));
     if (ids.length > 0) {
       setInspectorState((previous) => {
@@ -1031,6 +1033,7 @@ export function CustomComponentEditor({
       return;
     }
 
+    const selectionSet = new Set(selectedNodeIDs);
     setGraphNodes((previous) => {
       const previousPositions = new Map(previous.map((node) => [node.id, node.position]));
       const layout = buildNodeLayout(draft.nodes || [], previousPositions);
@@ -1089,20 +1092,26 @@ export function CustomComponentEditor({
             allowedHandleIds: Array.from(allowedInputHandles),
           },
         },
-        ...layout.nodes.map((entry) => ({
-          id: entry.node.instanceID,
-          type: 'nodeGraphNode',
-          position: entry.position,
-          dragHandle: '.custom-drag-handle',
-          connectable: true,
-          data: {
-            versionInfo: componentVersionInfo,
-            node: entry.node,
-            theme,
-            readOnly,
-            onClicked: (event) => handleNodeClick(event, entry.node),
-          },
-        })),
+        ...layout.nodes.map((entry) => {
+          const isSelected = selectionSet.has(entry.node.instanceID);
+          return {
+            id: entry.node.instanceID,
+            type: 'nodeGraphNode',
+            position: entry.position,
+            dragHandle: '.custom-drag-handle',
+            connectable: true,
+            selectable: true,
+            selected: isSelected,
+            data: {
+              versionInfo: componentVersionInfo,
+              node: entry.node,
+              theme,
+              readOnly,
+              onClicked: (event) => handleNodeClick(event, entry.node),
+              isSelected,
+            },
+          };
+        }),
         {
           id: OUTPUT_NODE_ID,
           type: 'componentBoundary',
@@ -1273,20 +1282,26 @@ export function CustomComponentEditor({
             allowedHandleIds: Array.from(allowedInputHandles),
           },
         },
-        ...layout.nodes.map((entry) => ({
-          id: entry.node.instanceID,
-          type: 'nodeGraphNode',
-          position: entry.position,
-          dragHandle: '.custom-drag-handle',
-          connectable: true,
-          data: {
-            versionInfo: componentVersionInfo,
-            node: entry.node,
-            theme,
-            readOnly,
-            onClicked: (event) => handleNodeClick(event, entry.node),
-          },
-        })),
+        ...layout.nodes.map((entry) => {
+          const isSelected = selectionSet.has(entry.node.instanceID);
+          return {
+            id: entry.node.instanceID,
+            type: 'nodeGraphNode',
+            position: entry.position,
+            dragHandle: '.custom-drag-handle',
+            connectable: true,
+            selectable: true,
+            selected: isSelected,
+            data: {
+              versionInfo: componentVersionInfo,
+              node: entry.node,
+              theme,
+              readOnly,
+              onClicked: (event) => handleNodeClick(event, entry.node),
+              isSelected,
+            },
+          };
+        }),
         {
           id: OUTPUT_NODE_ID,
           type: 'componentBoundary',
@@ -1387,6 +1402,83 @@ export function CustomComponentEditor({
       onToggleInput,
       onToggleOutput,
     ],
+  );
+
+  const handleNodesChange = useCallback(
+    (changes) => {
+      console.log(
+        '#MULTISELECT handleNodesChange received',
+        changes.map((change) => ({
+          type: change?.type,
+          id: change?.id,
+          selected: change?.selected,
+          position: change?.position,
+        })),
+      );
+      internalOnNodesChange(changes);
+      if (!Array.isArray(changes) || changes.length === 0) {
+        console.log('#MULTISELECT handleNodesChange empty', changes);
+        return;
+      }
+
+      const selectChanges = changes.filter(
+        (change) =>
+          change?.type === 'select' &&
+          typeof change.id === 'string' &&
+          change.id !== INPUT_NODE_ID &&
+          change.id !== OUTPUT_NODE_ID,
+      );
+      if (selectChanges.length === 0) {
+        console.log('#MULTISELECT handleNodesChange no select changes');
+        return;
+      }
+
+      let nextSelection = null;
+      setSelectedNodeIDs((current) => {
+        const nextSet = new Set(current);
+        let dirty = false;
+
+        selectChanges.forEach(({ id, selected }) => {
+          if (selected) {
+            if (!nextSet.has(id)) {
+              nextSet.add(id);
+              dirty = true;
+            }
+          } else if (nextSet.has(id)) {
+            nextSet.delete(id);
+            dirty = true;
+          }
+        });
+
+        if (!dirty) {
+          return current;
+        }
+
+        const nextIds = Array.from(nextSet);
+        nextSelection = nextIds;
+        console.log('#MULTISELECT handleNodesChange updating selection', {
+          previous: current,
+          next: nextIds,
+        });
+        return nextIds;
+      });
+
+      if (!nextSelection) {
+        console.log('#MULTISELECT handleNodesChange no selection delta');
+        return;
+      }
+
+      onSelectionChange?.(nextSelection);
+      if (nextSelection.length > 0) {
+        console.log('#MULTISELECT handleNodesChange notifying selection', nextSelection);
+        setInspectorState({ nodeID: nextSelection[0], mode: 'nodeDetails' });
+        setInspectorOpen(true);
+      } else {
+        console.log('#MULTISELECT handleNodesChange cleared selection');
+        setInspectorState(null);
+      }
+    },
+    [internalOnNodesChange, onSelectionChange, setInspectorOpen, setInspectorState],
   );
 
   const removeEdges = useCallback(
@@ -1562,10 +1654,19 @@ export function CustomComponentEditor({
         return;
       }
       const target = event.target;
-      if (!(target instanceof Element) || !target.classList.contains('react-flow__pane')) {
+      if (!(target instanceof Element)) {
         paneDragStartRef.current = null;
         return;
       }
+      if (!target.classList.contains('react-flow__pane')) {
+        console.log('#MULTISELECT handlePaneMouseDownCapture non-pane target', target.className);
+      } else {
+        console.log('#MULTISELECT handlePaneMouseDownCapture start on pane');
+      }
+      console.log('#MULTISELECT handlePaneMouseDownCapture position', {
+        x: event.clientX,
+        y: event.clientY,
+      });
       paneDragStartRef.current = {
         x: event.clientX,
         y: event.clientY,
@@ -1585,17 +1686,29 @@ export function CustomComponentEditor({
         return;
       }
 
+      if (skipNextPaneClearRef.current) {
+        console.log('#MULTISELECT handlePaneClick skip clear (selection drag)');
+        skipNextPaneClearRef.current = false;
+        paneDragStartRef.current = null;
+        return;
+      }
+
       if (paneDragStartRef.current && event) {
         const deltaX = Math.abs(event.clientX - paneDragStartRef.current.x);
         const deltaY = Math.abs(event.clientY - paneDragStartRef.current.y);
+        console.log('#MULTISELECT handlePaneClick with drag', { deltaX, deltaY });
         paneDragStartRef.current = null;
         if (deltaX > SELECTION_DRAG_THRESHOLD || deltaY > SELECTION_DRAG_THRESHOLD) {
+          console.log('#MULTISELECT handlePaneClick skipping clear (drag detected)');
+          skipNextPaneClearRef.current = false;
           return;
         }
       } else {
+        console.log('#MULTISELECT handlePaneClick clearing (no drag start)');
         paneDragStartRef.current = null;
       }
 
+      console.log('#MULTISELECT handlePaneClick clearing selection');
       clearSelection();
     },
     [clearSelection, readOnly],
@@ -1919,6 +2032,10 @@ export function CustomComponentEditor({
   const handleSelectionChange = useCallback(
     ({ nodes: selected = [] } = {}) => {
       const ids = Array.isArray(selected) ? selected.map((item) => item.id) : [];
+      console.log('#MULTISELECT handleSelectionChange', {
+        selectedIds: ids,
+        rawSelection: selected,
+      });
       setSelectedNodeIDs((current) => (areIdListsEqual(current, ids) ? current : ids));
       onSelectionChange?.(ids);
       if (ids.length > 0) {
@@ -2101,7 +2218,7 @@ export function CustomComponentEditor({
                 edges={edges}
                 onInit={handleInit}
                 onMove={handleMove}
-                onNodesChange={internalOnNodesChange}
+                onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
               onConnect={handleConnect}
               onEdgesDelete={handleEdgesDelete}
@@ -2129,9 +2246,22 @@ export function CustomComponentEditor({
                 className="!bg-transparent"
                 panOnDrag={[2]}
                 selectionOnDrag
-                selectNodesOnDrag
                 selectionMode="partial"
                 selectionKeyCode={null}
+                onSelectionStart={(event) => {
+                  console.log('#MULTISELECT onSelectionStart', {
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                  skipNextPaneClearRef.current = true;
+                }}
+                onSelectionEnd={(event) => {
+                  console.log('#MULTISELECT onSelectionEnd', {
+                    x: event?.clientX,
+                    y: event?.clientY,
+                  });
+                  skipNextPaneClearRef.current = true;
+                }}
                 autoPanOnConnect
                 autoPanOnNodeDrag={false}
                 nodesConnectable

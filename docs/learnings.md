@@ -6,4 +6,4 @@
 - ReactFlow emits `onMove` continuously; add an epsilon guard before updating the stored viewport so we only react to meaningful movement and avoid re-triggering anchoring loops.
 - Let the dedicated selection-sync effect update `node.selected`/`data.isSelected`; piping selection straight into the layout effect forces ReactFlow to thrash the viewport and risks max-depth loops when fit/anchor logic runs.
 - Modifier-key clicks (shift/meta/ctrl) are how ReactFlow signals additive selection; node-level click handlers must early exit so we don't overwrite the selection array and accidentally block multi-select.
-- Drag-rectangle selection needs both `selectionOnDrag` and `selectNodesOnDrag`, plus `selectionKeyCode={null}` so the lasso can start without holding Shift; otherwise ReactFlow draws the rectangle but ignores node hits in our editor.
+- Drag-rectangle selection needs `selectionOnDrag` (and `selectionKeyCode={null}` if we want it without Shift); enabling `selectNodesOnDrag` while our nodes are non-draggable suppresses ReactFlow’s `'select'` change events, so leave that prop off in the custom editor.

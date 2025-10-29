@@ -40,6 +40,7 @@ import { NodeInitMenu } from "./nodeinitmenu";
 import { FloatingPanel } from "./floatingpanel";
 import { NodeLibraryTree } from "./nodelibrarytree";
 import { CustomComponentEditor } from "./customcomponenteditor";
+import { EditorStackProvider, useEditorStack } from "./editorStackContext";
 
 function slugifyHandleValue(value) {
   if (value === undefined || value === null) {
@@ -712,7 +713,7 @@ function TemplateChooser({ templateChosen }) {
   );
 }
 
-function VersionEditor(props) {
+function VersionEditorComponent(props) {
   const { Constants } = useConfig();
   const router = useRouter();
   const { versionName: versionNameParam } = router.query;
@@ -751,7 +752,59 @@ function VersionEditor(props) {
   const [libraryPanelOpen, setLibraryPanelOpen] = useState(true);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [inspectorPanelOpen, setInspectorPanelOpen] = useState(false);
-  const [componentEditorState, setComponentEditorState] = useState(null);
+
+  const {
+    activeFrame: activeEditorFrame,
+    pushFrame: pushEditorFrame,
+    popFrame: popEditorFrame,
+    updateFrame: updateEditorFrame,
+  } = useEditorStack();
+
+  const activeCustomFrame =
+    activeEditorFrame && activeEditorFrame.kind === 'customComponent'
+      ? activeEditorFrame
+      : null;
+
+  const componentEditorState = activeCustomFrame?.draft || null;
+
+  const updateComponentEditorDraft = useCallback(
+    (updater) => {
+      if (!activeCustomFrame) {
+        return;
+      }
+      updateEditorFrame(activeCustomFrame.id, (frame) => {
+        const previousDraft = frame.draft;
+        const nextDraft =
+          typeof updater === 'function' ? updater(previousDraft) : updater;
+        if (nextDraft === undefined || nextDraft === previousDraft) {
+          return null;
+        }
+        return { draft: nextDraft };
+      });
+    },
+    [activeCustomFrame, updateEditorFrame],
+  );
+
+  const closeActiveComponentEditor = useCallback(() => {
+    if (activeCustomFrame) {
+      popEditorFrame(activeCustomFrame.id);
+    }
+  }, [activeCustomFrame, popEditorFrame]);
+
+  const openComponentEditor = useCallback(
+    (draft, metadata = {}) => {
+      if (!draft) {
+        return;
+      }
+      pushEditorFrame({
+        kind: 'customComponent',
+        draft,
+        metadata,
+        parentId: activeEditorFrame ? activeEditorFrame.id : null,
+      });
+    },
+    [activeEditorFrame, pushEditorFrame],
+  );
 
   const gameTheme = game?.theme ? game.theme : defaultAppTheme;
   const baseBackgroundColor = gameTheme?.colors?.titleBackgroundColor || '#0f172a';
@@ -1489,86 +1542,107 @@ function VersionEditor(props) {
     };
   }, []);
 
-  const startComponentEditor = useCallback((instanceIDs) => {
-    const draft = buildComponentDraft(instanceIDs);
-    if (draft) {
-      setComponentEditorState(draft);
-      setInspectorPanelOpen(false);
-    }
-  }, [buildComponentDraft]);
+  const startComponentEditor = useCallback(
+    (instanceIDs, metadata = {}) => {
+      const draft = buildComponentDraft(instanceIDs);
+      if (draft) {
+        openComponentEditor(draft, metadata);
+        setInspectorPanelOpen(false);
+      }
+    },
+    [buildComponentDraft, openComponentEditor],
+  );
 
   const handleCancelComponentEditor = useCallback(() => {
-    setComponentEditorState(null);
-  }, []);
+    closeActiveComponentEditor();
+  }, [closeActiveComponentEditor]);
 
-  const handleComponentNameChange = useCallback((value) => {
-    setComponentEditorState((previous) => {
-      if (!previous) {
-        return previous;
-      }
-      return { ...previous, name: value };
-    });
-  }, []);
+  const handleComponentNameChange = useCallback(
+    (value) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous || previous.name === value) {
+          return previous;
+        }
+        return { ...previous, name: value };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
 
-  const handleComponentDescriptionChange = useCallback((value) => {
-    setComponentEditorState((previous) => {
-      if (!previous) {
-        return previous;
-      }
-      return { ...previous, description: value };
-    });
-  }, []);
+  const handleComponentDescriptionChange = useCallback(
+    (value) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous || previous.description === value) {
+          return previous;
+        }
+        return { ...previous, description: value };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
 
-  const handleComponentLibraryChange = useCallback((value) => {
-    setComponentEditorState((previous) => {
-      if (!previous) {
-        return previous;
-      }
-      return { ...previous, library: value };
-    });
-  }, []);
+  const handleComponentLibraryChange = useCallback(
+    (value) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous || previous.library === value) {
+          return previous;
+        }
+        return { ...previous, library: value };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
 
-  const handleToggleInputExposure = useCallback((id) => {
-    setComponentEditorState((previous) => {
-      if (!previous) {
-        return previous;
-      }
-      return {
-        ...previous,
-        selectedInputs: toggleSelectionSet(previous.selectedInputs, id),
-      };
-    });
-  }, []);
+  const handleToggleInputExposure = useCallback(
+    (id) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        return {
+          ...previous,
+          selectedInputs: toggleSelectionSet(previous.selectedInputs, id),
+        };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
 
-  const handleToggleOutputExposure = useCallback((id) => {
-    setComponentEditorState((previous) => {
-      if (!previous) {
-        return previous;
-      }
-      return {
-        ...previous,
-        selectedOutputs: toggleSelectionSet(previous.selectedOutputs, id),
-      };
-    });
-  }, []);
+  const handleToggleOutputExposure = useCallback(
+    (id) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        return {
+          ...previous,
+          selectedOutputs: toggleSelectionSet(previous.selectedOutputs, id),
+        };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
 
-  const handleToggleEventExposure = useCallback((id) => {
-    setComponentEditorState((previous) => {
-      if (!previous) {
-        return previous;
-      }
-      return {
-        ...previous,
-        selectedEvents: toggleSelectionSet(previous.selectedEvents, id),
-      };
-    });
-  }, []);
+  const handleToggleEventExposure = useCallback(
+    (id) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        return {
+          ...previous,
+          selectedEvents: toggleSelectionSet(previous.selectedEvents, id),
+        };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
 
   const handleComponentAddConnection = useCallback((detail) => {
     if (!detail) {
       return;
     }
-    setComponentEditorState((previous) => {
+    updateComponentEditorDraft((previous) => {
       if (!previous) {
         return previous;
       }
@@ -1685,18 +1759,18 @@ function VersionEditor(props) {
       const nextNodes = nodes.map((node, index) =>
         index === targetIndex ? nextNode : node,
       );
-      return {
+      return rebuildComponentDraftState({
         ...previous,
         nodes: nextNodes,
-      };
+      });
     });
-  }, []);
+  }, [updateComponentEditorDraft]);
 
   const handleComponentRemoveConnection = useCallback((detail) => {
     if (!detail) {
       return;
     }
-    setComponentEditorState((previous) => {
+    updateComponentEditorDraft((previous) => {
       if (!previous) {
         return previous;
       }
@@ -1782,7 +1856,7 @@ function VersionEditor(props) {
       if (!node) {
         return;
       }
-      setComponentEditorState((previous) => {
+      updateComponentEditorDraft((previous) => {
         if (!previous) {
           return previous;
         }
@@ -1804,7 +1878,7 @@ function VersionEditor(props) {
         });
       });
     },
-    [setComponentEditorState],
+    [updateComponentEditorDraft],
   );
 
   const handleComponentNodeStructureChange = useCallback(
@@ -1816,15 +1890,11 @@ function VersionEditor(props) {
         action === "cancelCustomComponent" ||
         action === "addCustomComponentInstance"
       ) {
-        if (action === "startCustomComponent" && componentEditorState) {
-          alert("Nested custom components are not supported yet. Please finish editing the current component before creating another.");
-          return;
-        }
         onNodeStructureChange?.(node, action, optionalParams);
         return;
       }
 
-      setComponentEditorState((previous) => {
+      updateComponentEditorDraft((previous) => {
         if (!previous) {
           return previous;
         }
@@ -1938,12 +2008,12 @@ function VersionEditor(props) {
         return nextDraft;
       });
     },
-    [setComponentEditorState, onNodeStructureChange, componentEditorState],
+    [updateComponentEditorDraft, onNodeStructureChange],
   );
 
   const handleComponentSelectionChange = useCallback(
     (selectedIDs) => {
-      setComponentEditorState((previous) => {
+      updateComponentEditorDraft((previous) => {
         if (!previous) {
           return previous;
         }
@@ -1964,12 +2034,12 @@ function VersionEditor(props) {
         };
       });
     },
-    [setComponentEditorState],
+    [updateComponentEditorDraft],
   );
 
   const handleComponentGraphAction = useCallback(
     (action, detail = {}) => {
-      setComponentEditorState((previous) => {
+      updateComponentEditorDraft((previous) => {
         if (!previous) {
           return previous;
         }
@@ -2126,7 +2196,7 @@ function VersionEditor(props) {
         return rebuilt;
       });
     },
-    [setComponentEditorState, newVersionInfoRef, replaceAllNodePlaceholderSettings],
+    [updateComponentEditorDraft, newVersionInfoRef, replaceAllNodePlaceholderSettings],
   );
 
   const buildComponentDefinitionFromDraft = useCallback((draft, componentID) => {
@@ -2491,7 +2561,7 @@ function VersionEditor(props) {
         });
 
         updateVersionInfo(versionInfoCopy);
-        setComponentEditorState(null);
+        closeActiveComponentEditor();
         setInspectorPanelOpen(false);
         return;
       }
@@ -2518,7 +2588,7 @@ function VersionEditor(props) {
     }
     const selectedIDs = selectedIDSet;
     if (selectedIDs.size === 0) {
-      setComponentEditorState(null);
+      closeActiveComponentEditor();
       setInspectorPanelOpen(false);
       return;
     }
@@ -2803,13 +2873,13 @@ function VersionEditor(props) {
     graph.customComponents.push(definition);
 
     updateVersionInfo(versionInfoCopy);
-    setComponentEditorState(null);
+    closeActiveComponentEditor();
     setInspectorPanelOpen(false);
   }, [
     buildComponentDefinitionFromDraft,
     newVersionInfoRef,
     sanitizeNodeInputs,
-    setComponentEditorState,
+    closeActiveComponentEditor,
     setInspectorPanelOpen,
     updateVersionInfo,
   ]);
@@ -3190,16 +3260,16 @@ const handleCancelDelete = () => {
         const graphNodes = versionInfoCurrent?.stateMachineDescription?.nodes ?? [];
         draft.componentIndex = componentIndex;
         draft.componentInstanceIDs = graphNodes
-          .filter(
-            (nodeDesc) =>
-              nodeDesc.nodeType === "customComponent" &&
-              nodeDesc.params?.componentID === componentID
-          )
-          .map((nodeDesc) => nodeDesc.instanceID);
-        setComponentEditorState(draft);
-        setInspectorPanelOpen(false);
-      }
-      break;
+      .filter(
+        (nodeDesc) =>
+          nodeDesc.nodeType === "customComponent" &&
+          nodeDesc.params?.componentID === componentID
+      )
+      .map((nodeDesc) => nodeDesc.instanceID);
+      openComponentEditor(draft, { componentID, mode: "editExisting" });
+      setInspectorPanelOpen(false);
+    }
+    break;
       case "cancelCustomComponent": {
         handleCancelComponentEditor();
       }
@@ -3257,7 +3327,7 @@ const handleCancelDelete = () => {
         });
 
         updateVersionInfo(versionInfoCopy);
-        setComponentEditorState(null);
+        closeActiveComponentEditor();
         setInspectorPanelOpen(false);
       }
       break;
@@ -3862,6 +3932,7 @@ const handleCancelDelete = () => {
       {componentEditorState ? (
         <CustomComponentEditor
           draft={componentEditorState}
+          frameId={activeCustomFrame?.id}
           onClose={handleCancelComponentEditor}
           onSave={commitComponentDraft}
           onNameChange={handleComponentNameChange}
@@ -4238,4 +4309,21 @@ const handleCancelDelete = () => {
   );
 }
 
-export default memo(VersionEditor);
+function VersionEditorWithStack(props) {
+  const initialFrame = useMemo(
+    () => ({
+      id: 'version-root',
+      kind: 'version',
+      metadata: { source: 'versionEditor' },
+    }),
+    [],
+  );
+
+  return (
+    <EditorStackProvider initialFrame={initialFrame}>
+      <VersionEditorComponent {...props} />
+    </EditorStackProvider>
+  );
+}
+
+export default memo(VersionEditorWithStack);

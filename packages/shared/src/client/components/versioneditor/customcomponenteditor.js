@@ -30,6 +30,7 @@ import { NodeSettingsMenu } from './nodesettingsmenu';
 import { FloatingPanel } from './floatingpanel';
 import { NodeLibraryTree } from './nodelibrarytree';
 import { TextDialog } from '../standard/textdialog';
+import { useEditorStack, useEditorFrameActivity } from './editorStackContext';
 
 const INPUT_NODE_ID = '__component_inputs__';
 const OUTPUT_NODE_ID = '__component_outputs__';
@@ -739,6 +740,7 @@ function SettingsModal({
 
 export function CustomComponentEditor({
   draft,
+  frameId,
   onClose,
   onSave,
   onNameChange,
@@ -781,6 +783,19 @@ export function CustomComponentEditor({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [initialFitDone, setInitialFitDone] = useState(false);
   const theme = defaultAppTheme;
+  const { updateFrame, getFrameById } = useEditorStack();
+  const activityMatch = useEditorFrameActivity(frameId || null);
+  const isActive = frameId ? activityMatch : true;
+  const frameSnapshot = useMemo(
+    () => (frameId ? getFrameById(frameId) : null),
+    [frameId, getFrameById],
+  );
+  const selectedNodeIDsRef = useRef([]);
+  const selectionChangeRef = useRef(onSelectionChange);
+
+  useEffect(() => {
+    selectionChangeRef.current = onSelectionChange;
+  }, [onSelectionChange]);
 
   const handleNodeClick = useCallback(
     (event, node) => {
@@ -788,27 +803,26 @@ export function CustomComponentEditor({
         return;
       }
       const isModifierClick = event?.shiftKey || event?.metaKey || event?.ctrlKey;
-      
+      const currentSelection = selectedNodeIDsRef.current;
       let nextSelection;
+
       if (isModifierClick) {
-        // Multi-select: toggle the node in the selection
-        if (selectedNodeIDs.includes(node.instanceID)) {
-          // Remove from selection
-          nextSelection = selectedNodeIDs.filter(id => id !== node.instanceID);
+        if (currentSelection.includes(node.instanceID)) {
+          nextSelection = currentSelection.filter((id) => id !== node.instanceID);
         } else {
-          // Add to selection
-          nextSelection = [...selectedNodeIDs, node.instanceID];
+          nextSelection = [...currentSelection, node.instanceID];
         }
       } else {
-        // Single select: replace selection with just this node
         nextSelection = [node.instanceID];
       }
-      
-      setSelectedNodeIDs((current) =>
-        areIdListsEqual(current, nextSelection) ? current : nextSelection,
-      );
-      onSelectionChange?.(nextSelection);
-      
+
+      if (areIdListsEqual(currentSelection, nextSelection)) {
+        return;
+      }
+
+      setSelectedNodeIDs(nextSelection);
+      selectionChangeRef.current?.(nextSelection);
+
       if (nextSelection.length > 0) {
         setInspectorState({ nodeID: nextSelection[0], mode: 'nodeDetails' });
         setInspectorOpen(true);
@@ -817,12 +831,15 @@ export function CustomComponentEditor({
         setInspectorOpen(false);
       }
     },
-    [onSelectionChange, selectedNodeIDs],
+    [setInspectorOpen, setInspectorState],
   );
 
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
+  useEffect(() => {
+    selectedNodeIDsRef.current = selectedNodeIDs;
+  }, [selectedNodeIDs]);
 
   const componentVersionInfo = useMemo(
     () => ({
@@ -844,16 +861,6 @@ export function CustomComponentEditor({
       },
     };
   }, [versionInfo, draft?.nodes]);
-
-  useEffect(() => {
-    if (!draft) {
-      setEdges([]);
-      return;
-    }
-    const internalEdges = buildInternalEdges(draft.nodes);
-    const exposureEdges = buildExposureEdges(draft);
-    setEdges([...internalEdges, ...exposureEdges]);
-  }, [draft, setEdges]);
 
   useEffect(() => {
     if (!draft) {
@@ -899,7 +906,6 @@ export function CustomComponentEditor({
 
   useEffect(() => {
     const ids = Array.isArray(draft?.selectedNodeIDs) ? draft.selectedNodeIDs : [];
-    console.log('#MULTISELECT draft selectedNodeIDs changed', ids);
     setSelectedNodeIDs((current) => (areIdListsEqual(current, ids) ? current : ids));
     if (ids.length > 0) {
       setInspectorState((previous) => {
@@ -946,6 +952,9 @@ export function CustomComponentEditor({
   }, [draft?.id]);
 
   const anchorBoundaryNodes = useCallback(() => {
+    if (!isActive) {
+      return;
+    }
     if (!reactFlowInstanceRef.current) {
       return;
     }
@@ -1013,9 +1022,12 @@ export function CustomComponentEditor({
       anchorGuardFrameRef.current = null;
       isAnchoringRef.current = false;
     });
-  }, [setGraphNodes, wrapperSize.height, wrapperSize.width]);
+  }, [isActive, setGraphNodes, wrapperSize.height, wrapperSize.width]);
 
   const scheduleAnchorBoundary = useCallback(() => {
+    if (!isActive) {
+      return;
+    }
     if (anchorFrameRef.current !== null) {
       return;
     }
@@ -1023,7 +1035,7 @@ export function CustomComponentEditor({
       anchorFrameRef.current = null;
       anchorBoundaryNodes();
     });
-  }, [anchorBoundaryNodes]);
+  }, [anchorBoundaryNodes, isActive]);
 
   useEffect(() => {
     if (!draft) {
@@ -1149,38 +1161,61 @@ export function CustomComponentEditor({
   );
 
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
     scheduleAnchorBoundary();
-  }, [scheduleAnchorBoundary, draft?.id]);
+  }, [draft?.id, isActive, scheduleAnchorBoundary]);
 
   const handleInit = useCallback(
     (instance) => {
       reactFlowInstanceRef.current = instance;
-      const initialViewport =
+      let initialViewport =
         typeof instance.getViewport === 'function'
           ? instance.getViewport()
           : { x: 0, y: 0, zoom: 1 };
+      if (frameSnapshot?.viewport) {
+        try {
+          if (typeof instance.setViewport === 'function') {
+            instance.setViewport(frameSnapshot.viewport, { duration: 0 });
+          }
+          initialViewport = frameSnapshot.viewport;
+          setInitialFitDone(true);
+        } catch (error) {
+          console.warn('CustomComponentEditor: unable to restore viewport', error);
+        }
+      }
       viewportRef.current = initialViewport;
       scheduleAnchorBoundary();
     },
-    [scheduleAnchorBoundary],
+    [frameSnapshot, scheduleAnchorBoundary],
   );
 
-  const handleMove = useCallback((_, nextViewport) => {
-    if (!nextViewport) {
-      return;
-    }
-    const previous = viewportRef.current;
-    if (viewportsAreClose(previous, nextViewport)) {
-      return;
-    }
-    viewportRef.current = nextViewport;
-    if (isAnchoringRef.current) {
-      return;
-    }
-    scheduleAnchorBoundary();
-  }, [scheduleAnchorBoundary]);
+  const handleMove = useCallback(
+    (_, nextViewport) => {
+      if (!isActive || !nextViewport) {
+        return;
+      }
+      const previous = viewportRef.current;
+      if (viewportsAreClose(previous, nextViewport)) {
+        return;
+      }
+      viewportRef.current = nextViewport;
+      if (frameId) {
+        updateFrame(frameId, { viewport: nextViewport });
+      }
+      if (isAnchoringRef.current) {
+        return;
+      }
+      scheduleAnchorBoundary();
+    },
+    [frameId, isActive, scheduleAnchorBoundary, updateFrame],
+  );
 
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
     const element = wrapperRef.current;
     if (!element) {
       return undefined;
@@ -1214,122 +1249,7 @@ export function CustomComponentEditor({
     }
 
     return undefined;
-  }, [scheduleAnchorBoundary, wrapperSize.height, wrapperSize.width]);
-
-  useEffect(() => {
-    if (!draft) {
-      setGraphNodes([]);
-      boundaryPositionsRef.current = { input: null, output: null };
-      scheduleAnchorBoundary();
-      return;
-    }
-
-    setGraphNodes((previous) => {
-      const previousPositions = new Map(previous.map((node) => [node.id, node.position]));
-      const layout = buildNodeLayout(draft.nodes || [], previousPositions);
-
-      const aggregatorOffset = 360;
-      const fallbackInput = {
-        x: (layout.bounds.minX ?? 0) - aggregatorOffset,
-        y: layout.bounds.midY ?? 0,
-      };
-      const fallbackOutput = {
-        x: (layout.bounds.maxX ?? 0) + aggregatorOffset,
-        y: layout.bounds.midY ?? 0,
-      };
-
-      if (!boundaryPositionsRef.current.input || !boundaryPositionsRef.current.output) {
-        boundaryPositionsRef.current = {
-          input: fallbackInput,
-          output: fallbackOutput,
-        };
-      }
-
-      const allowedInputHandles = new Set();
-      (draft.availableInputs || []).forEach((entry) => {
-        if (entry?.kind === 'event' && entry?.targetTrigger) {
-          allowedInputHandles.add(`trigger-${entry.targetTrigger}`);
-        } else if (entry?.kind === 'variable' && entry?.consumerVariable) {
-          allowedInputHandles.add(`variable-${entry.consumerVariable}`);
-        }
-      });
-
-      const allowedOutputHandles = new Set();
-      (draft.availableOutputs || []).forEach((entry) => {
-        if (entry?.producerOutput) {
-          allowedOutputHandles.add(`output-${entry.producerOutput}`);
-        }
-      });
-      (draft.availableEvents || []).forEach((entry) => {
-        if (entry?.producerEvent) {
-          allowedOutputHandles.add(`event-${entry.producerEvent}`);
-        }
-      });
-
-      const flowNodes = [
-        {
-          id: INPUT_NODE_ID,
-          type: 'componentBoundary',
-          position: boundaryPositionsRef.current.input,
-          selectable: false,
-          draggable: false,
-          focusable: false,
-          connectable: true,
-          data: {
-            orientation: 'input',
-            label: 'Inputs',
-            ghostText: 'Drag to connect inputs',
-            allowedHandleIds: Array.from(allowedInputHandles),
-          },
-        },
-        ...layout.nodes.map((entry) => {
-          const isSelected = selectionSet.has(entry.node.instanceID);
-          return {
-            id: entry.node.instanceID,
-            type: 'nodeGraphNode',
-            position: entry.position,
-            dragHandle: '.custom-drag-handle',
-            connectable: true,
-            selectable: true,
-            selected: isSelected,
-            data: {
-              versionInfo: componentVersionInfo,
-              node: entry.node,
-              theme,
-              readOnly,
-              onClicked: (event) => handleNodeClick(event, entry.node),
-              isSelected,
-            },
-          };
-        }),
-        {
-          id: OUTPUT_NODE_ID,
-          type: 'componentBoundary',
-          position: boundaryPositionsRef.current.output,
-          selectable: false,
-          draggable: false,
-          focusable: false,
-          connectable: true,
-          data: {
-            orientation: 'output',
-            label: 'Outputs',
-            ghostText: 'Connect node outputs here',
-            allowedHandleIds: Array.from(allowedOutputHandles),
-          },
-        },
-      ];
-      return flowNodes;
-    });
-    scheduleAnchorBoundary();
-  }, [
-    componentVersionInfo,
-    draft,
-    handleNodeClick,
-    readOnly,
-    scheduleAnchorBoundary,
-    setGraphNodes,
-    theme,
-  ]);
+  }, [isActive, scheduleAnchorBoundary, wrapperSize.height, wrapperSize.width]);
 
   const inputLookup = useMemo(() => buildInputLookup(draft), [draft]);
   const outputLookup = useMemo(() => buildOutputLookup(draft), [draft]);
@@ -1406,79 +1326,9 @@ export function CustomComponentEditor({
 
   const handleNodesChange = useCallback(
     (changes) => {
-      console.log(
-        '#MULTISELECT handleNodesChange received',
-        changes.map((change) => ({
-          type: change?.type,
-          id: change?.id,
-          selected: change?.selected,
-          position: change?.position,
-        })),
-      );
       internalOnNodesChange(changes);
-      if (!Array.isArray(changes) || changes.length === 0) {
-        console.log('#MULTISELECT handleNodesChange empty', changes);
-        return;
-      }
-
-      const selectChanges = changes.filter(
-        (change) =>
-          change?.type === 'select' &&
-          typeof change.id === 'string' &&
-          change.id !== INPUT_NODE_ID &&
-          change.id !== OUTPUT_NODE_ID,
-      );
-      if (selectChanges.length === 0) {
-        console.log('#MULTISELECT handleNodesChange no select changes');
-        return;
-      }
-
-      let nextSelection = null;
-      setSelectedNodeIDs((current) => {
-        const nextSet = new Set(current);
-        let dirty = false;
-
-        selectChanges.forEach(({ id, selected }) => {
-          if (selected) {
-            if (!nextSet.has(id)) {
-              nextSet.add(id);
-              dirty = true;
-            }
-          } else if (nextSet.has(id)) {
-            nextSet.delete(id);
-            dirty = true;
-          }
-        });
-
-        if (!dirty) {
-          return current;
-        }
-
-        const nextIds = Array.from(nextSet);
-        nextSelection = nextIds;
-        console.log('#MULTISELECT handleNodesChange updating selection', {
-          previous: current,
-          next: nextIds,
-        });
-        return nextIds;
-      });
-
-      if (!nextSelection) {
-        console.log('#MULTISELECT handleNodesChange no selection delta');
-        return;
-      }
-
-      onSelectionChange?.(nextSelection);
-      if (nextSelection.length > 0) {
-        console.log('#MULTISELECT handleNodesChange notifying selection', nextSelection);
-        setInspectorState({ nodeID: nextSelection[0], mode: 'nodeDetails' });
-        setInspectorOpen(true);
-      } else {
-        console.log('#MULTISELECT handleNodesChange cleared selection');
-        setInspectorState(null);
-      }
     },
-    [internalOnNodesChange, onSelectionChange, setInspectorOpen, setInspectorState],
+    [internalOnNodesChange],
   );
 
   const removeEdges = useCallback(
@@ -1536,7 +1386,7 @@ export function CustomComponentEditor({
       setSelectedNodeIDs((current) =>
         areIdListsEqual(current, nextSelected) ? current : nextSelected,
       );
-      onSelectionChange?.(nextSelected);
+      selectionChangeRef.current?.(nextSelected);
       if (nextSelected.length > 0) {
         setInspectorState({ nodeID: nextSelected[0], mode: 'nodeDetails' });
         setInspectorOpen(true);
@@ -1561,7 +1411,6 @@ export function CustomComponentEditor({
     },
     [
       draft?.nodes,
-      onSelectionChange,
       readOnly,
       selectedNodeIDs,
       setEdgeMenu,
@@ -1589,7 +1438,7 @@ export function CustomComponentEditor({
       setSelectedNodeIDs((current) =>
         areIdListsEqual(current, selectionIds) ? current : selectionIds,
       );
-      onSelectionChange?.(selectionIds);
+      selectionChangeRef.current?.(selectionIds);
       if (selectionIds.length > 0) {
         setInspectorState({ nodeID: selectionIds[0], mode: 'nodeDetails' });
         setInspectorOpen(true);
@@ -1613,7 +1462,6 @@ export function CustomComponentEditor({
     },
     [
       draft?.nodes,
-      onSelectionChange,
       readOnly,
       setEdgeMenu,
       setInspectorOpen,
@@ -1627,8 +1475,12 @@ export function CustomComponentEditor({
       paneDragStartRef.current = null;
       return;
     }
+    if (selectedNodeIDsRef.current.length === 0) {
+      paneDragStartRef.current = null;
+      return;
+    }
     setSelectedNodeIDs((current) => (current.length === 0 ? current : []));
-    onSelectionChange?.([]);
+    selectionChangeRef.current?.([]);
     setGraphNodes((nodes) =>
       nodes.map((graphNode) => {
         if (!graphNode.selected && !graphNode.data?.isSelected) {
@@ -1645,7 +1497,7 @@ export function CustomComponentEditor({
       }),
     );
     paneDragStartRef.current = null;
-  }, [onSelectionChange, readOnly, setGraphNodes]);
+  }, [readOnly, setGraphNodes]);
 
   const handlePaneMouseDownCapture = useCallback(
     (event) => {
@@ -1658,15 +1510,6 @@ export function CustomComponentEditor({
         paneDragStartRef.current = null;
         return;
       }
-      if (!target.classList.contains('react-flow__pane')) {
-        console.log('#MULTISELECT handlePaneMouseDownCapture non-pane target', target.className);
-      } else {
-        console.log('#MULTISELECT handlePaneMouseDownCapture start on pane');
-      }
-      console.log('#MULTISELECT handlePaneMouseDownCapture position', {
-        x: event.clientX,
-        y: event.clientY,
-      });
       paneDragStartRef.current = {
         x: event.clientX,
         y: event.clientY,
@@ -1687,7 +1530,6 @@ export function CustomComponentEditor({
       }
 
       if (skipNextPaneClearRef.current) {
-        console.log('#MULTISELECT handlePaneClick skip clear (selection drag)');
         skipNextPaneClearRef.current = false;
         paneDragStartRef.current = null;
         return;
@@ -1696,19 +1538,15 @@ export function CustomComponentEditor({
       if (paneDragStartRef.current && event) {
         const deltaX = Math.abs(event.clientX - paneDragStartRef.current.x);
         const deltaY = Math.abs(event.clientY - paneDragStartRef.current.y);
-        console.log('#MULTISELECT handlePaneClick with drag', { deltaX, deltaY });
         paneDragStartRef.current = null;
         if (deltaX > SELECTION_DRAG_THRESHOLD || deltaY > SELECTION_DRAG_THRESHOLD) {
-          console.log('#MULTISELECT handlePaneClick skipping clear (drag detected)');
           skipNextPaneClearRef.current = false;
           return;
         }
       } else {
-        console.log('#MULTISELECT handlePaneClick clearing (no drag start)');
         paneDragStartRef.current = null;
       }
 
-      console.log('#MULTISELECT handlePaneClick clearing selection');
       clearSelection();
     },
     [clearSelection, readOnly],
@@ -1739,10 +1577,16 @@ export function CustomComponentEditor({
           node.id !== INPUT_NODE_ID && node.id !== OUTPUT_NODE_ID && node.selectable !== false,
       )
       .map((node) => node.id);
+    if (areIdListsEqual(selectedNodeIDsRef.current, selectableIds)) {
+      paneDragStartRef.current = null;
+      setNodeMenu(null);
+      setPaneMenu(null);
+      return;
+    }
     setSelectedNodeIDs((current) =>
       areIdListsEqual(current, selectableIds) ? current : selectableIds,
     );
-    onSelectionChange?.(selectableIds);
+    selectionChangeRef.current?.(selectableIds);
     if (selectableIds.length > 0) {
       setInspectorState({ nodeID: selectableIds[0], mode: 'nodeDetails' });
       setInspectorOpen(true);
@@ -1752,7 +1596,7 @@ export function CustomComponentEditor({
     paneDragStartRef.current = null;
     setNodeMenu(null);
     setPaneMenu(null);
-  }, [graphNodes, onSelectionChange, readOnly]);
+  }, [graphNodes, readOnly]);
 
   const handleDeleteSelectedNodes = useCallback(() => {
     if (readOnly) {
@@ -2031,13 +1875,16 @@ export function CustomComponentEditor({
 
   const handleSelectionChange = useCallback(
     ({ nodes: selected = [] } = {}) => {
+      if (!isActive) {
+        return;
+      }
       const ids = Array.isArray(selected) ? selected.map((item) => item.id) : [];
-      console.log('#MULTISELECT handleSelectionChange', {
-        selectedIds: ids,
-        rawSelection: selected,
-      });
-      setSelectedNodeIDs((current) => (areIdListsEqual(current, ids) ? current : ids));
-      onSelectionChange?.(ids);
+      const currentSelection = selectedNodeIDsRef.current;
+      if (areIdListsEqual(currentSelection, ids)) {
+        return;
+      }
+      setSelectedNodeIDs(ids);
+      selectionChangeRef.current?.(ids);
       if (ids.length > 0) {
         setInspectorState({ nodeID: ids[0], mode: 'nodeDetails' });
         setInspectorOpen(true);
@@ -2045,7 +1892,7 @@ export function CustomComponentEditor({
         setInspectorState(null);
       }
     },
-    [onSelectionChange],
+    [isActive, setInspectorOpen, setInspectorState],
   );
 
   const renderInstructions = (
@@ -2135,7 +1982,7 @@ export function CustomComponentEditor({
   );
 
   useEffect(() => {
-    if (!reactFlowInstanceRef.current) {
+    if (!isActive || !reactFlowInstanceRef.current) {
       return;
     }
     if (!graphNodes.length) {
@@ -2152,7 +1999,7 @@ export function CustomComponentEditor({
       }
       setInitialFitDone(true);
     });
-  }, [graphNodes, initialFitDone]);
+  }, [graphNodes, initialFitDone, isActive]);
 
   if (!draft) {
     return null;
@@ -2248,18 +2095,10 @@ export function CustomComponentEditor({
                 selectionOnDrag
                 selectionMode="partial"
                 selectionKeyCode={null}
-                onSelectionStart={(event) => {
-                  console.log('#MULTISELECT onSelectionStart', {
-                    x: event.clientX,
-                    y: event.clientY,
-                  });
+                onSelectionStart={() => {
                   skipNextPaneClearRef.current = true;
                 }}
-                onSelectionEnd={(event) => {
-                  console.log('#MULTISELECT onSelectionEnd', {
-                    x: event?.clientX,
-                    y: event?.clientY,
-                  });
+                onSelectionEnd={() => {
                   skipNextPaneClearRef.current = true;
                 }}
                 autoPanOnConnect

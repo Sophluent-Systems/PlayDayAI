@@ -70,7 +70,7 @@ async function handle(req, res) {
     if (!gameInfo) {
       res.status(403).json({
         error: {
-          message: `Game ID ${gameID} could not be found.`,
+          message: `Game ID ${session.gameID} could not be found.`,
         }
       });
       return;

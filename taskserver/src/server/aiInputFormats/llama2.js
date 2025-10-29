@@ -1,9 +1,9 @@
 import { 
   generateInstructionsFromPromptParameters,
-  addInstructionsToLastMessage,
   generateMessageArrayWithInstructions,
 } from "./common";
 import { getMostRecentMessageOfType } from "@src/common/messages";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
 
 const roleTranslations = {
    'user' : 'user',

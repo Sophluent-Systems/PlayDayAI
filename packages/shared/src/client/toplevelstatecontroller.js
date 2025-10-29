@@ -42,7 +42,7 @@ const ROUTE_TITLE_PREFIX = {
 const DEFAULT_APP_TITLE = 'Play Day.AI';
 
 
-export function topLevelStateController(props) {
+export function useTopLevelStateController(props) {
     const { Constants } = useConfig();
     const router = useLegacyRouter();
     const redirectToAuthRoute = useCallback((path) => {

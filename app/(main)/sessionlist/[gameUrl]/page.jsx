@@ -56,6 +56,8 @@ export default function SessionListPage() {
   const [isFetchingSessions, setIsFetchingSessions] = useState(false);
   const [fetchError, setFetchError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const gameID = game?.gameID ?? null;
+  const versionID = version?.versionID ?? null;
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -72,7 +74,7 @@ export default function SessionListPage() {
   }, [setViewportHeight]);
 
   useEffect(() => {
-    if (!game || !version) {
+    if (!gameID || !versionID) {
       setSessions([]);
       setSelectedSessionID(null);
       setFetchError(null);
@@ -86,7 +88,7 @@ export default function SessionListPage() {
       setIsFetchingSessions(true);
       setFetchError(null);
       try {
-        const sessionList = await callGetAllSessionsForGame(game.gameID, version.versionID);
+        const sessionList = await callGetAllSessionsForGame(gameID, versionID);
         if (isCancelled) {
           return;
         }
@@ -122,7 +124,7 @@ export default function SessionListPage() {
     return () => {
       isCancelled = true;
     };
-  }, [game?.gameID, version?.versionID, reloadToken]);
+  }, [gameID, versionID, reloadToken]);
 
   const selectedSession = useMemo(
     () => sessions.find((entry) => entry.sessionID === selectedSessionID) ?? null,

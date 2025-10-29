@@ -954,7 +954,7 @@ const handleAudioStateChange = (audioType, newState) => {
 
     return (
       <div className="mx-auto w-full max-w-3xl rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-center text-xs font-semibold uppercase tracking-[0.35em] text-amber-200 shadow-inner">
-        The AI is responding slowly to PlayDay's requests.
+        The AI is responding slowly to PlayDay&apos;s requests.
       </div>
     );
   }  const versionString = version?.versionName ? `Version: ${version.versionName}` : ``;

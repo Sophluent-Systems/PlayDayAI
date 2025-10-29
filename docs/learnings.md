@@ -14,3 +14,7 @@
 - Selection fan-out currently happens twice (`handleNodesChange` and `handleSelectionChange` both emit) in `packages/shared/src/client/components/versioneditor/customcomponenteditor.js:1292` and `packages/shared/src/client/components/versioneditor/customcomponenteditor.js:1917`, which doubles render work and complicates future instrumentation.
 - The node rebuild effect depends on `handleNodeClick` (`packages/shared/src/client/components/versioneditor/customcomponenteditor.js:785`), so every selection change rebuilds the entire node array; stabilizing the handler with functional state updates lets us limit ReactFlow churn when editors layer.
 - When parent re-renders replace the child selection handler via ref storage (`selectionChangeRef.current`) so ReactFlow’s selection events don’t keep emitting identical updates; otherwise every node rebuild feeds back into the parent stack reducer and redials the infinite loop.
+
+## Hooks & Linting Consistency
+- Avoid early returns before declaring hooks in shared components; guard logic inside the hook instead so the call order stays stable for both SSR and client renders (e.g., restructure useSpeechDetection, DialogShell, and version editor sidebars).
+- For shared hooks that run on the server, call hooks unconditionally and gate DOM-only logic with runtime guards rather than returning before hook initialization.

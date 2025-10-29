@@ -2,6 +2,65 @@ import { v4 as uuidv4 } from 'uuid';
 import { Config } from "@src/backend/config";
 import { COMPAT_generateUpdatesForVersion } from './backcompat';
 
+function coerceTokenLimit(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return null;
+    }
+    return Math.floor(parsed);
+}
+
+function findUserTokenLimit(stateMachineDescription) {
+    const { Constants } = Config;
+    const defaultLimit = Constants?.defaults?.userTokenLimit ?? null;
+
+    if (!stateMachineDescription || typeof stateMachineDescription !== 'object') {
+        return defaultLimit;
+    }
+
+    const limits = [];
+
+    const visitNodes = (nodes) => {
+        if (!Array.isArray(nodes)) {
+            return;
+        }
+        nodes.forEach((node) => {
+            const params = node?.params ?? {};
+            const directLimit = coerceTokenLimit(params.tokenLimit);
+            if (directLimit !== null) {
+                limits.push(directLimit);
+            }
+
+            const nestedLimit = coerceTokenLimit(params?.promptParameters?.userTokenLimit);
+            if (nestedLimit !== null) {
+                limits.push(nestedLimit);
+            }
+
+            if (Array.isArray(node?.nodes)) {
+                visitNodes(node.nodes);
+            }
+        });
+    };
+
+    visitNodes(stateMachineDescription.nodes);
+
+    if (Array.isArray(stateMachineDescription.customComponents)) {
+        stateMachineDescription.customComponents.forEach((component) => {
+            if (component?.stateMachineDescription) {
+                visitNodes(component.stateMachineDescription.nodes);
+            } else if (Array.isArray(component?.nodes)) {
+                visitNodes(component.nodes);
+            }
+        });
+    }
+
+    if (limits.length === 0) {
+        return defaultLimit;
+    }
+
+    return Math.min(...limits);
+}
+
 export async function addGameVersion(db, gameID, versionName, initialState) {
     const { Constants } = Config;
     console.log('addGameVersion:', versionName)
@@ -187,7 +246,7 @@ export async function deleteGameVersion(db, gameID, versionName) {
       await coll.deleteOne({gameID: gameID, versionName: versionName});
       return true;
     } catch (error) {
-      console.error('Error deleting game verseion', verionName, ': ', error);
+      console.error('Error deleting game version', versionName, ': ', error);
       throw error;
     }
 }

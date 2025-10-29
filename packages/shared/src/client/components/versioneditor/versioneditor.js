@@ -538,10 +538,10 @@ const globalOptions = [
     tooltip: "Make this version accessible to users?",
   },
   {
-    label: "Bill App's AI Keys for All Users",
+    label: "Bill app&apos;s AI Keys for All Users",
     type: "checkbox",
     path: "alwaysUseBuiltInKeys",
-    tooltip: "Allow all users to use the app's AI keys (you'll be billed for usage)",
+    tooltip: "Allow all users to use the app&apos;s AI keys (You&apos;ll be billed for usage)",
   },
 ];
 
@@ -635,9 +635,6 @@ function extractTimestamp(dateLike) {
 }
 
 function DialogShell({ open, onClose, title, description, children, actions, maxWidth = "max-w-lg", tone = "light" }) {
-  if (!open) {
-    return null;
-  }
   useEffect(() => {
     if (!open) {
       return;
@@ -654,6 +651,10 @@ function DialogShell({ open, onClose, title, description, children, actions, max
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [open, onClose]);
+
+  if (!open) {
+    return null;
+  }
 
   const isDarkTone = tone === "dark";
   const containerClasses = `relative w-full ${maxWidth} rounded-2xl border p-6 shadow-xl ${isDarkTone ? 'bg-slate-950/95 text-slate-100 border-white/10' : 'bg-white text-slate-900 border-slate-200'}`;
@@ -4248,7 +4249,7 @@ const handleCancelDelete = () => {
             Require users to provide their own keys (Recommended)
           </button>
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Users get billed for their usage. If they don't configure API keys, your app will fail for them. You won't be billed for their usage.
+            Users get billed for their usage. If they don&apos;t configure API keys, your app will fail for them. You won&apos;t be billed for their usage.
           </p>
           <button
             type="button"
@@ -4262,14 +4263,14 @@ const handleCancelDelete = () => {
             Your API keys are billed for all usage (Caution)
           </button>
           <p className="text-sm text-rose-600 dark:text-rose-400">
-            Warning: Users will use the API keys configured in your app's settings. You'll be billed for all users' API calls. This can lead to significant costs if not managed carefully.
+            Warning: Users will use the API keys configured in your app&apos;s settings. You&apos;ll be billed for all users&apos; API calls. This can lead to significant costs if not managed carefully.
           </p>
         </div>
       </DialogShell>
       <DialogShell
         open={useAppKeysDialogOpen}
         onClose={() => setUseAppKeysDialogOpen(false)}
-        title="Warning: Using App's AI Keys"
+        title="Warning: Using app&apos;s AI Keys"
         actions={
           <>
             <button
@@ -4296,10 +4297,10 @@ const handleCancelDelete = () => {
         }
       >
         <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
-          <p>You've chosen to use the app's AI keys for all users. This means:</p>
+          <p>You&apos;ve chosen to use the app&apos;s AI keys for all users. This means:</p>
           <ul className="list-disc space-y-1 pl-5">
             <li>All API calls will be billed to your account.</li>
-            <li>Users won't need to provide their own API keys.</li>
+            <li>Users won&apos;t need to provide their own API keys.</li>
             <li>Your costs may increase significantly based on usage.</li>
           </ul>
           <p>Please ensure you have appropriate access controls and usage limits in place to prevent unexpected charges.</p>

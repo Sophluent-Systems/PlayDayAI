@@ -33,20 +33,7 @@ export const defaultSpeechRecorderConfig = {
 }
 
 export const useSpeechDetection = (config = {}) => {
-if (typeof window === 'undefined') {
-    // Early return or mock the hook's API if on the server
-    return {
-    recording: false,
-    speaking: false,
-    listeningForSpeech: false,
-    soundDetected: false,
-    mostRecentSpeakingDuration: 0,
-    longestSilenceDuration: 0,
-    audioInfo: {},
-    startRecording: () => {},
-    stopRecording: () => {},
-    };
-}
+  const isServer = typeof window === 'undefined';
 
   const {
     onlyRecordOnSpeaking,
@@ -219,6 +206,9 @@ if (typeof window === 'undefined') {
    * start speech recording and start listen for speaking event
    */
   const startRecording = async () => {
+    if (isServer) {
+      return;
+    }
     await onStartRecording()
   }
 
@@ -246,6 +236,9 @@ const cancelFinalDataCallback = () => {
    * stop speech recording 
    */
   const stopRecording = async () => {
+    if (isServer) {
+      return;
+    }
     if ((!onlyRecordOnSpeaking || speakingRef.current) && chunks.current.length > 0) {
       waitingForFinalChunk.current = true;
       setSpeakingState('getting_final_chunk');

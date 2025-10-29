@@ -87,7 +87,6 @@ const AudioPlayer = ({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, getBlobForStorageSource, preferImmediateSrc]);
 
   // Playback rate & volume updates.
@@ -174,7 +173,6 @@ const AudioPlayer = ({
     });
 
     return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolved.url, playOnLoad]);
 
   // Events wiring.

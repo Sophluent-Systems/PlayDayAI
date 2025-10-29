@@ -1,9 +1,9 @@
 import { 
   generateInstructionsFromPromptParameters,
-  addInstructionsToLastMessage,
   generateMessageArrayWithInstructions,
 } from "./common";
 import { getMostRecentMessageOfType } from "@src/common/messages";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
 
 const roleTranslations = {
   'user' : 'USER:',
@@ -20,8 +20,8 @@ function generateMessageHistoryPrompt(promptParameters, messages) {
   if (!nullUndefinedOrEmpty(promptParameters.outputFormatInstructions)) {
     systemMessage += "\n\n" + `${promptParameters.outputFormatInstructions}`;
   }
-    const lastUserMessageIndex = getMostRecentMessageOfType(messages, ['user']);
-    let turnInstructions = generateInstructionsFromPromptParameters(promptParameters, (lastUserMessageIndex == -1));
+  const lastUserMessageIndex = getMostRecentMessageOfType(messages, ['user']);
+  const turnInstructions = generateInstructionsFromPromptParameters(promptParameters, (lastUserMessageIndex == -1));
     
   const promptMessages = generateMessageArrayWithInstructions({
     messages: messages, 
@@ -31,13 +31,18 @@ function generateMessageHistoryPrompt(promptParameters, messages) {
     turnInstructions,
   });
 
-    let prompt = `INPUT: {
-        "previousMessages": ${JSON.stringify(finalMessageList)},
-    }
-    
-    `;
+  const finalMessageList = promptMessages.map(({ role, content }) => ({
+    role,
+    content,
+  }));
 
-    return prompt;
+  const promptPayload = {
+    previousMessages: finalMessageList,
+  };
+
+  const prompt = `INPUT: ${JSON.stringify(promptPayload, null, 2)}\n`;
+
+  return prompt;
 }
 
 

@@ -55,17 +55,17 @@ export function NodeSettingsMenu(params) {
   const [warningTitle, setWarningTitle] = useState(null);
   const onConfirmRef = useRef(null);
 
-  if (!node) {
-    return null;
-  }
-
-  const menu = nodeTypeMenus[node.nodeType];
-  const isCustomComponent = node.nodeType === "customComponent";
+  const nodeType = node?.nodeType ?? null;
+  const menu = nodeType ? nodeTypeMenus[nodeType] : null;
+  const isCustomComponent = nodeType === "customComponent";
   const [showAdvanced, setShowAdvanced] = useState(() => !isCustomComponent);
 
   useEffect(() => {
+    if (!node) {
+      return;
+    }
     setShowAdvanced(!isCustomComponent);
-  }, [isCustomComponent, node.instanceID]);
+  }, [isCustomComponent, node?.instanceID]);
 
   const onVariableChanged = (object, relativePath, newValue) => {
     onChange?.(object, relativePath, newValue);
@@ -202,10 +202,10 @@ export function NodeSettingsMenu(params) {
     </React.Fragment>
   );
 
-  const componentMetadata = node.params?.metadata || {};
-  const componentName = componentMetadata.componentName || node.instanceName || "Custom Component";
-  const componentID = node.params?.componentID || "Unassigned";
-  const componentVersion = node.params?.version;
+  const componentMetadata = node?.params?.metadata || {};
+  const componentName = componentMetadata.componentName || node?.instanceName || "Custom Component";
+  const componentID = node?.params?.componentID || "Unassigned";
+  const componentVersion = node?.params?.version;
   let componentVersionLabel = "Unversioned";
   if (typeof componentVersion === "string" && componentVersion.trim().length > 0) {
     componentVersionLabel = componentVersion;
@@ -217,7 +217,7 @@ export function NodeSettingsMenu(params) {
   }
 
   const customComponentBasicsMenu = React.useMemo(() => {
-    if (!isCustomComponent) {
+    if (!isCustomComponent || !node) {
       return null;
     }
     return [
@@ -237,7 +237,11 @@ export function NodeSettingsMenu(params) {
         ],
       },
     ];
-  }, [isCustomComponent, node.instanceName]);
+  }, [isCustomComponent, node?.instanceName]);
+
+  if (!node || !menu) {
+    return null;
+  }
 
   return (
     <React.Fragment>

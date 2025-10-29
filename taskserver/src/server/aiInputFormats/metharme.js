@@ -3,6 +3,7 @@ import {
   generateMessageArrayWithInstructions,
 } from "./common";
 import { getMostRecentMessageOfType } from "@src/common/messages";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
 
 
 const roleTranslations = {
@@ -31,20 +32,12 @@ function generateMessageHistoryPrompt(promptParameters, messages) {
   let prompt = `<|system|>${promptParameters.identity.name} - ${promptParameters.identity.description}` + "\n\n" + promptParameters.context + "\n\n";
 
   if (!nullUndefinedOrEmpty(promptParameters.outputFormatInstructions)) {
-    newPrompt += `${promptParameters.outputFormatInstructions}` + "\n\n";
+    prompt += `${promptParameters.outputFormatInstructions}` + "\n\n";
   }
-
-  const mostRecentUserMessageIndex = getMostRecentMessageOfType(messages, ['user', 'assistant'], -1);
 
   if (promptMessages.length > 0) {
       prompt += "The following is a chat below between USER (the player) and ASSISTANT (the game):\n"; 
-      prompt += promptMessages.map((message, index) => {
-        if (index == mostRecentUserMessageIndex) {
-          return `${message.role == 'user' ? '<|user|>' : '<|model|>'}${message.content["text"]}`;
-        } else {
-          return `${message.role} ${message.content["text"]}`;
-        }
-      }).join('\n');
+      prompt += promptMessages.map(({ role, content }) => `${role}${content}`).join('\n');
   }
 
 

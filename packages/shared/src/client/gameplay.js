@@ -156,7 +156,7 @@ export async function callStartNewGame(url, version) {
             },
             body: JSON.stringify(params),
             });
-        const data = await response.json(params);
+        const data = await response.json();
         if (response.status !== 200) {
             const errorMessage = data.error || `Request failed with status ${response.status}`;
             throw errorMessage;
@@ -181,6 +181,7 @@ export async function callDeleteGameSession(sessionID) {
             },
             body: JSON.stringify({sessionID: sessionID}),
             });
+        const data = await response.json();
         if (response.status !== 200) {
             const errorMessage = data.error || `Request failed with status ${response.status}`;
             throw errorMessage;

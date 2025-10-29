@@ -357,6 +357,7 @@ export default function TrainingDataPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
   const [hasBootstrappedVersions, setHasBootstrappedVersions] = useState(false);
+  const gameID = game?.gameID ?? null;
 
   useEffect(() => {
     const names = Array.isArray(versionList) ? versionList.map((version) => version.versionName) : [];
@@ -416,7 +417,7 @@ export default function TrainingDataPage() {
   );
 
   useEffect(() => {
-    if (!game) {
+    if (!gameID) {
       return;
     }
 
@@ -444,7 +445,7 @@ export default function TrainingDataPage() {
           requestType: selectedRequestTypes,
         };
 
-        let result = await callGetTrainingData(game.gameID, filters);
+        let result = await callGetTrainingData(gameID, filters);
         if (isCancelled) {
           return;
         }
@@ -473,7 +474,7 @@ export default function TrainingDataPage() {
       isCancelled = true;
     };
   }, [
-    game?.gameID,
+    gameID,
     versionLookup,
     selectedVersions,
     selectedRequestTypes,
@@ -849,7 +850,6 @@ export default function TrainingDataPage() {
     </PageContainer>
   );
 }
-
 
 
 

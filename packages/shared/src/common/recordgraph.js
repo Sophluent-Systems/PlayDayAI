@@ -430,6 +430,8 @@ export class RecordGraph {
 
         this.clearAttributeForAllNodes("checkedForAllChildrenConsumed");
 
+        let allChildrenConsumed = true;
+
         for (let i = 0; i < recordEntry.parents.length; i++) {
             const inputRecord = recordEntry.parents[i];
             if (!this.getAttribute(inputRecord.record.recordID, "consumed")) {

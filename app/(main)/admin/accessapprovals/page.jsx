@@ -267,7 +267,6 @@ export default function Home() {
       for (let index = 0; index < accessRequests.length; index += 1) {
         const request = accessRequests[index];
         if (request?.preferences?.accessRequestStatus !== 'approved') {
-          // eslint-disable-next-line no-await-in-loop
           await approveRequest(index);
         }
       }
@@ -283,7 +282,6 @@ export default function Home() {
       for (let index = 0; index < accessRequests.length; index += 1) {
         const request = accessRequests[index];
         if (request?.preferences?.accessRequestStatus === 'requested') {
-          // eslint-disable-next-line no-await-in-loop
           await denyRequest(index);
         }
       }
@@ -558,7 +556,6 @@ export default function Home() {
     </RequireAuthentication>
   );
 }
-
 
 
 

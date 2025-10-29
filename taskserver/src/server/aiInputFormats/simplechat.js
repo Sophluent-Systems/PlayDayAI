@@ -3,6 +3,7 @@ import {
   generateMessageArrayWithInstructions,
 } from "./common";
 import { getMostRecentMessageOfType } from "@src/common/messages";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
 
 
 const roleTranslations = {
@@ -32,16 +33,10 @@ function generateMessageHistoryPrompt(promptParameters, messages) {
 
   if (promptMessages.length > 0) {
       prompt += "The following is a chat below between USER (the player) and ASSISTANT (the game):\n"; 
-      prompt += promptMessages.map((message) => `${message.role} ${message.content["text"]}`).join('\n');
+      prompt += promptMessages.map((message) => `${message.role} ${message.content}`).join('\n');
   }
 
-  const mostRecentUserMessageIndex = getMostRecentMessageOfType(messages, ['user', 'assistant'], -1);
-
   prompt += "\n\n";
-  //if (mostRecentUserMessageIndex == -1 || messages[mostRecentUserMessageIndex].role == 'assistant') {
-  //  prompt += "USER: ";
-  //} 
-
   prompt += turnInstructions + "\n\nASSISTANT:";
 
   return prompt;

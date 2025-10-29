@@ -826,3 +826,5 @@ const renderSpinner = (key, label) => (
     </div>
   );
 });
+
+ChatCard.displayName = 'ChatCard';

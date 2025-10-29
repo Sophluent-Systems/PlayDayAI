@@ -495,10 +495,11 @@ const NodeGraphNode = memo((props) => {
 
 });
 
+NodeGraphNode.displayName = 'NodeGraphNode';
+
 
 
 export default NodeGraphNode;
-
 
 
 

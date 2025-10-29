@@ -810,7 +810,7 @@ export default function HomePage() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-3xl font-semibold text-emphasis">Your projects</h2>
-                <p className="text-sm text-muted">Stay focused on the experiences you're actively shaping.</p>
+                <p className="text-sm text-muted">Stay focused on the experiences you&apos;re actively shaping.</p>
               </div>
               {isCreator && hasPersonalProjects ? (
                 <SecondaryButton icon={Plus} onClick={() => setAddDialogOpen(true)}>
@@ -936,6 +936,5 @@ export default function HomePage() {
     </RequireAccount>
   );
 }
-
 
 

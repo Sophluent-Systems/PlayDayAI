@@ -32,10 +32,10 @@ export default function Home() {
   const [newCodeNotes, setNewCodeNotes] = useState('');
   const [toast, setToast] = useState({ open: false, tone: 'info', message: '' });
 
-  const showToast = (tone, message) => setToast({ open: true, tone, message });
+  const showToast = React.useCallback((tone, message) => setToast({ open: true, tone, message }), []);
   const closeToast = () => setToast((prev) => ({ ...prev, open: false }));
 
-  const refreshCodes = async () => {
+  const refreshCodes = React.useCallback(async () => {
     setLoadingCodes(true);
     try {
       const response = await callLookupCodes(true);
@@ -46,7 +46,7 @@ export default function Home() {
     } finally {
       setLoadingCodes(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
     if (!loading && account && hasServicePerms('service_modifyGlobalPermissions')) {
@@ -54,7 +54,7 @@ export default function Home() {
     } else if (!loading && account && !hasServicePerms('service_modifyGlobalPermissions')) {
       showToast('error', 'You do not have permission to view this page.');
     }
-  }, [loading, account, hasServicePerms]);
+  }, [loading, account, hasServicePerms, refreshCodes, showToast]);
 
   const handleCreateCode = async () => {
     if (!newCodePurpose) {

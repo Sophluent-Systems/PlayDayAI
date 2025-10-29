@@ -86,16 +86,12 @@ const groupedTemplates = buildGroupedTemplates();
 const headerTextClass = "text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400/90";
 
 export const DragDropSidebar = ({ theme, versionInfo, readOnly }) => {
-  const nodes = versionInfo.stateMachineDescription.nodes;
+  const nodes = versionInfo?.stateMachineDescription?.nodes ?? [];
 
   const handleDragStart = (event, payload) => {
     event.dataTransfer.setData("application/reactflow", JSON.stringify(payload));
     event.dataTransfer.effectAllowed = "move";
   };
-
-  if (!nodes) {
-    return null;
-  }
 
   const initialCollapsedState = React.useMemo(() => {
     const state = { existing: false };

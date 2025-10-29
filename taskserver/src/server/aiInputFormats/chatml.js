@@ -1,9 +1,9 @@
 import { 
   generateInstructionsFromPromptParameters,
-  addInstructionsToLastMessage,
   generateMessageArrayWithInstructions,
 } from "./common";
 import { getMostRecentMessageOfType } from "@src/common/messages";
+import { nullUndefinedOrEmpty } from "@src/common/objects";
 
 const roleTranslations = {
    'user' : 'user',
@@ -40,7 +40,7 @@ export function generateMessageHistoryPrompt(promptParameters, messages) {
   if (!nullUndefinedOrEmpty(promptParameters.outputFormatInstructions)) {
     newPrompt += "\n\n" + `${promptParameters.outputFormatInstructions}`;
   }
-  newPrompt += + "<|im_end|>\n";
+  newPrompt += "<|im_end|>\n";
 
   for (let j = 0; j < promptMessages.length; j++) {
     const { content, role } = promptMessages[j];

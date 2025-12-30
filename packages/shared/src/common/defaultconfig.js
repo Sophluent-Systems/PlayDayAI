@@ -14,6 +14,29 @@ const defaultConstantsJSON = `
     "defaults": {
         "userTokenLimit": 100
     },
+    "customComponents": {
+        "allowNested": true,
+        "maxNestingDepth": 5,
+        "defaultPalette": "personal",
+        "ghostPill": {
+            "width": 72,
+            "height": 28,
+            "gap": 12
+        },
+        "publishRoles": [
+            "admin"
+        ],
+        "libraries": {
+            "personal": {
+                "label": "My Components",
+                "mutable": true
+            },
+            "shared": {
+                "label": "Shared",
+                "mutable": false
+            }
+        }
+    },
     "privateVersionFields": [
         "params.serverUrl",
         "params.apiKey"

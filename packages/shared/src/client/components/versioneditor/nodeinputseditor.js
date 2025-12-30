@@ -265,7 +265,7 @@ export function NodeInputsEditor({ readOnly, node, onChange, nodes, producerNode
           })
         ) : (
           <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
-            No inputs configured yet. Click "Add input" to connect this node.
+            No inputs configured yet. Click &quot;Add input&quot; to connect this node.
           </div>
         )}
         </div>

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { NodeInputsEditor } from "./nodeinputseditor";
 import { SettingsMenu } from "@src/client/components/settingsmenus/settingsmenu";
 import { nodeTypeMenus } from "./nodetypemenus.js";
@@ -55,11 +55,17 @@ export function NodeSettingsMenu(params) {
   const [warningTitle, setWarningTitle] = useState(null);
   const onConfirmRef = useRef(null);
 
-  if (!node) {
-    return null;
-  }
+  const nodeType = node?.nodeType ?? null;
+  const menu = nodeType ? nodeTypeMenus[nodeType] : null;
+  const isCustomComponent = nodeType === "customComponent";
+  const [showAdvanced, setShowAdvanced] = useState(() => !isCustomComponent);
 
-  const menu = nodeTypeMenus[node.nodeType];
+  useEffect(() => {
+    if (!node) {
+      return;
+    }
+    setShowAdvanced(!isCustomComponent);
+  }, [isCustomComponent, node?.instanceID]);
 
   const onVariableChanged = (object, relativePath, newValue) => {
     onChange?.(object, relativePath, newValue);
@@ -123,8 +129,8 @@ export function NodeSettingsMenu(params) {
     );
   };
 
-  return (
-    <div className="space-y-6">
+  const advancedContent = (
+    <React.Fragment>
       {renderWarnings(node)}
 
       <SettingsMenu
@@ -193,6 +199,110 @@ export function NodeSettingsMenu(params) {
           Delete Node
         </button>
       </div>
+    </React.Fragment>
+  );
+
+  const componentMetadata = node?.params?.metadata || {};
+  const componentName = componentMetadata.componentName || node?.instanceName || "Custom Component";
+  const componentID = node?.params?.componentID || "Unassigned";
+  const componentVersion = node?.params?.version;
+  let componentVersionLabel = "Unversioned";
+  if (typeof componentVersion === "string" && componentVersion.trim().length > 0) {
+    componentVersionLabel = componentVersion;
+  } else if (componentVersion && typeof componentVersion === "object") {
+    const major = Number.isFinite(componentVersion.major) ? componentVersion.major : 0;
+    const minor = Number.isFinite(componentVersion.minor) ? componentVersion.minor : 0;
+    const patch = Number.isFinite(componentVersion.patch) ? componentVersion.patch : 0;
+    componentVersionLabel = `${major}.${minor}.${patch}`;
+  }
+
+  const customComponentBasicsMenu = React.useMemo(() => {
+    if (!isCustomComponent || !node) {
+      return null;
+    }
+    return [
+      {
+        label: "Instance Basics",
+        type: "fieldlist",
+        fields: [
+          {
+            label: "Name this instance",
+            type: "text",
+            path: "instanceName",
+            tooltip: "Unique name used when referencing this component instance.",
+            maxChar: 60,
+            multiline: false,
+            defaultValue: node.instanceName || "Custom Component",
+          },
+        ],
+      },
+    ];
+  }, [isCustomComponent, node?.instanceName]);
+
+  if (!node || !menu) {
+    return null;
+  }
+
+  return (
+    <React.Fragment>
+      <div className="space-y-6">
+        {isCustomComponent ? (
+          <React.Fragment>
+            {customComponentBasicsMenu ? (
+              <SettingsMenu
+                menu={customComponentBasicsMenu}
+                rootObject={node}
+                onChange={onVariableChanged}
+                readOnly={readOnly}
+                key="customComponentBasics"
+              />
+            ) : null}
+
+            <div className="space-y-2 rounded-2xl border border-slate-200/60 bg-slate-50 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-200">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-semibold text-slate-700 dark:text-slate-100">{componentName}</span>
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  Component
+                </span>
+              </div>
+              <div className="space-y-1 text-xs">
+                <div>
+                  <span className="font-semibold text-slate-600 dark:text-slate-200">Component ID:</span>{" "}
+                  <code className="rounded bg-slate-200/60 px-[0.35rem] py-[0.1rem] text-xs tracking-tight text-slate-700 dark:bg-slate-800/80 dark:text-slate-100">
+                    {componentID}
+                  </code>
+                </div>
+                <div>
+                  <span className="font-semibold text-slate-600 dark:text-slate-200">Version:</span>{" "}
+                  <span>{componentVersionLabel}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                type="button"
+                onClick={() => onNodeStructureChange?.(node, "editCustomComponent", {})}
+                className={buttonStyles.primary}
+                disabled={readOnly}
+              >
+                Open Component Editor
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((previous) => !previous)}
+                className={buttonStyles.subtle}
+              >
+                {showAdvanced ? "Hide Advanced Options" : "Show Advanced Options"}
+              </button>
+            </div>
+
+            {showAdvanced ? advancedContent : null}
+          </React.Fragment>
+        ) : (
+          advancedContent
+        )}
+      </div>
 
       <ConfirmDialog
         open={popupDialogOpen}
@@ -201,6 +311,6 @@ export function NodeSettingsMenu(params) {
         onCancel={handleCancelPopup}
         onConfirm={handleConfirmPopup}
       />
-    </div>
+    </React.Fragment>
   );
 }

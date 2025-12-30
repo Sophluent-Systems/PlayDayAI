@@ -4,6 +4,7 @@ import { jsonBlockParser } from './outputParsers/jsonBlock';
 import { callLLMChat_Streaming, callLLMChat_Blocking, generateMessageHistoryPrompt } from './llm';
 import { getMostRecentMessageOfType, getTurnCount } from '@src/common/messages';
 import { Config } from "@src/backend/config";
+import { updateParamsWithCustomCode } from '@src/common/customcode.js';
 
 
 

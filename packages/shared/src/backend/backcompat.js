@@ -72,12 +72,20 @@ export function COMPAT_generateUpdatesForVersion(versionInfo) {
         }
     }
 
+    const graph = versionInfo.stateMachineDescription || {};
+    if (!graph.customComponents) {
+        updatesNeeded.stateMachineDescription = {
+            ...(updatesNeeded.stateMachineDescription || {}),
+            customComponents: []
+        };
+    }
+
 
     return updatesNeeded;
 }
 
 
-export function COMPAT_ensureV1Recordtructure(record) {
+export function COMPAT_ensureV1RecordStructure(record) {
 
     let updatesNeeded = {};
 

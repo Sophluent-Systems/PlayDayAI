@@ -30,6 +30,7 @@ export default function ChatBotView(props) {
     editMode,
     supportsSuggestions,
     waitingForInput,
+    connectionStatus = 'disconnected',
     onSendMessage,
     supportedMediaTypes,
     supportedInputModes,
@@ -52,6 +53,24 @@ export default function ChatBotView(props) {
   const [suggestionsOpen, setSuggestionsOpen] = useState(true);
 
   const accentColor = theme?.colors?.sendMessageButtonActiveColor || theme?.palette?.accent || "#38BDF8";
+  const connectionReady = connectionStatus === 'connected';
+  const connectionStatusMessage = useMemo(() => {
+    switch (connectionStatus) {
+      case 'connecting':
+        return 'Connecting to PlayDay...';
+      case 'timeout':
+        return 'Connection timed out. Retrying...';
+      case 'error':
+        return 'Connection lost. Reconnecting...';
+      case 'disconnected':
+        return 'Reconnecting to PlayDay...';
+      default:
+        return connectionStatus && connectionStatus !== 'connected'
+          ? 'Reconnecting to PlayDay...'
+          : '';
+    }
+  }, [connectionStatus]);
+  const showConnectionNotice = Boolean(connectionStatusMessage) && !connectionReady;
 
   useEffect(() => {
     if (!messages) {
@@ -174,6 +193,13 @@ export default function ChatBotView(props) {
 
             {renderSuggestions}
 
+            {showConnectionNotice ? (
+              <div className="flex items-center gap-3 rounded-3xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white/80 shadow-inner">
+                <Loader2 className="h-4 w-4 animate-spin text-white/70" aria-hidden="true" />
+                <span>{connectionStatusMessage}</span>
+              </div>
+            ) : null}
+
             <AudioPlaybackControls
               audioState={audioState}
               onAudioStateChange={onAudioStateChange}
@@ -185,6 +211,8 @@ export default function ChatBotView(props) {
               theme={theme}
               inputLength={inputLength}
               waitingForInput={waitingForInput}
+              connectionReady={connectionReady}
+              connectionMessage={connectionStatusMessage}
               supportedMediaTypes={supportedMediaTypes}
               supportedInputModes={supportedInputModes}
               handleSendMessage={onSendMessage}
@@ -215,6 +243,8 @@ export default function ChatBotView(props) {
           onRequestStateChange={onRequestStateChange}
           sessionID={sessionID}
           theme={theme}
+          connectionReady={connectionReady}
+          connectionStatusMessage={connectionStatusMessage}
         />
       </div>
     </div>

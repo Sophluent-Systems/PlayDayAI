@@ -147,9 +147,10 @@ export default function VoiceTest() {
   };
 
   useEffect(() => {
+    const audioElement = encodedAudioRef.current;
     return () => {
-      if (encodedAudioRef.current?.src) {
-        URL.revokeObjectURL(encodedAudioRef.current.src);
+      if (audioElement?.src) {
+        URL.revokeObjectURL(audioElement.src);
       }
     };
   }, []);

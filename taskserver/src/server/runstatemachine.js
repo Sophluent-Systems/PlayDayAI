@@ -7,6 +7,7 @@ import { hasRight } from '@src/backend/accesscontrol';
 import { StateMachine } from './stateMachine/stateMachine';
 import { nullUndefinedOrEmpty } from '@src/common/objects';
 import { threadHeartbeat } from './threads';
+import { getMetadataForNodeType } from '@src/common/nodeMetadata';
 
 function deriveSupportedModesForNode(nodeInstance) {
   if (!nodeInstance) {
@@ -194,10 +195,24 @@ export async function runStateMachine(db, acl, account, channel, task, threadID)
         return;
       }
       for (const record of pendingRecords) {
-        const nodeInstance = session.temp.stateMachine.nodeInstances?.[record.nodeInstanceID];
+        let nodeInstance = session.temp.stateMachine.nodeInstances?.[record.nodeInstanceID];
+        if (!nodeInstance && typeof session.temp.stateMachine.ensureNodeInstance === 'function') {
+          nodeInstance = session.temp.stateMachine.ensureNodeInstance(record.nodeInstanceID, { record });
+        }
         const waitingFor = Array.isArray(record.waitingFor) ? record.waitingFor : [];
         if (!nodeInstance) {
-          console.error("[runStateMachine] Unable to locate node instance for waiting record", record.recordID);
+          const knownIDs = session.temp.stateMachine?.nodeInstances ? Object.keys(session.temp.stateMachine.nodeInstances) : [];
+          console.error("[runStateMachine] Unable to locate node instance for waiting record", record.recordID, "nodeInstanceID=", record.nodeInstanceID, "knownNodeCount=", knownIDs.length, "sampleKnownIDs=", knownIDs.slice(0, 10));
+          continue;
+        }
+        const nodeMetadata = getMetadataForNodeType(nodeInstance.fullNodeDescription.nodeType);
+        const nodeAttributes = nodeMetadata?.nodeAttributes || {};
+        if (!nodeAttributes.userInput) {
+          console.error("[runStateMachine] Skipping pending notification for non-user-input node", {
+            recordID: record.recordID,
+            nodeInstanceID: record.nodeInstanceID,
+            nodeType: nodeInstance.fullNodeDescription.nodeType,
+          });
           continue;
         }
         if (record.recordID && tracker.has(record.recordID)) {

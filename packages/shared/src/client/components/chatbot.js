@@ -52,6 +52,7 @@ function ChatBot(props) {
   const loadedSessionID = useRef(null);
   const [processingUnderway, setProcessingUnderway] = useState(false);
   const [waitingForInput, setWaitingForInput] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const isReloadingRef = useRef(false);
   const [retryTimeout, setRetryTimeout] = useState(null);
   const [isDocPreviewOpen, setIsDocPreviewOpen] = useState(false);
@@ -369,6 +370,9 @@ function ChatBot(props) {
     reconnectUnderwayRef.current = true;
     reconnectAttemptsRef.current++;
     stateMachineWebsocket.current = null;
+    setConnectionStatus('disconnected');
+    setWaitingForInput(false);
+    setProcessingUnderway(false);
     let reconnectDelayMS = null;
     // find the reconnect thresholdthat applies
     for (let i=0; i<reconnectThresholds.length; i++) {
@@ -541,7 +545,13 @@ function ChatBot(props) {
       };
 
       const connectionCallbacks = {
-            
+        onStatusChange: (status) => {
+          setConnectionStatus(status);
+          if (status !== 'connected') {
+            setWaitingForInput(false);
+            setProcessingUnderway(false);
+          }
+        },
         onNetworkError: (error) => {
           console.warn("WebSockets Network error: ", error);
         },
@@ -556,23 +566,31 @@ function ChatBot(props) {
         },
       };
         
-      let newConnection = nullUndefinedOrEmpty(stateMachineWebsocket.current);
+      let websocket = stateMachineWebsocket.current;
+      const newConnection = nullUndefinedOrEmpty(websocket);
       if (!newConnection) {
         console.log("Attempted to subscribe for state machine updates while already subscribed -- reusing connection");
+        const existingStatus = websocket.connectionStatus ?? 'disconnected';
+        setConnectionStatus(existingStatus);
+        if (existingStatus !== 'connected') {
+          setWaitingForInput(false);
+          setProcessingUnderway(false);
+        }
       } else {
-        stateMachineWebsocket.current = new WebSocketChannel();
+        websocket = new WebSocketChannel();
+        stateMachineWebsocket.current = websocket;
       }
 
       //
       // Set all callbacks
       //
-      stateMachineWebsocket.current.subscribe(commandHandlers);
+      websocket.subscribe(commandHandlers);
       if (typeof messageClientSubscriptionRef.current === 'function') {
         messageClientSubscriptionRef.current();
       }
-      const unsubscribe = subscribeMessageClient(stateMachineWebsocket.current);
+      const unsubscribe = subscribeMessageClient(websocket);
       messageClientSubscriptionRef.current = typeof unsubscribe === 'function' ? unsubscribe : null;
-      stateMachineWebsocket.current.setConnectionCallbacks(connectionCallbacks);
+      websocket.setConnectionCallbacks(connectionCallbacks);
 
       if (newConnection) {
         const wsOptions = preferredWsOptionsRef.current ? {
@@ -583,7 +601,13 @@ function ChatBot(props) {
         } : {};
 
         const url = buildWebsocketUrl(wsOptions);
-        await stateMachineWebsocket.current.connect({url});
+        if (typeof websocket.updateConnectionStatus === 'function') {
+          websocket.updateConnectionStatus('connecting');
+        } else {
+          websocket.connectionStatus = 'connecting';
+        }
+        setConnectionStatus('connecting');
+        await websocket.connect({url});
         console.log("Connected to: ", url)
       }
 
@@ -591,11 +615,21 @@ function ChatBot(props) {
       // until we hear otherwise
       setProcessingUnderway(true);
 
-      const websocket = stateMachineWebsocket.current;
-      if (!websocket) {
-        const error = new Error("State machine websocket unavailable during initialization");
-        console.warn("Failed to initialize state machine connection: websocket not ready", error);
+      if (stateMachineWebsocket.current !== websocket) {
         setProcessingUnderway(false);
+        const error = new Error("State machine websocket replaced before initialization completed");
+        if (!reconnectUnderwayRef.current) {
+          attemptWebsocketReconnect();
+        }
+        throw error;
+      }
+
+      if (websocket.connectionStatus !== 'connected') {
+        setProcessingUnderway(false);
+        const error = new Error(`State machine websocket not connected (status: ${websocket.connectionStatus})`);
+        if (!reconnectUnderwayRef.current) {
+          attemptWebsocketReconnect();
+        }
         throw error;
       }
 
@@ -683,6 +717,10 @@ const handleAudioStateChange = (audioType, newState) => {
   const sendMessage = async (mediaTypes, options = {}) => {
     if (!waitingForInput) {
       console.warn("sendMessage called while not waiting for input; ignoring request.");
+      return;
+    }
+    if (connectionStatus !== 'connected') {
+      console.warn(`sendMessage called while websocket status is ${connectionStatus}; ignoring request.`);
       return;
     }
     if (!inputNodeInstanceID) {
@@ -860,6 +898,10 @@ const handleAudioStateChange = (audioType, newState) => {
 
   const handleRequestStateChange = async (state) => {
     console.log("handleRequestStateChange ", state);
+    if (connectionStatus !== 'connected') {
+      console.warn(`handleRequestStateChange ignored because websocket status is ${connectionStatus}`);
+      return;
+    }
 
     switch(state) {
       case "play":
@@ -912,7 +954,7 @@ const handleAudioStateChange = (audioType, newState) => {
 
     return (
       <div className="mx-auto w-full max-w-3xl rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-center text-xs font-semibold uppercase tracking-[0.35em] text-amber-200 shadow-inner">
-        The AI is responding slowly to PlayDay's requests.
+        The AI is responding slowly to PlayDay&apos;s requests.
       </div>
     );
   }  const versionString = version?.versionName ? `Version: ${version.versionName}` : ``;
@@ -931,6 +973,7 @@ const handleAudioStateChange = (audioType, newState) => {
               onHaltRequest={onHaltRequest}
               waitingForProcessingToComplete={processingUnderway}
               waitingForInput={waitingForInput}
+              connectionStatus={connectionStatus}
               theme={themeToUse}
               inputLength={maximumInputLength}
               conversational={conversational}
@@ -993,4 +1036,3 @@ const handleAudioStateChange = (audioType, newState) => {
 
 
 export default memo(ChatBot);
-

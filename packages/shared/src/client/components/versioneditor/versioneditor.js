@@ -1,6 +1,6 @@
 'use client';
 import { useRouter } from "next/router";
-import React, { memo, useState, useEffect, useRef } from "react";
+import React, { memo, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { defaultAppTheme } from "@src/common/theme";
 import { AlertCircle, CheckCircle2, GaugeCircle, Layers, Play, Save, Settings2, Trash2, Workflow, X } from "lucide-react";
 import { VersionSelector } from "@src/client/components/versionselector";
@@ -29,7 +29,7 @@ import { NodeGraphDisplay } from "./graphdisplay/nodegraphdisplay";
 import { v4 as uuidv4 } from "uuid";
 import ReactMarkdown from "react-markdown";
 import { replacePlaceholderSettingWithFinalValue } from "@src/client/components/settingsmenus/menudatamodel";
-import { getMetadataForNodeType } from "@src/common/nodeMetadata";
+import { getInputsAndOutputsForNode, getMetadataForNodeType } from "@src/common/nodeMetadata";
 import { analyticsReportEvent } from "@src/client/analytics";
 
 import "ace-builds/src-noconflict/mode-javascript";
@@ -39,6 +39,496 @@ import { NodeInputsEditor } from "./nodeinputseditor";
 import { NodeInitMenu } from "./nodeinitmenu";
 import { FloatingPanel } from "./floatingpanel";
 import { NodeLibraryTree } from "./nodelibrarytree";
+import { CustomComponentEditor } from "./customcomponenteditor";
+import { EditorStackProvider, useEditorStack } from "./editorStackContext";
+
+function slugifyHandleValue(value) {
+  if (value === undefined || value === null) {
+    return "slot";
+  }
+  return value
+    .toString()
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase() || "slot";
+}
+
+function makeUniqueHandle(handleSet, prefix, raw) {
+  const baseSlug = raw ? slugifyHandleValue(raw) : slugifyHandleValue(prefix);
+  const prefixSlug = slugifyHandleValue(prefix);
+  let candidate = baseSlug || prefixSlug || "slot";
+  if (candidate.length === 0) {
+    candidate = prefix ? `${prefix}_slot` : "slot";
+  }
+  if (handleSet.has(candidate)) {
+    const prefixed = prefixSlug ? `${prefixSlug}_${candidate}` : candidate;
+    candidate = prefixed;
+    let counter = 1;
+    while (handleSet.has(candidate)) {
+      candidate = `${prefixed}_${counter++}`;
+    }
+  }
+  handleSet.add(candidate);
+  return candidate;
+}
+
+function toggleSelectionSet(currentSet, id) {
+  const next = new Set(currentSet);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  return next;
+}
+
+function toSelectionSet(value) {
+  if (value instanceof Set) {
+    return value;
+  }
+  if (!value) {
+    return new Set();
+  }
+  if (Array.isArray(value)) {
+    return new Set(value);
+  }
+  if (typeof value[Symbol.iterator] === "function") {
+    return new Set(Array.from(value));
+  }
+  return new Set();
+}
+
+function deriveUniqueComponentName(versionInfo, selectedNodes) {
+  const baseName = selectedNodes.length === 1
+    ? `${selectedNodes[0].instanceName} Component`
+    : "Custom Component";
+  const existingNames = new Set(
+    (versionInfo?.stateMachineDescription?.customComponents || []).map((definition) => definition.name)
+  );
+  if (!existingNames.has(baseName)) {
+    return baseName;
+  }
+  let suffix = 2;
+  let candidate = `${baseName} ${suffix}`;
+  while (existingNames.has(candidate)) {
+    suffix += 1;
+    candidate = `${baseName} ${suffix}`;
+  }
+  return candidate;
+}
+
+function ensureUniqueInstanceName(baseName, nodes) {
+  if (!baseName) {
+    baseName = "Custom Component";
+  }
+  const existing = new Set((nodes || []).map((node) => node.instanceName));
+  if (!existing.has(baseName)) {
+    return baseName;
+  }
+  let suffix = 2;
+  let candidate = `${baseName} ${suffix}`;
+  while (existing.has(candidate)) {
+    suffix += 1;
+    candidate = `${baseName} ${suffix}`;
+  }
+  return candidate;
+}
+
+function rebuildComponentDraftState(draft) {
+  if (!draft || !Array.isArray(draft.nodes)) {
+    return draft;
+  }
+
+  const nodes = draft.nodes;
+  const nodesById = new Map(nodes.map((node) => [node.instanceID, node]));
+  const metadataCache = new Map();
+
+  const selectedInputs = toSelectionSet(draft.selectedInputs);
+  const selectedOutputs = toSelectionSet(draft.selectedOutputs);
+  const selectedEvents = toSelectionSet(draft.selectedEvents);
+
+  const inputHandles = new Set();
+  const outputHandles = new Set();
+  const eventHandles = new Set();
+
+  const existingInputs = new Map();
+  (draft.availableInputs || []).forEach((entry) => {
+    if (!entry?.nodeInstanceID || !nodesById.has(entry.nodeInstanceID)) {
+      return;
+    }
+    const kind = entry.kind === "event" ? "event" : "variable";
+    const keyName =
+      kind === "event"
+        ? entry.targetTrigger || entry.consumerVariable || entry.handle
+        : entry.consumerVariable || entry.handle;
+    if (!keyName) {
+      return;
+    }
+    const key = `${kind}::${entry.nodeInstanceID}::${keyName}`;
+    existingInputs.set(key, { ...entry });
+    if (entry.handle) {
+      inputHandles.add(entry.handle);
+    }
+  });
+
+  const existingOutputs = new Map();
+  (draft.availableOutputs || []).forEach((entry) => {
+    if (!entry?.nodeInstanceID || !nodesById.has(entry.nodeInstanceID)) {
+      return;
+    }
+    const keyName = entry.producerOutput || entry.handle;
+    if (!keyName) {
+      return;
+    }
+    const key = `variable::${entry.nodeInstanceID}::${keyName}`;
+    existingOutputs.set(key, { ...entry });
+    if (entry.handle) {
+      outputHandles.add(entry.handle);
+    }
+  });
+
+  const existingEvents = new Map();
+  (draft.availableEvents || []).forEach((entry) => {
+    if (!entry?.nodeInstanceID || !nodesById.has(entry.nodeInstanceID)) {
+      return;
+    }
+    const keyName = entry.producerEvent || entry.handle;
+    if (!keyName) {
+      return;
+    }
+    const key = `event::${entry.nodeInstanceID}::${keyName}`;
+    existingEvents.set(key, { ...entry });
+    if (entry.handle) {
+      eventHandles.add(entry.handle);
+    }
+  });
+
+  const nextInputs = [];
+  const nextOutputs = [];
+  const nextEvents = [];
+  const nextSelectedInputs = new Set();
+  const nextSelectedOutputs = new Set();
+  const nextSelectedEvents = new Set();
+
+  const getMetadataPair = (node) => {
+    if (!node) {
+      return null;
+    }
+    if (metadataCache.has(node.instanceID)) {
+      return metadataCache.get(node.instanceID);
+    }
+    try {
+      const metadataClass = getMetadataForNodeType(node.nodeType);
+      if (!metadataClass) {
+        metadataCache.set(node.instanceID, null);
+        return null;
+      }
+      const metadataInstance = new metadataClass({ fullNodeDescription: node });
+      const pair = { metadataClass, metadataInstance };
+      metadataCache.set(node.instanceID, pair);
+      return pair;
+    } catch (error) {
+      metadataCache.set(node.instanceID, null);
+      return null;
+    }
+  };
+
+  nodes.forEach((node) => {
+    const metadataPair = getMetadataPair(node) || {};
+    const metadataInstance = metadataPair.metadataInstance;
+    const metadataClass = metadataPair.metadataClass;
+
+    let variableOverrides = {};
+    if (metadataInstance?.getVariableOverrides) {
+      variableOverrides = metadataInstance.getVariableOverrides() || {};
+    } else if (metadataClass?.AllowedVariableOverrides) {
+      variableOverrides = metadataClass.AllowedVariableOverrides || {};
+    }
+
+    const io = getInputsAndOutputsForNode(node) || {};
+
+    (io.inputs || []).forEach((metaInput, index) => {
+      const consumerVariable =
+        (metaInput &&
+          typeof metaInput === "object" &&
+          (metaInput.value ?? metaInput.key ?? metaInput.id ?? metaInput.name)) ||
+        (typeof metaInput === "string" ? metaInput : `input-${index}`);
+      const label = metaInput?.label || consumerVariable;
+      const key = `variable::${node.instanceID}::${consumerVariable}`;
+      const overrideMeta = variableOverrides?.[consumerVariable] || {};
+      let entry = existingInputs.get(key);
+      if (entry) {
+        entry = {
+          ...entry,
+          nodeInstanceID: node.instanceID,
+          consumerVariable,
+          label: `${node.instanceName} - ${label}`,
+          mediaType: overrideMeta.mediaType || entry.mediaType || "text",
+        };
+        nextInputs.push(entry);
+        if (entry.handle) {
+          inputHandles.add(entry.handle);
+        }
+        if (entry.id && selectedInputs.has(entry.id)) {
+          nextSelectedInputs.add(entry.id);
+        }
+        existingInputs.delete(key);
+      } else {
+        const handle = makeUniqueHandle(inputHandles, "input", consumerVariable);
+        const id = `variable::${node.instanceID}::${consumerVariable}`;
+        entry = {
+          id,
+          kind: "variable",
+          handle,
+          label: `${node.instanceName} - ${label}`,
+          nodeInstanceID: node.instanceID,
+          consumerVariable,
+          mediaType: overrideMeta.mediaType || "text",
+        };
+        nextInputs.push(entry);
+      }
+    });
+
+    const triggers = Array.isArray(metadataClass?.triggers)
+      ? metadataClass.triggers
+      : [];
+
+    triggers.forEach((triggerName, index) => {
+      const triggerKey =
+        typeof triggerName === "string"
+          ? triggerName
+          : (triggerName &&
+              (triggerName.value ?? triggerName.key ?? triggerName.id ?? triggerName.name)) ||
+            `trigger-${index}`;
+      const label =
+        (triggerName && typeof triggerName === "object" && triggerName.label) || triggerKey;
+      const key = `event::${node.instanceID}::${triggerKey}`;
+      let entry = existingInputs.get(key);
+      if (entry) {
+        entry = {
+          ...entry,
+          nodeInstanceID: node.instanceID,
+          targetTrigger: entry.targetTrigger || triggerKey,
+          label: entry.label || `${node.instanceName} - ${label}`,
+          kind: "event",
+        };
+        if (!entry.handle) {
+          entry.handle = makeUniqueHandle(inputHandles, "trigger", triggerKey);
+        } else {
+          inputHandles.add(entry.handle);
+        }
+        nextInputs.push(entry);
+        if (entry.id && selectedInputs.has(entry.id)) {
+          nextSelectedInputs.add(entry.id);
+        }
+        existingInputs.delete(key);
+      } else {
+        const handle = makeUniqueHandle(inputHandles, "trigger", triggerKey);
+        const id = `event::${node.instanceID}::${triggerKey}`;
+        entry = {
+          id,
+          kind: "event",
+          handle,
+          label: `${node.instanceName} - ${label}`,
+          nodeInstanceID: node.instanceID,
+          targetTrigger: triggerKey,
+        };
+        nextInputs.push(entry);
+      }
+    });
+
+    (io.outputs || []).forEach((metaOutput, index) => {
+      let producerOutput;
+      let outputLabel;
+      let outputMediaType;
+      if (metaOutput && typeof metaOutput === "object") {
+        producerOutput =
+          metaOutput.value ??
+          metaOutput.key ??
+          metaOutput.id ??
+          metaOutput.name ??
+          `output-${index}`;
+        outputLabel = metaOutput.label ?? producerOutput;
+        outputMediaType = metaOutput.mediaType;
+      } else if (typeof metaOutput === "string") {
+        producerOutput = metaOutput;
+        outputLabel = metaOutput;
+        outputMediaType = undefined;
+      } else {
+        producerOutput = `output-${index}`;
+        outputLabel = producerOutput;
+        outputMediaType = undefined;
+      }
+      const key = `variable::${node.instanceID}::${producerOutput}`;
+      let entry = existingOutputs.get(key);
+      if (entry) {
+        entry = {
+          ...entry,
+          nodeInstanceID: node.instanceID,
+          producerOutput,
+          label: `${node.instanceName} - ${outputLabel}`,
+          mediaType: outputMediaType || entry.mediaType,
+        };
+        if (!entry.handle) {
+          entry.handle = makeUniqueHandle(outputHandles, "output", producerOutput);
+        } else {
+          outputHandles.add(entry.handle);
+        }
+        nextOutputs.push(entry);
+        if (entry.id && selectedOutputs.has(entry.id)) {
+          nextSelectedOutputs.add(entry.id);
+        }
+        existingOutputs.delete(key);
+      } else {
+        const handle = makeUniqueHandle(outputHandles, "output", producerOutput);
+        const id = `variable::${node.instanceID}::${producerOutput}`;
+        entry = {
+          id,
+          kind: "variable",
+          handle,
+          label: `${node.instanceName} - ${outputLabel}`,
+          nodeInstanceID: node.instanceID,
+          producerOutput,
+          mediaType: outputMediaType,
+          targets: [],
+        };
+        nextOutputs.push(entry);
+      }
+    });
+
+    const eventEntries =
+      (metadataInstance && metadataInstance.getEvents?.()) ||
+      metadataClass?.events ||
+      [];
+
+    eventEntries.forEach((eventEntry, index) => {
+      const producerEvent =
+        (eventEntry &&
+          typeof eventEntry === "object" &&
+          (eventEntry.value ?? eventEntry.key ?? eventEntry.id ?? eventEntry.name)) ||
+        (typeof eventEntry === "string" ? eventEntry : `event-${index}`);
+      const eventLabel =
+        (eventEntry && typeof eventEntry === "object" && eventEntry.label) || producerEvent;
+      const key = `event::${node.instanceID}::${producerEvent}`;
+      let entry = existingEvents.get(key);
+      if (entry) {
+        entry = {
+          ...entry,
+          nodeInstanceID: node.instanceID,
+          producerEvent,
+          label: `${node.instanceName} - ${eventLabel}`,
+        };
+        if (!entry.handle) {
+          entry.handle = makeUniqueHandle(eventHandles, "event", producerEvent);
+        } else {
+          eventHandles.add(entry.handle);
+        }
+        nextEvents.push(entry);
+        if (entry.id && selectedEvents.has(entry.id)) {
+          nextSelectedEvents.add(entry.id);
+        }
+        existingEvents.delete(key);
+      } else {
+        const handle = makeUniqueHandle(eventHandles, "event", producerEvent);
+        const id = `event::${node.instanceID}::${producerEvent}`;
+        entry = {
+          id,
+          kind: "event",
+          handle,
+          label: `${node.instanceName} - ${eventLabel}`,
+          nodeInstanceID: node.instanceID,
+          producerEvent,
+          targets: [],
+        };
+        nextEvents.push(entry);
+      }
+    });
+  });
+
+  existingInputs.forEach((entry) => {
+    nextInputs.push(entry);
+    if (entry.handle) {
+      inputHandles.add(entry.handle);
+    }
+    if (entry.id && selectedInputs.has(entry.id)) {
+      nextSelectedInputs.add(entry.id);
+    }
+  });
+
+  existingOutputs.forEach((entry) => {
+    nextOutputs.push(entry);
+    if (entry.handle) {
+      outputHandles.add(entry.handle);
+    }
+    if (entry.id && selectedOutputs.has(entry.id)) {
+      nextSelectedOutputs.add(entry.id);
+    }
+  });
+
+  existingEvents.forEach((entry) => {
+    nextEvents.push(entry);
+    if (entry.handle) {
+      eventHandles.add(entry.handle);
+    }
+    if (entry.id && selectedEvents.has(entry.id)) {
+      nextSelectedEvents.add(entry.id);
+    }
+  });
+
+  nextInputs.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+  nextOutputs.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+  nextEvents.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+
+  const validInputIDs = new Set(nextInputs.map((entry) => entry.id));
+  const validOutputIDs = new Set(nextOutputs.map((entry) => entry.id));
+  const validEventIDs = new Set(nextEvents.map((entry) => entry.id));
+
+  const cleanedSelectedInputs = new Set(
+    [...selectedInputs, ...nextSelectedInputs].filter((id) => validInputIDs.has(id))
+  );
+  const cleanedSelectedOutputs = new Set(
+    [...selectedOutputs, ...nextSelectedOutputs].filter((id) => validOutputIDs.has(id))
+  );
+  const cleanedSelectedEvents = new Set(
+    [...selectedEvents, ...nextSelectedEvents].filter((id) => validEventIDs.has(id))
+  );
+
+  return {
+    ...draft,
+    availableInputs: nextInputs,
+    availableOutputs: nextOutputs,
+    availableEvents: nextEvents,
+    selectedInputs: cleanedSelectedInputs,
+    selectedOutputs: cleanedSelectedOutputs,
+    selectedEvents: cleanedSelectedEvents,
+  };
+}
+
+function resolvePortDirection(port, fallback = "input") {
+  const annotations = port?.annotations || {};
+  const annotatedDirection = annotations.direction;
+  if (annotatedDirection === "input" || annotatedDirection === "output") {
+    return annotatedDirection;
+  }
+  if (
+    annotations.producerInstanceID ||
+    annotations.producerOutput ||
+    annotations.producerEvent
+  ) {
+    return "input";
+  }
+  if (Array.isArray(annotations.targets) && annotations.targets.length > 0) {
+    return "output";
+  }
+  return fallback;
+}
+
+const isInputVariablePort = (port) => resolvePortDirection(port, "input") === "input";
+const isOutputVariablePort = (port) => resolvePortDirection(port, "output") === "output";
+const isInputEventPort = (port) => resolvePortDirection(port, "output") === "input";
+const isOutputEventPort = (port) => resolvePortDirection(port, "output") === "output";
 
 const globalOptions = [
   {
@@ -48,12 +538,28 @@ const globalOptions = [
     tooltip: "Make this version accessible to users?",
   },
   {
-    label: "Bill App's AI Keys for All Users",
+    label: "Bill app&apos;s AI Keys for All Users",
     type: "checkbox",
     path: "alwaysUseBuiltInKeys",
-    tooltip: "Allow all users to use the app's AI keys (you'll be billed for usage)",
+    tooltip: "Allow all users to use the app&apos;s AI keys (You&apos;ll be billed for usage)",
   },
 ];
+
+function toSelectionSetLike(value) {
+  if (value instanceof Set) {
+    return new Set(value);
+  }
+  if (!value) {
+    return new Set();
+  }
+  if (Array.isArray(value)) {
+    return new Set(value);
+  }
+  if (typeof value === "object") {
+    return new Set(Object.values(value));
+  }
+  return new Set();
+}
 
 function parseRgbFromString(color) {
   if (!color || typeof color !== 'string') {
@@ -129,9 +635,6 @@ function extractTimestamp(dateLike) {
 }
 
 function DialogShell({ open, onClose, title, description, children, actions, maxWidth = "max-w-lg", tone = "light" }) {
-  if (!open) {
-    return null;
-  }
   useEffect(() => {
     if (!open) {
       return;
@@ -148,6 +651,10 @@ function DialogShell({ open, onClose, title, description, children, actions, max
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [open, onClose]);
+
+  if (!open) {
+    return null;
+  }
 
   const isDarkTone = tone === "dark";
   const containerClasses = `relative w-full ${maxWidth} rounded-2xl border p-6 shadow-xl ${isDarkTone ? 'bg-slate-950/95 text-slate-100 border-white/10' : 'bg-white text-slate-900 border-slate-200'}`;
@@ -207,7 +714,7 @@ function TemplateChooser({ templateChosen }) {
   );
 }
 
-function VersionEditor(props) {
+function VersionEditorComponent(props) {
   const { Constants } = useConfig();
   const router = useRouter();
   const { versionName: versionNameParam } = router.query;
@@ -246,6 +753,59 @@ function VersionEditor(props) {
   const [libraryPanelOpen, setLibraryPanelOpen] = useState(true);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [inspectorPanelOpen, setInspectorPanelOpen] = useState(false);
+
+  const {
+    activeFrame: activeEditorFrame,
+    pushFrame: pushEditorFrame,
+    popFrame: popEditorFrame,
+    updateFrame: updateEditorFrame,
+  } = useEditorStack();
+
+  const activeCustomFrame =
+    activeEditorFrame && activeEditorFrame.kind === 'customComponent'
+      ? activeEditorFrame
+      : null;
+
+  const componentEditorState = activeCustomFrame?.draft || null;
+
+  const updateComponentEditorDraft = useCallback(
+    (updater) => {
+      if (!activeCustomFrame) {
+        return;
+      }
+      updateEditorFrame(activeCustomFrame.id, (frame) => {
+        const previousDraft = frame.draft;
+        const nextDraft =
+          typeof updater === 'function' ? updater(previousDraft) : updater;
+        if (nextDraft === undefined || nextDraft === previousDraft) {
+          return null;
+        }
+        return { draft: nextDraft };
+      });
+    },
+    [activeCustomFrame, updateEditorFrame],
+  );
+
+  const closeActiveComponentEditor = useCallback(() => {
+    if (activeCustomFrame) {
+      popEditorFrame(activeCustomFrame.id);
+    }
+  }, [activeCustomFrame, popEditorFrame]);
+
+  const openComponentEditor = useCallback(
+    (draft, metadata = {}) => {
+      if (!draft) {
+        return;
+      }
+      pushEditorFrame({
+        kind: 'customComponent',
+        draft,
+        metadata,
+        parentId: activeEditorFrame ? activeEditorFrame.id : null,
+      });
+    },
+    [activeEditorFrame, pushEditorFrame],
+  );
 
   const gameTheme = game?.theme ? game.theme : defaultAppTheme;
   const baseBackgroundColor = gameTheme?.colors?.titleBackgroundColor || '#0f172a';
@@ -309,8 +869,2021 @@ function VersionEditor(props) {
     }
   }
 
+  const buildComponentDraft = useCallback((instanceIDs) => {
+    const versionInfoCurrent = newVersionInfoRef.current;
+    if (!versionInfoCurrent) {
+      return null;
+    }
+    const graphNodes = versionInfoCurrent?.stateMachineDescription?.nodes ?? [];
+    if (!Array.isArray(instanceIDs) || instanceIDs.length === 0 || graphNodes.length === 0) {
+      return null;
+    }
+    const nodeMap = new Map(graphNodes.map((nodeDesc) => [nodeDesc.instanceID, nodeDesc]));
+    const selectedSet = new Set(instanceIDs.filter((id) => nodeMap.has(id)));
+    if (selectedSet.size === 0) {
+      return null;
+    }
+    const selectedNodes = graphNodes.filter((nodeDesc) => selectedSet.has(nodeDesc.instanceID));
+    const handleSet = new Set();
+    const availableInputs = [];
+    const availableOutputs = [];
+    const availableEvents = [];
+    const defaultSelectedInputs = new Set();
+    const defaultSelectedOutputs = new Set();
+    const defaultSelectedEvents = new Set();
+    const metadataCache = new Map();
 
+    const safeGetOverrides = (nodeDesc) => {
+      if (!nodeDesc) {
+        return {};
+      }
+      if (metadataCache.has(nodeDesc.instanceID)) {
+        return metadataCache.get(nodeDesc.instanceID);
+      }
+      try {
+        const metadataClass = getMetadataForNodeType(nodeDesc.nodeType);
+        if (!metadataClass) {
+          metadataCache.set(nodeDesc.instanceID, {});
+          return {};
+        }
+        const metadataInstance = new metadataClass({ fullNodeDescription: nodeDesc });
+        const overrides = metadataInstance.getVariableOverrides
+          ? metadataInstance.getVariableOverrides()
+          : metadataClass.AllowedVariableOverrides || {};
+        metadataCache.set(nodeDesc.instanceID, overrides || {});
+        return overrides || {};
+      } catch (error) {
+        console.warn("Failed to resolve metadata for node", nodeDesc.instanceID, error);
+        metadataCache.set(nodeDesc.instanceID, {});
+        return {};
+      }
+    };
 
+    const safeGetIO = (nodeDesc) => {
+      try {
+        return getInputsAndOutputsForNode(nodeDesc);
+      } catch (error) {
+        console.warn("Failed to compute IO for node", nodeDesc.instanceID, error);
+        return { inputs: [], outputs: [], events: [] };
+      }
+    };
+
+    selectedNodes.forEach((nodeDesc) => {
+      const inputList = Array.isArray(nodeDesc.inputs) ? nodeDesc.inputs : [];
+      const variableOverrides = safeGetOverrides(nodeDesc);
+      inputList.forEach((input) => {
+        if (selectedSet.has(input.producerInstanceID)) {
+          return;
+        }
+        (input.variables || []).forEach((variable) => {
+          const key = `${nodeDesc.instanceID}::${variable.consumerVariable}::${input.producerInstanceID}`;
+          const handle = makeUniqueHandle(handleSet, "input", variable.consumerVariable);
+          const entry = {
+            id: key,
+            kind: "variable",
+            handle,
+            label: `${nodeDesc.instanceName} - ${variable.consumerVariable}`,
+            nodeInstanceID: nodeDesc.instanceID,
+            producerInstanceID: input.producerInstanceID,
+            consumerVariable: variable.consumerVariable,
+            producerOutput: variable.producerOutput,
+            mediaType: variableOverrides?.[variable.consumerVariable]?.mediaType || "text",
+          };
+          availableInputs.push(entry);
+          defaultSelectedInputs.add(entry.id);
+        });
+        (input.triggers || []).forEach((trigger) => {
+          const key = `${nodeDesc.instanceID}::${trigger.targetTrigger}::${input.producerInstanceID}`;
+          const handle = makeUniqueHandle(handleSet, "trigger", trigger.targetTrigger);
+          const entry = {
+            id: key,
+            kind: "event",
+            handle,
+            label: `${nodeDesc.instanceName} - ${trigger.targetTrigger}`,
+            nodeInstanceID: nodeDesc.instanceID,
+            producerInstanceID: input.producerInstanceID,
+            targetTrigger: trigger.targetTrigger,
+            producerEvent: trigger.producerEvent,
+          };
+          availableInputs.push(entry);
+          defaultSelectedInputs.add(entry.id);
+        });
+      });
+    });
+
+    graphNodes.forEach((nodeDesc) => {
+      if (selectedSet.has(nodeDesc.instanceID)) {
+        return;
+      }
+      const inputList = Array.isArray(nodeDesc.inputs) ? nodeDesc.inputs : [];
+      inputList.forEach((input) => {
+        if (!selectedSet.has(input.producerInstanceID)) {
+          return;
+        }
+        const producerNode = nodeMap.get(input.producerInstanceID);
+        if (!producerNode) {
+          return;
+        }
+        const io = safeGetIO(producerNode);
+        (input.variables || []).forEach((variable) => {
+          const key = `${input.producerInstanceID}::${variable.producerOutput}`;
+          let entry = availableOutputs.find((item) => item.id === key);
+          if (!entry) {
+            const outputMeta = (io.outputs || []).find((item) => item.value === variable.producerOutput);
+            entry = {
+              id: key,
+              kind: "variable",
+              handle: makeUniqueHandle(handleSet, "output", variable.producerOutput),
+              label: `${producerNode.instanceName} - ${(outputMeta?.label || variable.producerOutput)}`,
+              nodeInstanceID: input.producerInstanceID,
+              producerOutput: variable.producerOutput,
+              mediaType: outputMeta?.mediaType || "text",
+              targets: [],
+            };
+            availableOutputs.push(entry);
+            defaultSelectedOutputs.add(entry.id);
+          }
+          defaultSelectedOutputs.add(entry.id);
+          entry.targets.push({
+            nodeInstanceID: nodeDesc.instanceID,
+            consumerVariable: variable.consumerVariable,
+          });
+        });
+        (input.triggers || []).forEach((trigger) => {
+          const key = `${input.producerInstanceID}::${trigger.producerEvent}`;
+          let entry = availableEvents.find((item) => item.id === key);
+          if (!entry) {
+            const eventMeta = (io.events || []).find((item) => item.value === trigger.producerEvent);
+            entry = {
+              id: key,
+              kind: "event",
+              handle: makeUniqueHandle(handleSet, "event", trigger.producerEvent),
+              label: `${producerNode.instanceName} - ${(eventMeta?.label || trigger.producerEvent)}`,
+              nodeInstanceID: input.producerInstanceID,
+              producerEvent: trigger.producerEvent,
+              targets: [],
+            };
+            availableEvents.push(entry);
+            defaultSelectedEvents.add(entry.id);
+          }
+          defaultSelectedEvents.add(entry.id);
+          entry.targets.push({
+            nodeInstanceID: nodeDesc.instanceID,
+            targetTrigger: trigger.targetTrigger,
+          });
+        });
+    });
+  });
+
+    selectedNodes.forEach((nodeDesc) => {
+      const io = getInputsAndOutputsForNode(nodeDesc) || {};
+      const variableOverrides = safeGetOverrides(nodeDesc);
+
+      (io.inputs || []).forEach((metaInput, index) => {
+        const consumerVariable = metaInput.value || `input-${index}`;
+        const existing = availableInputs.find(
+          (entry) =>
+            entry.nodeInstanceID === nodeDesc.instanceID &&
+            entry.consumerVariable === consumerVariable
+        );
+        if (existing) {
+          return;
+        }
+        const handle = makeUniqueHandle(handleSet, "input", consumerVariable);
+        const overrideMeta = variableOverrides?.[consumerVariable] || {};
+        availableInputs.push({
+          id: handle,
+          kind: "variable",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(metaInput.label || consumerVariable)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          consumerVariable,
+          mediaType: overrideMeta.mediaType || "text",
+        });
+      });
+
+      (io.outputs || []).forEach((metaOutput, index) => {
+        let producerOutput;
+        let outputLabel;
+        let outputMediaType;
+        if (metaOutput && typeof metaOutput === "object") {
+          producerOutput =
+            metaOutput.value ??
+            metaOutput.key ??
+            metaOutput.id ??
+            metaOutput.name ??
+            `output-${index}`;
+          outputLabel = metaOutput.label ?? producerOutput;
+          outputMediaType = metaOutput.mediaType;
+        } else if (typeof metaOutput === "string") {
+          producerOutput = metaOutput;
+          outputLabel = metaOutput;
+          outputMediaType = undefined;
+        } else {
+          producerOutput = `output-${index}`;
+          outputLabel = producerOutput;
+          outputMediaType = undefined;
+        }
+        const existing = availableOutputs.find(
+          (entry) =>
+            entry.nodeInstanceID === nodeDesc.instanceID &&
+            entry.producerOutput === producerOutput
+        );
+        if (existing) {
+          return;
+        }
+        const handle = makeUniqueHandle(handleSet, "output", producerOutput);
+        availableOutputs.push({
+          id: handle,
+          kind: "variable",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(outputLabel || producerOutput)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          producerOutput,
+          mediaType: outputMediaType || "text",
+          targets: [],
+        });
+      });
+
+      (io.events || []).forEach((metaEvent, index) => {
+        let producerEvent;
+        let eventLabel;
+        if (metaEvent && typeof metaEvent === "object") {
+          producerEvent =
+            metaEvent.value ??
+            metaEvent.key ??
+            metaEvent.id ??
+            metaEvent.name ??
+            `event-${index}`;
+          eventLabel = metaEvent.label ?? producerEvent;
+        } else if (typeof metaEvent === "string") {
+          producerEvent = metaEvent;
+          eventLabel = metaEvent;
+        } else {
+          producerEvent = `event-${index}`;
+          eventLabel = producerEvent;
+        }
+        const existing = availableEvents.find(
+          (entry) =>
+            entry.nodeInstanceID === nodeDesc.instanceID &&
+            entry.producerEvent === producerEvent
+        );
+        if (existing) {
+          return;
+        }
+        const handle = makeUniqueHandle(handleSet, "event", producerEvent);
+        availableEvents.push({
+          id: handle,
+          kind: "event",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(eventLabel || producerEvent)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          producerEvent,
+          targets: [],
+        });
+      });
+    });
+
+    const initialSelectionIDs = Array.from(selectedSet);
+    const draft = {
+      id: uuidv4(),
+      name: deriveUniqueComponentName(versionInfoCurrent, selectedNodes),
+      description: "",
+      selectedNodeIDs: [...initialSelectionIDs],
+      nodes: selectedNodes.map((nodeDesc) => JSON.parse(JSON.stringify(nodeDesc))),
+      availableInputs,
+      availableOutputs,
+      availableEvents,
+      selectedInputs:
+        defaultSelectedInputs.size > 0
+          ? new Set(defaultSelectedInputs)
+          : new Set(availableInputs.map((entry) => entry.id)),
+      selectedOutputs:
+        defaultSelectedOutputs.size > 0
+          ? new Set(defaultSelectedOutputs)
+          : new Set(),
+      selectedEvents:
+        defaultSelectedEvents.size > 0
+          ? new Set(defaultSelectedEvents)
+          : new Set(),
+      library: "personal",
+      metadata: {
+        originalNodeInstanceIDs: [...initialSelectionIDs],
+      },
+      mode: "createFromSelection",
+    };
+    return draft;
+  }, []);
+
+  const buildComponentDraftFromDefinition = useCallback((definition) => {
+    if (!definition) {
+      return null;
+    }
+    const definitionNodes = Array.isArray(definition.nodes) ? definition.nodes : [];
+    const nodes = definitionNodes.map((node) => JSON.parse(JSON.stringify(node)));
+    const selectedNodeIDs = nodes.map((node) => node.instanceID);
+    const selectedSet = new Set(selectedNodeIDs);
+    const handleSet = new Set();
+    const availableInputs = [];
+    const availableOutputs = [];
+    const availableEvents = [];
+
+    const exposedInputs = Array.isArray(definition.exposedInputs) ? definition.exposedInputs : [];
+    const exposedOutputs = Array.isArray(definition.exposedOutputs) ? definition.exposedOutputs : [];
+    const exposedEvents = Array.isArray(definition.exposedEvents) ? definition.exposedEvents : [];
+
+    const addHandle = (handle) => {
+      if (handle) {
+        handleSet.add(handle);
+      }
+    };
+
+    exposedInputs.forEach((port) => addHandle(port.handle));
+    exposedOutputs.forEach((port) => addHandle(port.handle));
+    exposedEvents.forEach((port) => addHandle(port.handle));
+
+    const metadataCache = new Map();
+
+    const safeGetOverrides = (nodeDesc) => {
+      if (!nodeDesc) {
+        return {};
+      }
+      if (metadataCache.has(nodeDesc.instanceID)) {
+        return metadataCache.get(nodeDesc.instanceID);
+      }
+      try {
+        const metadataClass = getMetadataForNodeType(nodeDesc.nodeType);
+        if (!metadataClass) {
+          metadataCache.set(nodeDesc.instanceID, {});
+          return {};
+        }
+        const metadataInstance = new metadataClass({ fullNodeDescription: nodeDesc });
+        const overrides = metadataInstance.getVariableOverrides
+          ? metadataInstance.getVariableOverrides()
+          : metadataClass.AllowedVariableOverrides || {};
+        metadataCache.set(nodeDesc.instanceID, overrides || {});
+        return overrides || {};
+      } catch (error) {
+        console.warn("Failed to resolve metadata for node", nodeDesc.instanceID, error);
+        metadataCache.set(nodeDesc.instanceID, {});
+        return {};
+      }
+    };
+
+    const safeGetIO = (nodeDesc) => {
+      try {
+        return getInputsAndOutputsForNode(nodeDesc);
+      } catch (error) {
+        console.warn("Failed to compute IO for node", nodeDesc.instanceID, error);
+        return { inputs: [], outputs: [], events: [] };
+      }
+    };
+
+    nodes.forEach((nodeDesc) => {
+      const variableOverrides = safeGetOverrides(nodeDesc);
+      const inputList = Array.isArray(nodeDesc.inputs) ? nodeDesc.inputs : [];
+      inputList.forEach((input) => {
+        if (selectedSet.has(input.producerInstanceID)) {
+          return;
+        }
+        (input.variables || []).forEach((variable) => {
+          const key = `${nodeDesc.instanceID}::${variable.consumerVariable}::${input.producerInstanceID ?? "null"}::${variable.producerOutput ?? "null"}`;
+          const existingPort = exposedInputs.find(
+            (port) =>
+              port.nodeInstanceID === nodeDesc.instanceID &&
+              port.portName === variable.consumerVariable &&
+              port.annotations?.producerInstanceID === input.producerInstanceID &&
+              port.annotations?.producerOutput === variable.producerOutput
+          );
+          const handle = existingPort?.handle || makeUniqueHandle(handleSet, "input", variable.consumerVariable);
+          availableInputs.push({
+            id: key,
+            kind: "variable",
+            handle,
+            label: `${nodeDesc.instanceName} - ${variable.consumerVariable}`,
+            nodeInstanceID: nodeDesc.instanceID,
+            producerInstanceID: input.producerInstanceID,
+            consumerVariable: variable.consumerVariable,
+            producerOutput: variable.producerOutput,
+            mediaType: variableOverrides?.[variable.consumerVariable]?.mediaType || "text",
+          });
+        });
+        (input.triggers || []).forEach((trigger) => {
+          const key = `${nodeDesc.instanceID}::${trigger.targetTrigger}::${input.producerInstanceID ?? "null"}::${trigger.producerEvent ?? "null"}`;
+          const existingPort = exposedEvents.find(
+            (port) =>
+              port.nodeInstanceID === nodeDesc.instanceID &&
+              port.portName === trigger.targetTrigger &&
+              isInputEventPort(port) &&
+              port.annotations?.producerInstanceID === input.producerInstanceID &&
+              port.annotations?.producerEvent === trigger.producerEvent
+          );
+          const handle = existingPort?.handle || makeUniqueHandle(handleSet, "trigger", trigger.targetTrigger);
+          availableInputs.push({
+            id: key,
+            kind: "event",
+            handle,
+            label: `${nodeDesc.instanceName} - ${trigger.targetTrigger}`,
+            nodeInstanceID: nodeDesc.instanceID,
+            producerInstanceID: input.producerInstanceID,
+            targetTrigger: trigger.targetTrigger,
+            producerEvent: trigger.producerEvent,
+          });
+        });
+      });
+    });
+
+    nodes.forEach((nodeDesc) => {
+      const io = safeGetIO(nodeDesc) || {};
+      const variableOverrides = safeGetOverrides(nodeDesc);
+
+      (io.inputs || []).forEach((metaInput, index) => {
+        const consumerVariable = metaInput.value || `input-${index}`;
+        const alreadyPresent = availableInputs.some(
+          (entry) =>
+            entry.nodeInstanceID === nodeDesc.instanceID &&
+            entry.consumerVariable === consumerVariable
+        );
+        if (alreadyPresent) {
+          return;
+        }
+        const existingPort = exposedInputs.find(
+          (port) =>
+            port.nodeInstanceID === nodeDesc.instanceID &&
+            port.portName === consumerVariable
+        );
+        const handle = existingPort?.handle || makeUniqueHandle(handleSet, "input", consumerVariable);
+        availableInputs.push({
+          id: `${nodeDesc.instanceID}::${consumerVariable}`,
+          kind: "variable",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(metaInput.label || consumerVariable)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          consumerVariable,
+          mediaType: variableOverrides?.[consumerVariable]?.mediaType || "text",
+        });
+      });
+
+      (io.outputs || []).forEach((metaOutput, index) => {
+        let producerOutput;
+        let outputLabel;
+        let outputMediaType;
+        if (metaOutput && typeof metaOutput === "object") {
+          producerOutput =
+            metaOutput.value ??
+            metaOutput.key ??
+            metaOutput.id ??
+            metaOutput.name ??
+            `output-${index}`;
+          outputLabel = metaOutput.label ?? producerOutput;
+          outputMediaType = metaOutput.mediaType;
+        } else if (typeof metaOutput === "string") {
+          producerOutput = metaOutput;
+          outputLabel = metaOutput;
+          outputMediaType = undefined;
+        } else {
+          producerOutput = `output-${index}`;
+          outputLabel = producerOutput;
+          outputMediaType = undefined;
+        }
+        const id = `${nodeDesc.instanceID}::${producerOutput}`;
+        const existingPort = exposedOutputs.find(
+          (port) =>
+            port.nodeInstanceID === nodeDesc.instanceID &&
+            port.portName === producerOutput
+        );
+        const handle = existingPort?.handle || makeUniqueHandle(handleSet, "output", producerOutput);
+        availableOutputs.push({
+          id,
+          kind: "variable",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(outputLabel || producerOutput)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          producerOutput,
+          mediaType: outputMediaType || "text",
+          targets: existingPort?.annotations?.targets
+            ? JSON.parse(JSON.stringify(existingPort.annotations.targets))
+            : [],
+        });
+      });
+
+      (io.events || []).forEach((metaEvent, index) => {
+        let producerEvent;
+        let eventLabel;
+        if (metaEvent && typeof metaEvent === "object") {
+          producerEvent =
+            metaEvent.value ??
+            metaEvent.key ??
+            metaEvent.id ??
+            metaEvent.name ??
+            `event-${index}`;
+          eventLabel = metaEvent.label ?? producerEvent;
+        } else if (typeof metaEvent === "string") {
+          producerEvent = metaEvent;
+          eventLabel = metaEvent;
+        } else {
+          producerEvent = `event-${index}`;
+          eventLabel = producerEvent;
+        }
+        const id = `${nodeDesc.instanceID}::${producerEvent}`;
+        const existingPort = exposedEvents.find(
+          (port) =>
+            port.nodeInstanceID === nodeDesc.instanceID &&
+            port.portName === producerEvent &&
+            isOutputEventPort(port)
+        );
+        const handle = existingPort?.handle || makeUniqueHandle(handleSet, "event", producerEvent);
+        availableEvents.push({
+          id,
+          kind: "event",
+          handle,
+          label: `${nodeDesc.instanceName} - ${(eventLabel || producerEvent)}`,
+          nodeInstanceID: nodeDesc.instanceID,
+          producerEvent,
+          targets: existingPort?.annotations?.targets
+            ? JSON.parse(JSON.stringify(existingPort.annotations.targets))
+            : [],
+        });
+      });
+    });
+
+    const selectedInputs = new Set();
+    exposedInputs.forEach((port) => {
+      if (!isInputVariablePort(port)) {
+        return;
+      }
+      const match = availableInputs.find((entry) => {
+        if (entry.nodeInstanceID !== port.nodeInstanceID) {
+          return false;
+        }
+        if (entry.kind === "variable") {
+          return entry.consumerVariable === port.portName;
+        }
+        if (entry.kind === "event") {
+          return entry.targetTrigger === port.portName;
+        }
+        return false;
+      });
+      if (match) {
+        match.handle = port.handle;
+        if (match.kind === "variable") {
+          match.producerInstanceID =
+            port.annotations?.producerInstanceID ?? match.producerInstanceID;
+          match.producerOutput =
+            port.annotations?.producerOutput ?? match.producerOutput;
+        } else {
+          match.producerInstanceID =
+            port.annotations?.producerInstanceID ?? match.producerInstanceID;
+          match.producerEvent = port.annotations?.producerEvent ?? match.producerEvent;
+        }
+        selectedInputs.add(match.id);
+      } else {
+        const id = `${port.nodeInstanceID}::${port.portName}::${port.handle}`;
+        const entry = {
+          id,
+          kind: port.portType === "event" ? "event" : "variable",
+          handle: port.handle,
+          label: `${port.nodeInstanceID} - ${port.portName}`,
+          nodeInstanceID: port.nodeInstanceID,
+        };
+        if (entry.kind === "variable") {
+          entry.consumerVariable = port.portName;
+          entry.mediaType = port.mediaType || "text";
+          entry.producerInstanceID = port.annotations?.producerInstanceID || null;
+          entry.producerOutput = port.annotations?.producerOutput || null;
+        } else {
+          entry.targetTrigger = port.portName;
+          entry.producerInstanceID = port.annotations?.producerInstanceID || null;
+          entry.producerEvent = port.annotations?.producerEvent || null;
+        }
+        availableInputs.push(entry);
+        selectedInputs.add(entry.id);
+      }
+    });
+
+    const selectedOutputs = new Set();
+    exposedOutputs.forEach((port) => {
+      if (!isOutputVariablePort(port)) {
+        return;
+      }
+      const match = availableOutputs.find(
+        (entry) =>
+          entry.nodeInstanceID === port.nodeInstanceID &&
+          entry.producerOutput === port.portName
+      );
+      if (match) {
+        match.handle = port.handle;
+        match.targets = JSON.parse(JSON.stringify(port.annotations?.targets || match.targets || []));
+        match.mediaType = port.mediaType || match.mediaType;
+        selectedOutputs.add(match.id);
+      } else {
+        const id = `${port.nodeInstanceID}::${port.portName}::${port.handle}`;
+        const entry = {
+          id,
+          kind: "variable",
+          handle: port.handle,
+          label: `${port.nodeInstanceID} - ${port.portName}`,
+          nodeInstanceID: port.nodeInstanceID,
+          producerOutput: port.portName,
+          mediaType: port.mediaType || "text",
+          targets: JSON.parse(JSON.stringify(port.annotations?.targets || [])),
+        };
+        availableOutputs.push(entry);
+        selectedOutputs.add(entry.id);
+      }
+    });
+
+    const selectedEvents = new Set();
+    exposedEvents.forEach((port) => {
+      if (!isOutputEventPort(port)) {
+        return;
+      }
+      const match = availableEvents.find(
+        (entry) =>
+          entry.nodeInstanceID === port.nodeInstanceID &&
+          entry.producerEvent === port.portName
+      );
+      if (match) {
+        match.handle = port.handle;
+        match.targets = JSON.parse(JSON.stringify(port.annotations?.targets || match.targets || []));
+        selectedEvents.add(match.id);
+      } else {
+        const id = `${port.nodeInstanceID}::${port.portName}::${port.handle}`;
+        const entry = {
+          id,
+          kind: "event",
+          handle: port.handle,
+          label: `${port.nodeInstanceID} - ${port.portName}`,
+          nodeInstanceID: port.nodeInstanceID,
+          producerEvent: port.portName,
+          targets: JSON.parse(JSON.stringify(port.annotations?.targets || [])),
+        };
+        availableEvents.push(entry);
+        selectedEvents.add(entry.id);
+      }
+    });
+
+    return {
+      id: definition.componentID || uuidv4(),
+      name: definition.name || "Custom Component",
+      description: definition.description || "",
+      selectedNodeIDs: selectedNodeIDs.length > 0 ? selectedNodeIDs : [...(definition.metadata?.selectedNodeInstanceIDs || [])],
+      nodes,
+      availableInputs,
+      availableOutputs,
+      availableEvents,
+      selectedInputs,
+      selectedOutputs,
+      selectedEvents,
+      library: definition.library || "personal",
+      componentID: definition.componentID,
+      version: definition.version || { major: 0, minor: 1, patch: 0 },
+      metadata: definition.metadata || {},
+      mode: "editExisting",
+    };
+  }, []);
+
+  const startComponentEditor = useCallback(
+    (instanceIDs, metadata = {}) => {
+      const draft = buildComponentDraft(instanceIDs);
+      if (draft) {
+        openComponentEditor(draft, metadata);
+        setInspectorPanelOpen(false);
+      }
+    },
+    [buildComponentDraft, openComponentEditor],
+  );
+
+  const handleCancelComponentEditor = useCallback(() => {
+    closeActiveComponentEditor();
+  }, [closeActiveComponentEditor]);
+
+  const handleComponentNameChange = useCallback(
+    (value) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous || previous.name === value) {
+          return previous;
+        }
+        return { ...previous, name: value };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
+
+  const handleComponentDescriptionChange = useCallback(
+    (value) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous || previous.description === value) {
+          return previous;
+        }
+        return { ...previous, description: value };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
+
+  const handleComponentLibraryChange = useCallback(
+    (value) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous || previous.library === value) {
+          return previous;
+        }
+        return { ...previous, library: value };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
+
+  const handleToggleInputExposure = useCallback(
+    (id) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        return {
+          ...previous,
+          selectedInputs: toggleSelectionSet(previous.selectedInputs, id),
+        };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
+
+  const handleToggleOutputExposure = useCallback(
+    (id) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        return {
+          ...previous,
+          selectedOutputs: toggleSelectionSet(previous.selectedOutputs, id),
+        };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
+
+  const handleToggleEventExposure = useCallback(
+    (id) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        return {
+          ...previous,
+          selectedEvents: toggleSelectionSet(previous.selectedEvents, id),
+        };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
+
+  const handleComponentAddConnection = useCallback((detail) => {
+    if (!detail) {
+      return;
+    }
+    updateComponentEditorDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const nodes = Array.isArray(previous.nodes) ? previous.nodes : [];
+      const targetIndex = nodes.findIndex(
+        (node) => node.instanceID === detail.targetInstanceID,
+      );
+      if (targetIndex === -1) {
+        return previous;
+      }
+
+      const nextNode = JSON.parse(JSON.stringify(nodes[targetIndex] || {}));
+      nextNode.inputs = Array.isArray(nextNode.inputs) ? nextNode.inputs : [];
+      let changed = false;
+
+      nextNode.inputs.forEach((input) => {
+        input.variables = Array.isArray(input.variables) ? input.variables : [];
+        input.triggers = Array.isArray(input.triggers) ? input.triggers : [];
+      });
+
+      if (detail.type === "variable") {
+        nextNode.inputs.forEach((input) => {
+          const originalLength = input.variables.length;
+          input.variables = input.variables.filter(
+            (variable) => variable.consumerVariable !== detail.targetKey,
+          );
+          if (input.variables.length !== originalLength) {
+            changed = true;
+          }
+        });
+
+        let producerEntry = nextNode.inputs.find(
+          (input) => input.producerInstanceID === detail.sourceInstanceID,
+        );
+        if (!producerEntry) {
+          producerEntry = {
+            producerInstanceID: detail.sourceInstanceID,
+            variables: [],
+            triggers: [],
+          };
+          nextNode.inputs.push(producerEntry);
+          changed = true;
+        }
+        producerEntry.variables = Array.isArray(producerEntry.variables)
+          ? producerEntry.variables
+          : [];
+        const existing = producerEntry.variables.find(
+          (variable) => variable.consumerVariable === detail.targetKey,
+        );
+        if (existing) {
+          if (existing.producerOutput !== detail.sourceKey) {
+            existing.producerOutput = detail.sourceKey;
+            changed = true;
+          }
+        } else {
+          producerEntry.variables.push({
+            producerOutput: detail.sourceKey,
+            consumerVariable: detail.targetKey,
+          });
+          changed = true;
+        }
+      } else if (detail.type === "event") {
+        nextNode.inputs.forEach((input) => {
+          const originalLength = input.triggers.length;
+          input.triggers = input.triggers.filter(
+            (trigger) => trigger.targetTrigger !== detail.targetKey,
+          );
+          if (input.triggers.length !== originalLength) {
+            changed = true;
+          }
+        });
+
+        let producerEntry = nextNode.inputs.find(
+          (input) => input.producerInstanceID === detail.sourceInstanceID,
+        );
+        if (!producerEntry) {
+          producerEntry = {
+            producerInstanceID: detail.sourceInstanceID,
+            variables: [],
+            triggers: [],
+          };
+          nextNode.inputs.push(producerEntry);
+          changed = true;
+        }
+        producerEntry.triggers = Array.isArray(producerEntry.triggers)
+          ? producerEntry.triggers
+          : [];
+        const existing = producerEntry.triggers.find(
+          (trigger) =>
+            trigger.targetTrigger === detail.targetKey &&
+            trigger.producerEvent === detail.sourceKey,
+        );
+        if (!existing) {
+          producerEntry.triggers.push({
+            producerEvent: detail.sourceKey,
+            targetTrigger: detail.targetKey,
+          });
+          changed = true;
+        }
+      }
+
+      nextNode.inputs = nextNode.inputs.filter((input) => {
+        const hasVariables =
+          Array.isArray(input.variables) && input.variables.length > 0;
+        const hasTriggers =
+          Array.isArray(input.triggers) && input.triggers.length > 0;
+        return hasVariables || hasTriggers;
+      });
+
+      if (!changed) {
+        return previous;
+      }
+
+      const nextNodes = nodes.map((node, index) =>
+        index === targetIndex ? nextNode : node,
+      );
+      return rebuildComponentDraftState({
+        ...previous,
+        nodes: nextNodes,
+      });
+    });
+  }, [updateComponentEditorDraft]);
+
+  const handleComponentRemoveConnection = useCallback((detail) => {
+    if (!detail) {
+      return;
+    }
+    updateComponentEditorDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const nodes = Array.isArray(previous.nodes) ? previous.nodes : [];
+      const targetIndex = nodes.findIndex(
+        (node) => node.instanceID === detail.targetInstanceID,
+      );
+      if (targetIndex === -1) {
+        return previous;
+      }
+
+      const nextNode = JSON.parse(JSON.stringify(nodes[targetIndex] || {}));
+      nextNode.inputs = Array.isArray(nextNode.inputs) ? nextNode.inputs : [];
+
+      const producerIndex = nextNode.inputs.findIndex(
+        (input) => input.producerInstanceID === detail.sourceInstanceID,
+      );
+      if (producerIndex === -1) {
+        return previous;
+      }
+
+      const producerEntry = nextNode.inputs[producerIndex];
+      let changed = false;
+
+      if (detail.type === "variable") {
+        const before = Array.isArray(producerEntry.variables)
+          ? producerEntry.variables.length
+          : 0;
+        producerEntry.variables = Array.isArray(producerEntry.variables)
+          ? producerEntry.variables.filter(
+              (variable) =>
+                !(
+                  variable.producerOutput === detail.sourceKey &&
+                  variable.consumerVariable === detail.targetKey
+                ),
+            )
+          : [];
+        if (producerEntry.variables.length !== before) {
+          changed = true;
+        }
+      } else if (detail.type === "event") {
+        const before = Array.isArray(producerEntry.triggers)
+          ? producerEntry.triggers.length
+          : 0;
+        producerEntry.triggers = Array.isArray(producerEntry.triggers)
+          ? producerEntry.triggers.filter(
+              (trigger) =>
+                !(
+                  trigger.producerEvent === detail.sourceKey &&
+                  trigger.targetTrigger === detail.targetKey
+                ),
+            )
+          : [];
+        if (producerEntry.triggers.length !== before) {
+          changed = true;
+        }
+      }
+
+      if (
+        (!producerEntry.variables || producerEntry.variables.length === 0) &&
+        (!producerEntry.triggers || producerEntry.triggers.length === 0)
+      ) {
+        nextNode.inputs.splice(producerIndex, 1);
+        changed = true;
+      }
+
+      if (!changed) {
+        return previous;
+      }
+
+      const nextNodes = nodes.map((node, index) =>
+        index === targetIndex ? nextNode : node,
+      );
+      return rebuildComponentDraftState({
+        ...previous,
+        nodes: nextNodes,
+      });
+    });
+  }, []);
+
+  const handleComponentNodeChange = useCallback(
+    (node, relativePath, newValue) => {
+      if (!node) {
+        return;
+      }
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const nodes = Array.isArray(previous.nodes)
+          ? previous.nodes.map((entry) => {
+              if (entry.instanceID !== node.instanceID) {
+                return entry;
+              }
+              const updated = JSON.parse(JSON.stringify(node));
+              if (relativePath) {
+                setNestedObjectProperty(updated, relativePath, newValue);
+              }
+              return updated;
+            })
+          : [];
+        return rebuildComponentDraftState({
+          ...previous,
+          nodes,
+        });
+      });
+    },
+    [updateComponentEditorDraft],
+  );
+
+  const handleComponentNodeStructureChange = useCallback(
+    (node, action, optionalParams = {}) => {
+      if (
+        action === "editCustomComponent" ||
+        action === "startCustomComponent" ||
+        action === "commitCustomComponent" ||
+        action === "cancelCustomComponent" ||
+        action === "addCustomComponentInstance"
+      ) {
+        onNodeStructureChange?.(node, action, optionalParams);
+        return;
+      }
+
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const nodes = Array.isArray(previous.nodes)
+          ? previous.nodes.map((entry) => JSON.parse(JSON.stringify(entry)))
+          : [];
+        const targetIndex = node
+          ? nodes.findIndex((entry) => entry.instanceID === node.instanceID)
+          : -1;
+        let mutated = false;
+        let createdNodeID = null;
+        let nextSelected = Array.isArray(previous.selectedNodeIDs)
+          ? previous.selectedNodeIDs.filter((id) =>
+              nodes.some((entry) => entry.instanceID === id),
+            )
+          : [];
+
+        switch (action) {
+          case "duplicate": {
+            if (targetIndex === -1) {
+              return previous;
+            }
+            const sourceNode = nodes[targetIndex];
+            const clone = JSON.parse(JSON.stringify(sourceNode));
+            clone.instanceID = uuidv4();
+            clone.instanceName = ensureUniqueInstanceName(clone.instanceName, nodes);
+            nodes.splice(targetIndex + 1, 0, clone);
+            createdNodeID = clone.instanceID;
+            mutated = true;
+            break;
+          }
+          case "delete": {
+            if (targetIndex === -1) {
+              return previous;
+            }
+            const removed = nodes.splice(targetIndex, 1)[0];
+            nextSelected = nextSelected.filter((id) => id !== removed.instanceID);
+            nodes.forEach((entry) => {
+              if (!Array.isArray(entry.inputs)) {
+                return;
+              }
+              entry.inputs = entry.inputs
+                .map((input) => {
+                  if (input.producerInstanceID === removed.instanceID) {
+                    return null;
+                  }
+                  const variables = Array.isArray(input.variables)
+                    ? input.variables.filter(Boolean)
+                    : [];
+                  const triggers = Array.isArray(input.triggers)
+                    ? input.triggers.filter(Boolean)
+                    : [];
+                  if (variables.length === 0 && triggers.length === 0) {
+                    return null;
+                  }
+                  return {
+                    ...input,
+                    variables,
+                    triggers,
+                  };
+                })
+                .filter(Boolean);
+            });
+            mutated = true;
+            break;
+          }
+          case "copyParamsToSameType": {
+            if (targetIndex === -1) {
+              return previous;
+            }
+            const sourceNode = nodes[targetIndex];
+            const metadata = getMetadataForNodeType(sourceNode.nodeType);
+            const paramsToCopy = metadata?.parametersToCopy;
+            if (!Array.isArray(paramsToCopy) || paramsToCopy.length === 0) {
+              return previous;
+            }
+            nodes.forEach((entry) => {
+              if (entry.nodeType !== sourceNode.nodeType || entry.instanceID === sourceNode.instanceID) {
+                return;
+              }
+              paramsToCopy.forEach((path) => {
+                const value = getNestedObjectProperty(sourceNode.params, path);
+                setNestedObjectProperty(entry.params || (entry.params = {}), path, value);
+              });
+            });
+            mutated = true;
+            break;
+          }
+          case "visualUpdateNeeded":
+          case "input": {
+            mutated = true;
+            break;
+          }
+          default: {
+            return previous;
+          }
+        }
+
+        if (!mutated) {
+          return previous;
+        }
+
+        const nextDraft = rebuildComponentDraftState({
+          ...previous,
+          nodes,
+          selectedNodeIDs: nextSelected,
+        });
+        if (createdNodeID) {
+          nextDraft.selectedNodeIDs = [createdNodeID];
+        }
+        return nextDraft;
+      });
+    },
+    [updateComponentEditorDraft, onNodeStructureChange],
+  );
+
+  const handleComponentSelectionChange = useCallback(
+    (selectedIDs) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const nextSelected = Array.isArray(selectedIDs) ? [...selectedIDs] : [];
+        const prior = Array.isArray(previous.selectedNodeIDs)
+          ? previous.selectedNodeIDs
+          : [];
+        const sameLength = prior.length === nextSelected.length;
+        const sameContent =
+          sameLength &&
+          prior.every((value, index) => value === nextSelected[index]);
+        if (sameContent) {
+          return previous;
+        }
+        return {
+          ...previous,
+          selectedNodeIDs: nextSelected,
+        };
+      });
+    },
+    [updateComponentEditorDraft],
+  );
+
+  const handleComponentGraphAction = useCallback(
+    (action, detail = {}) => {
+      updateComponentEditorDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const nodes = Array.isArray(previous.nodes)
+          ? previous.nodes.map((entry) => JSON.parse(JSON.stringify(entry)))
+          : [];
+        let createdNode = null;
+
+        switch (action) {
+          case "addTemplate": {
+            const templateName = detail?.template;
+            if (!templateName) {
+              return previous;
+            }
+            const metadata = getMetadataForNodeType(templateName);
+            if (!metadata?.newNodeTemplate) {
+              return previous;
+            }
+            const newNode = JSON.parse(JSON.stringify(metadata.newNodeTemplate));
+            newNode.instanceID = uuidv4();
+            if (!newNode.instanceName) {
+              newNode.instanceName = templateName;
+            }
+            newNode.instanceName = ensureUniqueInstanceName(newNode.instanceName, nodes);
+            newNode.inputs = Array.isArray(newNode.inputs) ? newNode.inputs : [];
+            replaceAllNodePlaceholderSettings(newNode);
+            nodes.push(newNode);
+            createdNode = newNode;
+            break;
+          }
+          case "duplicateNode": {
+            const sourceNode = detail?.node;
+            if (!sourceNode) {
+              return previous;
+            }
+            const clone = JSON.parse(JSON.stringify(sourceNode));
+            clone.instanceID = uuidv4();
+            clone.instanceName = ensureUniqueInstanceName(clone.instanceName, nodes);
+            nodes.push(clone);
+            createdNode = clone;
+            break;
+          }
+          case "addCustomComponent": {
+            const componentID = detail?.componentID;
+            if (!componentID) {
+              return previous;
+            }
+            const versionInfoCurrent = newVersionInfoRef.current;
+            const definitions = Array.isArray(
+              versionInfoCurrent?.stateMachineDescription?.customComponents,
+            )
+              ? versionInfoCurrent.stateMachineDescription.customComponents
+              : [];
+            const definition = definitions.find(
+              (entry) => entry.componentID === componentID,
+            );
+            if (!definition) {
+              return previous;
+            }
+            const metadata = getMetadataForNodeType("customComponent");
+            const template = JSON.parse(JSON.stringify(metadata?.newNodeTemplate || {}));
+            const componentNode = {
+              ...template,
+              instanceID: uuidv4(),
+              nodeType: "customComponent",
+              instanceName: ensureUniqueInstanceName(
+                definition.name || template.instanceName || "Custom Component",
+                nodes,
+              ),
+              params: {
+                ...(template.params || {}),
+                componentID: definition.componentID,
+                version: definition.version || template.params?.version || { major: 0, minor: 1, patch: 0 },
+                metadata: {
+                  ...(template.params?.metadata || {}),
+                  componentName: definition.name,
+                },
+                inputBindings: {},
+                outputBindings: {},
+                eventBindings: {},
+              },
+              inputs: Array.isArray(template.inputs) ? template.inputs : [],
+            };
+            nodes.push(componentNode);
+            createdNode = componentNode;
+            break;
+          }
+          case "deleteNodes": {
+            const instanceIDs = Array.isArray(detail?.instanceIDs)
+              ? detail.instanceIDs.filter(Boolean)
+              : [];
+            if (instanceIDs.length === 0) {
+              return previous;
+            }
+            const removalSet = new Set(instanceIDs);
+            const remainingNodes = nodes.filter((node) => !removalSet.has(node.instanceID));
+            if (remainingNodes.length === nodes.length) {
+              return previous;
+            }
+            remainingNodes.forEach((node) => {
+              if (!Array.isArray(node.inputs)) {
+                return;
+              }
+              node.inputs = node.inputs
+                .filter((input) => input && !removalSet.has(input.producerInstanceID))
+                .map((input) => ({
+                  ...input,
+                  variables: Array.isArray(input.variables)
+                    ? input.variables.filter(
+                        (variable) =>
+                          variable &&
+                          variable.consumerVariable &&
+                          variable.producerOutput,
+                      )
+                    : [],
+                  triggers: Array.isArray(input.triggers)
+                    ? input.triggers.filter(
+                        (trigger) =>
+                          trigger &&
+                          trigger.producerEvent &&
+                          trigger.targetTrigger,
+                      )
+                    : [],
+                }));
+            });
+            const nextDraftBase = {
+              ...previous,
+              nodes: remainingNodes,
+              selectedNodeIDs: [],
+              selectedInputs: [],
+              selectedOutputs: [],
+              selectedEvents: [],
+            };
+            const rebuilt = rebuildComponentDraftState(nextDraftBase);
+            rebuilt.selectedNodeIDs = [];
+            return rebuilt;
+          }
+          default:
+            return previous;
+        }
+
+        const nextDraftBase = {
+          ...previous,
+          nodes,
+        };
+        const rebuilt = rebuildComponentDraftState(nextDraftBase);
+        if (createdNode) {
+          rebuilt.selectedNodeIDs = [createdNode.instanceID];
+        } else if (Array.isArray(previous.selectedNodeIDs)) {
+          rebuilt.selectedNodeIDs = previous.selectedNodeIDs.filter((id) =>
+            nodes.some((entry) => entry.instanceID === id),
+          );
+        }
+        return rebuilt;
+      });
+    },
+    [updateComponentEditorDraft, newVersionInfoRef, replaceAllNodePlaceholderSettings],
+  );
+
+  const buildComponentDefinitionFromDraft = useCallback((draft, componentID) => {
+    if (!draft) {
+      return null;
+    }
+
+    const selectedInputsSet = toSelectionSetLike(draft.selectedInputs);
+    const selectedOutputsSet = toSelectionSetLike(draft.selectedOutputs);
+    const selectedEventsSet = toSelectionSetLike(draft.selectedEvents);
+
+    const resolvedSelectedInputs =
+      selectedInputsSet.size > 0
+        ? selectedInputsSet
+        : draft.mode === "editExisting"
+          ? new Set()
+          : new Set((draft.availableInputs || []).map((entry) => entry.id));
+    const resolvedSelectedOutputs = new Set(selectedOutputsSet);
+    const resolvedSelectedEvents = new Set(selectedEventsSet);
+
+    const resolvedOriginalSelection = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(draft.metadata?.originalNodeInstanceIDs)
+            ? draft.metadata.originalNodeInstanceIDs
+            : []),
+          ...(Array.isArray(draft.metadata?.selectedNodeInstanceIDs)
+            ? draft.metadata.selectedNodeInstanceIDs
+            : []),
+          ...(Array.isArray(draft.selectedNodeIDs) ? draft.selectedNodeIDs : []),
+          ...(Array.isArray(draft.nodes)
+            ? draft.nodes.map((node) => node?.instanceID).filter(Boolean)
+            : []),
+        ].filter(Boolean),
+      ),
+    );
+
+    const definition = {
+      componentID,
+      name: draft.name,
+      description: draft.description || "",
+      nodes: JSON.parse(JSON.stringify(draft.nodes)),
+      exposedInputs: [],
+      exposedOutputs: [],
+      exposedEvents: [],
+      metadata: {
+        createdAt: new Date().toISOString(),
+        selectedNodeInstanceIDs: [...(draft.selectedNodeIDs || [])],
+        originalNodeInstanceIDs: resolvedOriginalSelection,
+      },
+      allowNesting: true,
+      library: draft.library,
+      version: { major: 0, minor: 1, patch: 0 },
+    };
+
+    draft.availableInputs.forEach((entry) => {
+      if (!resolvedSelectedInputs.has(entry.id)) {
+        return;
+      }
+      if (entry.kind === "variable") {
+        definition.exposedInputs.push({
+          handle: entry.handle,
+          label: entry.label,
+          nodeInstanceID: entry.nodeInstanceID,
+          mediaType: entry.mediaType,
+          portType: "variable",
+          portName: entry.consumerVariable,
+          annotations: {
+            direction: "input",
+            producerInstanceID: entry.producerInstanceID,
+            producerOutput: entry.producerOutput,
+          },
+        });
+      } else if (entry.kind === "event") {
+        definition.exposedInputs.push({
+          handle: entry.handle,
+          label: entry.label,
+          nodeInstanceID: entry.nodeInstanceID,
+          mediaType: "event",
+          portType: "event",
+          portName: entry.targetTrigger,
+          annotations: {
+            direction: "input",
+            producerInstanceID: entry.producerInstanceID,
+            producerEvent: entry.producerEvent,
+          },
+        });
+      }
+    });
+
+    draft.availableOutputs.forEach((entry) => {
+      if (!resolvedSelectedOutputs.has(entry.id)) {
+        return;
+      }
+      definition.exposedOutputs.push({
+        handle: entry.handle,
+        label: entry.label,
+        nodeInstanceID: entry.nodeInstanceID,
+        mediaType: entry.mediaType,
+        portType: "variable",
+        portName: entry.producerOutput,
+        annotations: {
+          direction: "output",
+          targets: entry.targets,
+        },
+      });
+    });
+
+    draft.availableEvents.forEach((entry) => {
+      if (!resolvedSelectedEvents.has(entry.id)) {
+        return;
+      }
+      definition.exposedEvents.push({
+        handle: entry.handle,
+        label: entry.label,
+        nodeInstanceID: entry.nodeInstanceID,
+        mediaType: "event",
+        portType: "event",
+        portName: entry.producerEvent,
+        annotations: {
+          direction: "output",
+          targets: entry.targets,
+        },
+      });
+    });
+
+    return definition;
+  }, []);
+
+  const sanitizeNodeInputs = useCallback((nodes, validNodeIDs) => {
+    nodes.forEach((node) => {
+      const inputs = Array.isArray(node.inputs) ? node.inputs : [];
+      const nextInputs = [];
+      inputs.forEach((input) => {
+        if (!input || !validNodeIDs.has(input.producerInstanceID)) {
+          return;
+        }
+        const nextInput = {
+          producerInstanceID: input.producerInstanceID,
+          includeHistory: Boolean(input.includeHistory),
+          historyParams: input.historyParams ? { ...input.historyParams } : {},
+          variables: Array.isArray(input.variables)
+            ? input.variables.filter(
+                (variable) =>
+                  variable &&
+                  variable.consumerVariable &&
+                  variable.producerOutput
+              )
+            : [],
+          triggers: Array.isArray(input.triggers)
+            ? input.triggers.filter(
+                (trigger) =>
+                  trigger && trigger.producerEvent && trigger.targetTrigger
+              )
+            : [],
+        };
+        if (nextInput.variables.length || nextInput.triggers.length) {
+          nextInputs.push(nextInput);
+        }
+      });
+      node.inputs = nextInputs;
+    });
+  }, []);
+
+  const commitComponentDraft = useCallback((draft) => {
+    if (!draft) {
+      return;
+    }
+
+    if (draft.mode === "editExisting" && draft.componentID) {
+      const versionInfoCopy = JSON.parse(JSON.stringify(newVersionInfoRef.current || {}));
+      if (!versionInfoCopy.stateMachineDescription) {
+        versionInfoCopy.stateMachineDescription = {};
+      }
+      const graph = versionInfoCopy.stateMachineDescription;
+      graph.customComponents = Array.isArray(graph.customComponents)
+        ? JSON.parse(JSON.stringify(graph.customComponents))
+        : [];
+
+      const resolveComponentIndex = () => {
+        if (typeof draft.componentIndex === "number") {
+          return draft.componentIndex;
+        }
+        return graph.customComponents.findIndex(
+          (entry) => entry.componentID === draft.componentID
+        );
+      };
+
+      const componentIndex = resolveComponentIndex();
+      const existingDefinition =
+        componentIndex >= 0 ? graph.customComponents[componentIndex] : null;
+
+      const definition = buildComponentDefinitionFromDraft(draft, draft.componentID);
+      if (!definition) {
+        return;
+      }
+
+      const incrementVersion = (previous) => {
+        const safePrev = previous || draft.version || { major: 0, minor: 1, patch: 0 };
+        const major = Number.isFinite(safePrev.major) ? safePrev.major : 0;
+        const minor = Number.isFinite(safePrev.minor) ? safePrev.minor : 1;
+        const patch = Number.isFinite(safePrev.patch) ? safePrev.patch + 1 : 0;
+        return { major, minor, patch };
+      };
+
+      definition.version = incrementVersion(existingDefinition?.version);
+      definition.name = draft.name;
+      definition.description = draft.description || "";
+      definition.library = draft.library || existingDefinition?.library || definition.library;
+      definition.metadata = {
+        ...(existingDefinition?.metadata || {}),
+        ...(definition.metadata || {}),
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (componentIndex >= 0) {
+        graph.customComponents[componentIndex] = definition;
+      } else {
+        graph.customComponents.push(definition);
+      }
+
+      graph.nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+      const componentNodes = graph.nodes.filter(
+        (nodeDesc) =>
+          nodeDesc.nodeType === "customComponent" &&
+          nodeDesc.params?.componentID === draft.componentID
+      );
+
+      if (componentNodes.length > 0) {
+        const validInputHandles = new Set();
+        definition.exposedInputs
+          .filter((port) => isInputVariablePort(port))
+          .forEach((port) => validInputHandles.add(port.handle));
+        definition.exposedEvents
+          .filter((port) => isInputEventPort(port))
+          .forEach((port) => validInputHandles.add(port.handle));
+
+        const validOutputHandles = new Set(
+          definition.exposedOutputs
+            .filter((port) => isOutputVariablePort(port))
+            .map((port) => port.handle)
+        );
+        const validEventOutputHandles = new Set(
+          definition.exposedEvents
+            .filter((port) => isOutputEventPort(port))
+            .map((port) => port.handle)
+        );
+
+        componentNodes.forEach((componentNode) => {
+          componentNode.params = componentNode.params || {};
+          componentNode.params.version = definition.version;
+          componentNode.params.metadata = {
+            ...(componentNode.params.metadata || {}),
+            componentName: draft.name,
+          };
+
+          componentNode.params.inputBindings = componentNode.params.inputBindings || {};
+          Object.keys(componentNode.params.inputBindings).forEach((handle) => {
+            if (!validInputHandles.has(handle)) {
+              delete componentNode.params.inputBindings[handle];
+            }
+          });
+          definition.exposedInputs
+            .filter((port) => isInputVariablePort(port))
+            .forEach((port) => {
+              componentNode.params.inputBindings[port.handle] = {
+                nodeInstanceID: port.nodeInstanceID,
+                portName: port.portName,
+              };
+            });
+          definition.exposedEvents
+            .filter((port) => isInputEventPort(port))
+            .forEach((port) => {
+              componentNode.params.inputBindings[port.handle] = {
+                nodeInstanceID: port.nodeInstanceID,
+                portName: port.portName,
+              };
+            });
+
+          componentNode.params.outputBindings = componentNode.params.outputBindings || {};
+          Object.keys(componentNode.params.outputBindings).forEach((handle) => {
+            if (!validOutputHandles.has(handle)) {
+              delete componentNode.params.outputBindings[handle];
+            }
+          });
+          definition.exposedOutputs
+            .filter((port) => isOutputVariablePort(port))
+            .forEach((port) => {
+              componentNode.params.outputBindings[port.handle] = {
+                nodeInstanceID: port.nodeInstanceID,
+                portName: port.portName,
+              };
+            });
+
+          componentNode.params.eventBindings = componentNode.params.eventBindings || {};
+          Object.keys(componentNode.params.eventBindings).forEach((handle) => {
+            if (!validEventOutputHandles.has(handle)) {
+              delete componentNode.params.eventBindings[handle];
+            }
+          });
+          definition.exposedEvents
+            .filter((port) => isOutputEventPort(port))
+            .forEach((port) => {
+              componentNode.params.eventBindings[port.handle] = {
+                nodeInstanceID: port.nodeInstanceID,
+                portName: port.portName,
+              };
+            });
+
+          componentNode.inputs = Array.isArray(componentNode.inputs) ? componentNode.inputs : [];
+          componentNode.inputs = componentNode.inputs
+            .map((entry) => {
+              const variables = Array.isArray(entry.variables)
+                ? entry.variables.filter((variable) => validInputHandles.has(variable.consumerVariable))
+                : [];
+              const triggers = Array.isArray(entry.triggers)
+                ? entry.triggers.filter((trigger) => validInputHandles.has(trigger.targetTrigger))
+                : [];
+              if (variables.length === 0 && triggers.length === 0) {
+                return null;
+              }
+              return {
+                ...entry,
+                variables,
+                triggers,
+              };
+            })
+            .filter(Boolean);
+        });
+
+        const componentInstanceIDs = new Set(componentNodes.map((nodeDesc) => nodeDesc.instanceID));
+        graph.nodes = graph.nodes.map((graphNode) => {
+          if (componentInstanceIDs.has(graphNode.instanceID)) {
+            return graphNode;
+          }
+          const inputList = Array.isArray(graphNode.inputs) ? graphNode.inputs : [];
+          const nextInputs = inputList
+            .map((entry) => {
+              if (!componentInstanceIDs.has(entry.producerInstanceID)) {
+                return entry;
+              }
+              const variables = Array.isArray(entry.variables)
+                ? entry.variables.filter((variable) => validOutputHandles.has(variable.producerOutput))
+                : [];
+              const triggers = Array.isArray(entry.triggers)
+                ? entry.triggers.filter((trigger) => validEventOutputHandles.has(trigger.producerEvent))
+                : [];
+              if (variables.length === 0 && triggers.length === 0) {
+                return null;
+              }
+              return {
+                ...entry,
+                variables,
+                triggers,
+              };
+            })
+            .filter(Boolean);
+          return {
+            ...graphNode,
+            inputs: nextInputs,
+          };
+        });
+
+        updateVersionInfo(versionInfoCopy);
+        closeActiveComponentEditor();
+        setInspectorPanelOpen(false);
+        return;
+      }
+
+    }
+
+    const selectedIDSet = new Set();
+    const addIDsFrom = (value) => {
+      toSelectionSetLike(value).forEach((id) => {
+        if (id) {
+          selectedIDSet.add(id);
+        }
+      });
+    };
+    addIDsFrom(draft.selectedNodeIDs);
+    addIDsFrom(draft.metadata?.selectedNodeInstanceIDs);
+    addIDsFrom(draft.metadata?.originalNodeInstanceIDs);
+    if (Array.isArray(draft.nodes)) {
+      draft.nodes.forEach((node) => {
+        if (node?.instanceID) {
+          selectedIDSet.add(node.instanceID);
+        }
+      });
+    }
+    const selectedIDs = selectedIDSet;
+    if (selectedIDs.size === 0) {
+      closeActiveComponentEditor();
+      setInspectorPanelOpen(false);
+      return;
+    }
+
+    const definitionID = uuidv4();
+    const definition = buildComponentDefinitionFromDraft(draft, definitionID);
+    if (!definition) {
+      return;
+    }
+
+    const versionInfoCopy = JSON.parse(JSON.stringify(newVersionInfoRef.current || {}));
+    if (!versionInfoCopy.stateMachineDescription) {
+      versionInfoCopy.stateMachineDescription = {};
+    }
+    const graph = versionInfoCopy.stateMachineDescription;
+    graph.customComponents = Array.isArray(graph.customComponents) ? [...graph.customComponents] : [];
+    const originalNodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+
+    const externalConsumersSnapshot = originalNodes
+      .filter((graphNode) => !selectedIDs.has(graphNode.instanceID))
+      .map((graphNode) => {
+        const originalInputs = Array.isArray(graphNode.inputs) ? graphNode.inputs : [];
+        const referencesSelected = originalInputs.some(
+          (inputEntry) => selectedIDs.has(inputEntry?.producerInstanceID)
+        );
+        if (!referencesSelected) {
+          return null;
+        }
+        return {
+          nodeInstanceID: graphNode.instanceID,
+          inputs: JSON.parse(JSON.stringify(originalInputs)),
+        };
+      })
+      .filter(Boolean);
+
+    const remainingNodes = originalNodes.filter((node) => !selectedIDs.has(node.instanceID));
+    const nodesById = new Map(remainingNodes.map((node) => [node.instanceID, node]));
+
+    const metadata = getMetadataForNodeType("customComponent");
+    const template = JSON.parse(JSON.stringify(metadata.newNodeTemplate || {}));
+    const componentInstanceID = uuidv4();
+    const componentInstanceName = ensureUniqueInstanceName(draft.name, remainingNodes);
+
+    const newNodeParamsBase = template.params ? { ...template.params } : {};
+    const newNode = {
+      ...template,
+      instanceID: componentInstanceID,
+      instanceName: componentInstanceName,
+      nodeType: "customComponent",
+      params: {
+        ...newNodeParamsBase,
+        componentID: definition.componentID,
+        version: definition.version,
+        inputBindings: {},
+        outputBindings: {},
+        eventBindings: {},
+        metadata: {
+          ...(newNodeParamsBase.metadata || {}),
+          componentName: draft.name,
+        },
+      },
+      inputs: [],
+    };
+
+    const inputsByProducer = new Map();
+
+    definition.exposedInputs.forEach((port) => {
+      const isEventInput = port.portType === "event" || port.mediaType === "event";
+      const producerInstanceID = port.annotations?.producerInstanceID;
+      newNode.params.inputBindings[port.handle] = {
+        nodeInstanceID: port.nodeInstanceID,
+        portName: port.portName,
+      };
+      if (!producerInstanceID) {
+        return;
+      }
+      if (!inputsByProducer.has(producerInstanceID)) {
+        inputsByProducer.set(producerInstanceID, {
+          producerInstanceID,
+          includeHistory: false,
+          historyParams: {},
+          variables: [],
+          triggers: [],
+        });
+      }
+      const entry = inputsByProducer.get(producerInstanceID);
+      if (isEventInput) {
+        entry.triggers = entry.triggers || [];
+        entry.triggers.push({
+          producerEvent: port.annotations?.producerEvent || port.portName,
+          targetTrigger: port.handle,
+        });
+      } else {
+        entry.variables = entry.variables || [];
+        entry.variables.push({
+          producerOutput: port.annotations?.producerOutput || port.portName,
+          consumerVariable: port.handle,
+        });
+      }
+    });
+
+    newNode.inputs = Array.from(inputsByProducer.values());
+    nodesById.set(newNode.instanceID, newNode);
+
+    const removeEmptyInputEntry = (node, index) => {
+      const entry = node.inputs[index];
+      const hasVariables = Array.isArray(entry?.variables) && entry.variables.length > 0;
+      const hasTriggers = Array.isArray(entry?.triggers) && entry.triggers.length > 0;
+      if (!hasVariables && !hasTriggers) {
+        node.inputs.splice(index, 1);
+      }
+    };
+
+    const ensureComponentInputEntry = (node) => {
+      node.inputs = Array.isArray(node.inputs) ? node.inputs : [];
+      let entry = node.inputs.find((input) => input.producerInstanceID === newNode.instanceID);
+      if (!entry) {
+        entry = {
+          producerInstanceID: newNode.instanceID,
+          includeHistory: false,
+          historyParams: {},
+          variables: [],
+          triggers: [],
+        };
+        node.inputs.push(entry);
+      }
+      entry.variables = entry.variables || [];
+      entry.triggers = entry.triggers || [];
+      return entry;
+    };
+
+    definition.exposedOutputs.forEach((port) => {
+      const originalProducerID = port.nodeInstanceID;
+      const handle = port.handle;
+      const targets = Array.isArray(port.annotations?.targets) ? port.annotations.targets : [];
+      newNode.params.outputBindings[handle] = {
+        nodeInstanceID: port.nodeInstanceID,
+        portName: port.portName,
+      };
+      targets.forEach((target) => {
+        const targetNode = nodesById.get(target.nodeInstanceID);
+        if (!targetNode) {
+          return;
+        }
+        targetNode.inputs = Array.isArray(targetNode.inputs) ? targetNode.inputs : [];
+        const existingIndex = targetNode.inputs.findIndex(
+          (input) => input.producerInstanceID === originalProducerID
+        );
+        const previousEntry =
+          existingIndex >= 0 ? JSON.parse(JSON.stringify(targetNode.inputs[existingIndex])) : null;
+        if (existingIndex >= 0) {
+          const existing = targetNode.inputs[existingIndex];
+          if (Array.isArray(existing.variables)) {
+            existing.variables = existing.variables.filter(
+              (variable) =>
+                !(
+                  variable.consumerVariable === target.consumerVariable &&
+                  variable.producerOutput === port.portName
+                )
+            );
+          }
+          if (!Array.isArray(existing.variables) || existing.variables.length === 0) {
+            removeEmptyInputEntry(targetNode, existingIndex);
+          } else {
+            targetNode.inputs[existingIndex] = existing;
+          }
+        }
+          const componentEntry = ensureComponentInputEntry(targetNode);
+        if (previousEntry) {
+          if (previousEntry.includeHistory) {
+            componentEntry.includeHistory = previousEntry.includeHistory;
+          }
+          if (previousEntry.historyParams && Object.keys(previousEntry.historyParams).length > 0) {
+            componentEntry.historyParams = {
+              ...(componentEntry.historyParams || {}),
+              ...previousEntry.historyParams,
+            };
+          }
+        }
+        const existingVariable = componentEntry.variables.find(
+          (variable) => variable.consumerVariable === target.consumerVariable
+        );
+        if (existingVariable) {
+          existingVariable.producerOutput = handle;
+        } else {
+          componentEntry.variables.push({
+            producerOutput: handle,
+            consumerVariable: target.consumerVariable,
+          });
+        }
+      });
+    });
+
+    definition.exposedEvents
+      .filter((port) => isOutputEventPort(port))
+      .forEach((port) => {
+        const originalProducerID = port.nodeInstanceID;
+        const handle = port.handle;
+        const targets = Array.isArray(port.annotations?.targets) ? port.annotations.targets : [];
+        newNode.params.eventBindings[handle] = {
+          nodeInstanceID: port.nodeInstanceID,
+          portName: port.portName,
+        };
+        targets.forEach((target) => {
+          const targetNode = nodesById.get(target.nodeInstanceID);
+          if (!targetNode) {
+            return;
+          }
+          targetNode.inputs = Array.isArray(targetNode.inputs) ? targetNode.inputs : [];
+          const existingIndex = targetNode.inputs.findIndex(
+            (input) => input.producerInstanceID === originalProducerID
+          );
+          const previousEntry =
+            existingIndex >= 0 ? JSON.parse(JSON.stringify(targetNode.inputs[existingIndex])) : null;
+          if (existingIndex >= 0) {
+            const existing = targetNode.inputs[existingIndex];
+            if (Array.isArray(existing.triggers)) {
+              existing.triggers = existing.triggers.filter(
+                (trigger) =>
+                  !(
+                    trigger.targetTrigger === target.targetTrigger &&
+                    trigger.producerEvent === port.portName
+                  )
+              );
+            }
+            if (
+              (!Array.isArray(existing.triggers) || existing.triggers.length === 0) &&
+              (!Array.isArray(existing.variables) || existing.variables.length === 0)
+            ) {
+              removeEmptyInputEntry(targetNode, existingIndex);
+            } else {
+              targetNode.inputs[existingIndex] = existing;
+            }
+          }
+          const componentEntry = ensureComponentInputEntry(targetNode);
+          if (previousEntry) {
+            if (previousEntry.includeHistory) {
+              componentEntry.includeHistory = previousEntry.includeHistory;
+            }
+            if (previousEntry.historyParams && Object.keys(previousEntry.historyParams).length > 0) {
+              componentEntry.historyParams = {
+                ...(componentEntry.historyParams || {}),
+                ...previousEntry.historyParams,
+              };
+            }
+          }
+          const existingTrigger = componentEntry.triggers.find(
+            (trigger) => trigger.targetTrigger === target.targetTrigger
+          );
+          if (existingTrigger) {
+            existingTrigger.producerEvent = handle;
+          } else {
+            componentEntry.triggers.push({
+              producerEvent: handle,
+              targetTrigger: target.targetTrigger,
+            });
+          }
+        });
+      });
+
+    const selectedIndexes = originalNodes
+      .map((node, index) => (selectedIDs.has(node.instanceID) ? index : null))
+      .filter((index) => index !== null);
+    const insertIndex =
+      selectedIndexes.length > 0 ? Math.min(...selectedIndexes) : remainingNodes.length;
+    remainingNodes.splice(insertIndex, 0, newNode);
+
+    const validNodeIDs = new Set(remainingNodes.map((node) => node.instanceID));
+    sanitizeNodeInputs(remainingNodes, validNodeIDs);
+
+    definition.metadata = {
+      ...definition.metadata,
+      componentIndex: insertIndex,
+      externalConsumers: externalConsumersSnapshot,
+    };
+    graph.nodes = remainingNodes;
+    definition.metadata = {
+      ...definition.metadata,
+      componentInstanceID,
+      createdFromVersionID: versionInfoCopy.versionID || null,
+    };
+    graph.customComponents.push(definition);
+
+    updateVersionInfo(versionInfoCopy);
+    closeActiveComponentEditor();
+    setInspectorPanelOpen(false);
+  }, [
+    buildComponentDefinitionFromDraft,
+    newVersionInfoRef,
+    sanitizeNodeInputs,
+    closeActiveComponentEditor,
+    setInspectorPanelOpen,
+    updateVersionInfo,
+  ]);
 
   const handleKeyDown = (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 's') {
@@ -659,6 +3232,106 @@ const handleCancelDelete = () => {
 
     let returnValue = null;
     switch (action) {
+      case "startCustomComponent": {
+        const instanceIDs = optionalParams?.instanceIDs || (node ? [node.instanceID] : []);
+        startComponentEditor(instanceIDs);
+      }
+      break;
+      case "editCustomComponent": {
+        if (!node || node.nodeType !== "customComponent") {
+          return;
+        }
+        const componentID = node?.params?.componentID;
+        if (!componentID) {
+          return;
+        }
+        const versionInfoCurrent = newVersionInfoRef.current;
+        const definitions = Array.isArray(versionInfoCurrent?.stateMachineDescription?.customComponents)
+          ? versionInfoCurrent.stateMachineDescription.customComponents
+          : [];
+        const componentIndex = definitions.findIndex((entry) => entry.componentID === componentID);
+        if (componentIndex === -1) {
+          return;
+        }
+        const definition = definitions[componentIndex];
+        const draft = buildComponentDraftFromDefinition(definition);
+        if (!draft) {
+          return;
+        }
+        const graphNodes = versionInfoCurrent?.stateMachineDescription?.nodes ?? [];
+        draft.componentIndex = componentIndex;
+        draft.componentInstanceIDs = graphNodes
+      .filter(
+        (nodeDesc) =>
+          nodeDesc.nodeType === "customComponent" &&
+          nodeDesc.params?.componentID === componentID
+      )
+      .map((nodeDesc) => nodeDesc.instanceID);
+      openComponentEditor(draft, { componentID, mode: "editExisting" });
+      setInspectorPanelOpen(false);
+    }
+    break;
+      case "cancelCustomComponent": {
+        handleCancelComponentEditor();
+      }
+      break;
+      case "commitCustomComponent": {
+        const draft = optionalParams?.draft || componentEditorState;
+        commitComponentDraft(draft);
+      }
+      break;
+      case "unbundleCustomComponent": {
+        if (!node || node.nodeType !== "customComponent") {
+          return;
+        }
+        const componentID = node?.params?.componentID;
+        let versionInfoCopy = JSON.parse(JSON.stringify(newVersionInfoRef.current));
+        if (!versionInfoCopy.stateMachineDescription) {
+          return;
+        }
+        const graph = versionInfoCopy.stateMachineDescription;
+        graph.nodes = Array.isArray(graph.nodes) ? [...graph.nodes] : [];
+        const componentIndex = graph.nodes.findIndex(
+          (entry) => entry.instanceID === node.instanceID
+        );
+        const definition = (graph.customComponents || []).find(
+          (entry) => entry.componentID === componentID
+        );
+        if (componentIndex === -1 || !definition) {
+          return;
+        }
+
+        graph.nodes.splice(componentIndex, 1);
+
+        const definitionNodes = JSON.parse(JSON.stringify(definition.nodes || []));
+        const definitionIDs = new Set(definitionNodes.map((entry) => entry.instanceID));
+        graph.nodes = graph.nodes.filter((entry) => !definitionIDs.has(entry.instanceID));
+
+        const insertionIndex = Math.min(
+          definition.metadata?.componentIndex ?? componentIndex,
+          graph.nodes.length
+        );
+        graph.nodes.splice(insertionIndex, 0, ...definitionNodes);
+        const validNodeIDs = new Set(graph.nodes.map((entry) => entry.instanceID));
+        sanitizeNodeInputs(graph.nodes, validNodeIDs);
+
+        const externalConsumers = Array.isArray(definition.metadata?.externalConsumers)
+          ? definition.metadata.externalConsumers
+          : [];
+        externalConsumers.forEach((snapshot) => {
+          const targetNode = graph.nodes.find(
+            (entry) => entry.instanceID === snapshot.nodeInstanceID
+          );
+          if (targetNode) {
+            targetNode.inputs = JSON.parse(JSON.stringify(snapshot.inputs || []));
+          }
+        });
+
+        updateVersionInfo(versionInfoCopy);
+        closeActiveComponentEditor();
+        setInspectorPanelOpen(false);
+      }
+      break;
       case "add":{
         // Need to deep-copy this node
         const nodeMetadata = getMetadataForNodeType(templateName);
@@ -682,6 +3355,54 @@ const handleCancelDelete = () => {
         } else {
           return onNodeStructureChange(node, "finishadd", {});
         }
+      }
+      break;
+      case "addCustomComponentInstance": {
+        const { componentID } = optionalParams;
+        if (!componentID) {
+          break;
+        }
+        let versionInfoCopy = JSON.parse(JSON.stringify(newVersionInfoRef.current));
+        if (!versionInfoCopy.stateMachineDescription) {
+          versionInfoCopy.stateMachineDescription = {};
+        }
+        const graph = versionInfoCopy.stateMachineDescription;
+        graph.customComponents = Array.isArray(graph.customComponents) ? graph.customComponents : [];
+        graph.nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+
+        const definition = graph.customComponents.find((entry) => entry.componentID === componentID);
+        if (!definition) {
+          break;
+        }
+
+        const metadata = getMetadataForNodeType("customComponent");
+        const template = JSON.parse(JSON.stringify(metadata.newNodeTemplate || {}));
+        const instanceID = uuidv4();
+        const instanceName = ensureUniqueInstanceName(definition.name, graph.nodes);
+
+        const newNode = {
+          ...template,
+          instanceID,
+          instanceName,
+          nodeType: "customComponent",
+          params: {
+            ...(template.params || {}),
+            componentID: definition.componentID,
+            version: definition.version,
+            inputBindings: {},
+            outputBindings: {},
+            eventBindings: {},
+            metadata: {
+              ...(template.params?.metadata || {}),
+              componentName: definition.name,
+            },
+          },
+          inputs: [],
+        };
+
+        graph.nodes.push(newNode);
+        updateVersionInfo(versionInfoCopy);
+        returnValue = newNode;
       }
       break;
       case "overwrite":
@@ -837,6 +3558,18 @@ const handleCancelDelete = () => {
 
         // See if there's an existing input for this producer
         nodeToUse.inputs = nodeToUse.inputs ? nodeToUse.inputs : [];
+        if (nodeToUse.nodeType === "customComponent") {
+          const conflictingBinding = nodeToUse.inputs.some((input) => {
+            if (!input || input.producerInstanceID === producerInstanceID) {
+              return false;
+            }
+            return Array.isArray(input.triggers) && input.triggers.some((trigger) => trigger.targetTrigger === targetTrigger);
+          });
+          if (conflictingBinding) {
+            console.warn(`Custom component handle "${targetTrigger}" already has an event binding. Remove the existing connection before adding a new one.`);
+            return;
+          }
+        }
         let inputForProducer = nodeToUse.inputs.find((input) => input.producerInstanceID == producerInstanceID);
         
         if (!inputForProducer) {
@@ -900,6 +3633,18 @@ const handleCancelDelete = () => {
 
         // See if there's an existing input for this producer
         nodeToUse.inputs = nodeToUse.inputs ? nodeToUse.inputs : [];
+        if (nodeToUse.nodeType === "customComponent") {
+          const conflictingBinding = nodeToUse.inputs.some((input) => {
+            if (!input || input.producerInstanceID === producerInstanceID) {
+              return false;
+            }
+            return Array.isArray(input.variables) && input.variables.some((variable) => variable.consumerVariable === consumerVariable);
+          });
+          if (conflictingBinding) {
+            console.warn(`Custom component handle "${consumerVariable}" already has a variable binding. Remove the existing connection before adding a new one.`);
+            return;
+          }
+        }
         let inputForProducer = nodeToUse.inputs.find((input) => input.producerInstanceID == producerInstanceID);
         
         const nodeMetadata = getMetadataForNodeType(nodeToUse.nodeType);
@@ -1179,11 +3924,35 @@ const handleCancelDelete = () => {
             onNodeStructureChange={onNodeStructureChange}
             onEdgeClicked={handleOpenInputSettingsMenu}
             onPersonaListChange={onPersonaListChange}
-            readOnly={readOnly}
+            readOnly={readOnly || Boolean(componentEditorState)}
           />
         ) : null}
         <div className="pointer-events-none absolute inset-0" style={overlayStyle} />
       </div>
+
+      {componentEditorState ? (
+        <CustomComponentEditor
+          draft={componentEditorState}
+          frameId={activeCustomFrame?.id}
+          onClose={handleCancelComponentEditor}
+          onSave={commitComponentDraft}
+          onNameChange={handleComponentNameChange}
+          onDescriptionChange={handleComponentDescriptionChange}
+          onToggleInput={handleToggleInputExposure}
+          onToggleOutput={handleToggleOutputExposure}
+          onToggleEvent={handleToggleEventExposure}
+          onLibraryChange={handleComponentLibraryChange}
+          onAddConnection={handleComponentAddConnection}
+          onRemoveConnection={handleComponentRemoveConnection}
+          onNodeValueChange={handleComponentNodeChange}
+          onNodeStructureChange={handleComponentNodeStructureChange}
+          onSelectionChange={handleComponentSelectionChange}
+          onGraphAction={handleComponentGraphAction}
+          onPersonaListChange={onPersonaListChange}
+          versionInfo={newVersionInfoRef.current}
+          readOnly={readOnly}
+        />
+      ) : null}
 
       {showSelectVersionMessage
         ? renderStatusOverlay(
@@ -1480,7 +4249,7 @@ const handleCancelDelete = () => {
             Require users to provide their own keys (Recommended)
           </button>
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Users get billed for their usage. If they don't configure API keys, your app will fail for them. You won't be billed for their usage.
+            Users get billed for their usage. If they don&apos;t configure API keys, your app will fail for them. You won&apos;t be billed for their usage.
           </p>
           <button
             type="button"
@@ -1494,14 +4263,14 @@ const handleCancelDelete = () => {
             Your API keys are billed for all usage (Caution)
           </button>
           <p className="text-sm text-rose-600 dark:text-rose-400">
-            Warning: Users will use the API keys configured in your app's settings. You'll be billed for all users' API calls. This can lead to significant costs if not managed carefully.
+            Warning: Users will use the API keys configured in your app&apos;s settings. You&apos;ll be billed for all users&apos; API calls. This can lead to significant costs if not managed carefully.
           </p>
         </div>
       </DialogShell>
       <DialogShell
         open={useAppKeysDialogOpen}
         onClose={() => setUseAppKeysDialogOpen(false)}
-        title="Warning: Using App's AI Keys"
+        title="Warning: Using app&apos;s AI Keys"
         actions={
           <>
             <button
@@ -1528,10 +4297,10 @@ const handleCancelDelete = () => {
         }
       >
         <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
-          <p>You've chosen to use the app's AI keys for all users. This means:</p>
+          <p>You&apos;ve chosen to use the app&apos;s AI keys for all users. This means:</p>
           <ul className="list-disc space-y-1 pl-5">
             <li>All API calls will be billed to your account.</li>
-            <li>Users won't need to provide their own API keys.</li>
+            <li>Users won&apos;t need to provide their own API keys.</li>
             <li>Your costs may increase significantly based on usage.</li>
           </ul>
           <p>Please ensure you have appropriate access controls and usage limits in place to prevent unexpected charges.</p>
@@ -1541,4 +4310,21 @@ const handleCancelDelete = () => {
   );
 }
 
-export default memo(VersionEditor);
+function VersionEditorWithStack(props) {
+  const initialFrame = useMemo(
+    () => ({
+      id: 'version-root',
+      kind: 'version',
+      metadata: { source: 'versionEditor' },
+    }),
+    [],
+  );
+
+  return (
+    <EditorStackProvider initialFrame={initialFrame}>
+      <VersionEditorComponent {...props} />
+    </EditorStackProvider>
+  );
+}
+
+export default memo(VersionEditorWithStack);

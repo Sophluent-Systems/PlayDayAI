@@ -48,7 +48,7 @@ function resolveThemeTokens(theme) {
 }
 
 export function PlayControls(props) {
-  const { isRunning, onRequestStateChange, sessionID, theme } = props;
+  const { isRunning, onRequestStateChange, sessionID, theme, connectionReady = true, connectionStatusMessage } = props;
   const [editorSaveRequest, setEditorSaveRequest] = useAtom(editorSaveRequestState);
   const [dirtyEditor] = useAtom(dirtyEditorState);
   const [waitingForPlay, setWaitingForPlay] = useState(false);
@@ -59,6 +59,8 @@ export function PlayControls(props) {
   const lastSessionRef = useRef(null);
 
   const themeTokens = resolveThemeTokens(theme);
+  const connectionDisabled = !connectionReady;
+  const disableTitle = connectionDisabled ? (connectionStatusMessage || 'Connection unavailable. Reconnecting...') : undefined;
 
   useEffect(() => {
     if (editorSaveRequest === 'saved') {
@@ -128,16 +130,22 @@ export function PlayControls(props) {
 
   const showPlay = !isRunning || dirtyEditor;
   const waiting = waitingForPlay || waitingForPause || waitingForRestart;
+  const interactionsDisabled = waiting || connectionDisabled;
   const tabRevealWidth = '5.5rem';
   const panelStyle = {
     transform:
-      isHovered || openConfirmModal
+      isHovered || openConfirmModal || connectionDisabled
         ? 'translateX(0)'
         : `translateX(calc(100% - ${tabRevealWidth}))`,
     backgroundColor: themeTokens.baseSurface,
     borderColor: themeTokens.borderColor,
   };
-  const statusVisible = isHovered || openConfirmModal;
+  const statusVisible = isHovered || openConfirmModal || connectionDisabled;
+  const statusLabel = connectionDisabled
+    ? (disableTitle || 'Reconnecting...')
+    : isRunning
+      ? 'Running'
+      : 'Paused';
 
   const neutralButtonStyle = {
     backgroundColor: themeTokens.neutralButtonBg,
@@ -155,7 +163,7 @@ export function PlayControls(props) {
       >
         <div
           className={`flex h-10 items-center gap-3 overflow-hidden rounded-l-3xl rounded-r-none border border-r-0 pl-4 pr-5 shadow-2xl backdrop-blur transition-transform duration-200 ease-out ${
-            waiting ? 'pointer-events-none opacity-60' : ''
+            waiting ? 'pointer-events-none opacity-60' : connectionDisabled ? 'opacity-60' : ''
           }`}
           style={panelStyle}
         >
@@ -165,7 +173,8 @@ export function PlayControls(props) {
                 type="button"
                 onClick={handlePlayButton}
                 aria-label="Play"
-                disabled={waiting}
+                disabled={interactionsDisabled}
+                title={disableTitle}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white transition-transform duration-150 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 <Play className="h-4 w-4" strokeWidth={2.5} />
@@ -175,7 +184,8 @@ export function PlayControls(props) {
                 type="button"
                 onClick={handlePauseButton}
                 aria-label="Pause"
-                disabled={waiting}
+                disabled={interactionsDisabled}
+                title={disableTitle}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-white transition-transform duration-150 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 <Pause className="h-4 w-4" strokeWidth={2.5} />
@@ -186,7 +196,8 @@ export function PlayControls(props) {
               type="button"
               onClick={() => setOpenConfirmModal(true)}
               aria-label="Restart session"
-              disabled={waiting}
+              disabled={interactionsDisabled}
+              title={disableTitle}
               className="flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-150 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
               style={neutralButtonStyle}
             >
@@ -201,7 +212,7 @@ export function PlayControls(props) {
             }`}
             style={{ color: themeTokens.subtleTextColor }}
           >
-            {isRunning ? 'Running' : 'Paused'}
+            {statusLabel}
           </span>
         </div>
       </div>

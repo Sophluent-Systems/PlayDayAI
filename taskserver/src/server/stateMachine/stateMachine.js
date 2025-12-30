@@ -110,6 +110,7 @@
  *
  */
 import { Config } from "@src/backend/config";
+import { normalizeCustomComponentDefinition } from "@src/common/customcomponents";
 import { exportRecordsAsMessageList } from '@src/backend/messageHistory';
 import { RecordHistory } from './recordHistory';
 import { imageGeneratorNode } from './nodeTypes/imageGeneratorNode.js';
@@ -141,10 +142,245 @@ import { whileLoopNode } from './nodeTypes/whileLoopNode';
 import { ifThenElseNode } from './nodeTypes/ifThenElseNode';
 import { arrayIndexNode } from './nodeTypes/arrayIndexNode.js';
 import { arrayIteratorNode } from './nodeTypes/arrayIteratorNode.js';
+import { customComponentNode } from './nodeTypes/customComponentNode.js';
 import { v4 as uuidv4 } from 'uuid';
 import { RecordGraph } from '@src/common/recordgraph';
 import { getMetadataForNodeType } from "@src/common/nodeMetadata";
 import { BaseError, EnsureCorrectErrorType } from '@src/common/errors';
+import { CustomComponentRegistry } from './customComponentRegistry';
+import { getMostRecentRecordOfInstance } from '@src/backend/records';
+
+const COMPONENT_INPUT_PREFIX = "__component_input__";
+const COMPONENT_INSTANCE_SEPARATOR = "::";
+
+function cloneNodeDeep(node) {
+    if (typeof structuredClone === "function") {
+        try {
+            return structuredClone(node);
+        } catch (error) {
+            // fall back to JSON clone below
+        }
+    }
+    return JSON.parse(JSON.stringify(node));
+}
+
+function buildConsumersByProducer(nodes) {
+    const map = new Map();
+    nodes.forEach(node => {
+        const inputs = Array.isArray(node?.inputs) ? node.inputs : [];
+        inputs.forEach((input, index) => {
+            const producer = input?.producerInstanceID;
+            if (!producer) {
+                return;
+            }
+            if (!map.has(producer)) {
+                map.set(producer, []);
+            }
+            map.get(producer).push({ node, inputIndex: index });
+        });
+    });
+    return map;
+}
+
+function resolveComponentDefinitionFromNode(node, registry) {
+    if (!node) {
+        return null;
+    }
+    const inlineDefinition =
+        node.resolvedComponentDefinition ||
+        node.componentDefinition ||
+        node.params?.customComponentDefinition ||
+        node.params?.definition;
+    if (inlineDefinition) {
+        return normalizeCustomComponentDefinition(inlineDefinition);
+    }
+    const componentID =
+        node.params?.componentID ||
+        node.componentID ||
+        node.params?.definitionID;
+    if (componentID && registry) {
+        const resolved = registry.resolve(componentID);
+        if (resolved) {
+            return resolved;
+        }
+    }
+    return null;
+}
+
+function inlineCustomComponentsInNodeArray(nodes, registry) {
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+        return nodes;
+    }
+    let workingNodes = nodes;
+    while (true) {
+        const index = workingNodes.findIndex(node => node?.nodeType === "customComponent");
+        if (index === -1) {
+            break;
+        }
+        const consumersByProducer = buildConsumersByProducer(workingNodes);
+        const customNode = workingNodes[index];
+        const expandedNodes = expandCustomComponentNode(customNode, consumersByProducer, registry);
+        workingNodes.splice(index, 1, ...expandedNodes);
+    }
+    return workingNodes;
+}
+
+function inlineCustomComponentsInDescription(description, registry) {
+    if (!description || typeof description !== "object") {
+        return;
+    }
+    if (!Array.isArray(description.nodes)) {
+        return;
+    }
+    description.nodes = inlineCustomComponentsInNodeArray(description.nodes, registry);
+}
+
+function expandCustomComponentNode(customNode, consumersByProducer, registry) {
+    const definition = resolveComponentDefinitionFromNode(customNode, registry);
+    if (!definition) {
+        throw new Error(`Unable to resolve definition for custom component node ${customNode.instanceID || customNode.instanceName || "unknown"}.`);
+    }
+
+    const originalNodes = Array.isArray(definition.nodes) ? definition.nodes : [];
+    if (originalNodes.length === 0) {
+        return [];
+    }
+
+    const idMap = new Map();
+    originalNodes.forEach(internalNode => {
+        const newID = `${customNode.instanceID}${COMPONENT_INSTANCE_SEPARATOR}${internalNode.instanceID}`;
+        idMap.set(internalNode.instanceID, newID);
+    });
+
+    const handleBindings = new Map();
+    (customNode.inputs || []).forEach(binding => {
+        const handle = binding?.componentHandle;
+        if (!handle) {
+            return;
+        }
+        if (!handleBindings.has(handle)) {
+            handleBindings.set(handle, []);
+        }
+        handleBindings.get(handle).push(binding);
+    });
+
+    const clonedNodes = originalNodes.map(internalNode => {
+        const cloned = cloneNodeDeep(internalNode);
+        const basePath = Array.isArray(customNode.componentPathSegments) ? [...customNode.componentPathSegments] : [];
+        const baseNamePath = Array.isArray(customNode.componentNamePath) ? [...customNode.componentNamePath] : [];
+        const componentDisplayName = definition.name || customNode.instanceName || "Custom Component";
+        cloned.originalInstanceID = internalNode.instanceID;
+        cloned.instanceID = idMap.get(internalNode.instanceID);
+        cloned.componentPathSegments = [...basePath, customNode.instanceID, internalNode.instanceID];
+        cloned.componentNamePath = [...baseNamePath, componentDisplayName];
+        const pendingHandlePatches = [];
+        cloned.inputs = Array.isArray(cloned.inputs)
+            ? cloned.inputs.map((input, index) => {
+                const patched = cloneNodeDeep(input);
+                if (patched.componentHandle) {
+                    delete patched.componentHandle;
+                }
+                if (idMap.has(patched.producerInstanceID)) {
+                    patched.producerInstanceID = idMap.get(patched.producerInstanceID);
+                } else if (typeof patched.producerInstanceID === "string" && patched.producerInstanceID.startsWith(`${COMPONENT_INPUT_PREFIX}:`)) {
+                    const handle = patched.producerInstanceID.slice(COMPONENT_INPUT_PREFIX.length + 1);
+                    pendingHandlePatches.push({ handle, inputIndex: index });
+                }
+                return patched;
+            })
+            : [];
+        pendingHandlePatches.forEach(({ handle, inputIndex }) => {
+            const bindings = handleBindings.get(handle) || [];
+            if (bindings.length === 0) {
+                throw new Error(`Custom component ${customNode.instanceID} is missing an external binding for exposed input handle "${handle}".`);
+            }
+            if (bindings.length > 1) {
+                throw new Error(`Custom component ${customNode.instanceID} has multiple external bindings for input handle "${handle}". This inliner currently supports only one binding per handle.`);
+            }
+            const binding = bindings[0];
+            const patchedInput = cloned.inputs[inputIndex];
+            patchedInput.producerInstanceID = binding.producerInstanceID;
+            if ((!Array.isArray(patchedInput.triggers) || patchedInput.triggers.length === 0) && Array.isArray(binding.triggers)) {
+                patchedInput.triggers = cloneNodeDeep(binding.triggers);
+            }
+            if ((!Array.isArray(patchedInput.variables) || patchedInput.variables.length === 0) && Array.isArray(binding.variables)) {
+                patchedInput.variables = cloneNodeDeep(binding.variables);
+            }
+        });
+        return cloned;
+    });
+
+    // Recursively inline any nested components inside the cloned nodes.
+    inlineCustomComponentsInNodeArray(clonedNodes, registry);
+
+    const outputHandleMap = new Map();
+    (definition.exposedOutputs || []).forEach(port => {
+        if (!port?.handle || !port?.nodeInstanceID) {
+            return;
+        }
+        const mappedNodeID = idMap.get(port.nodeInstanceID);
+        if (!mappedNodeID) {
+            throw new Error(`Exposed output handle "${port.handle}" for custom component ${customNode.instanceID} references unknown internal node ${port.nodeInstanceID}.`);
+        }
+        outputHandleMap.set(port.handle, {
+            nodeInstanceID: mappedNodeID,
+            portName: port.portName || port.handle,
+        });
+    });
+
+    const eventHandleMap = new Map();
+    (definition.exposedEvents || []).forEach(port => {
+        if (!port?.handle || !port?.nodeInstanceID) {
+            return;
+        }
+        const mappedNodeID = idMap.get(port.nodeInstanceID);
+        if (!mappedNodeID) {
+            throw new Error(`Exposed event handle "${port.handle}" for custom component ${customNode.instanceID} references unknown internal node ${port.nodeInstanceID}.`);
+        }
+        eventHandleMap.set(port.handle, {
+            nodeInstanceID: mappedNodeID,
+            eventName: port.portName || port.handle,
+        });
+    });
+
+    const consumers = consumersByProducer.get(customNode.instanceID) || [];
+    consumers.forEach(({ node: consumerNode, inputIndex }) => {
+        const input = consumerNode.inputs?.[inputIndex];
+        if (!input) {
+            return;
+        }
+        if (input.componentHandle) {
+            delete input.componentHandle;
+        }
+        const variableHandles = new Set((input.variables || []).map(variable => variable?.producerOutput).filter(Boolean));
+        const triggerHandles = new Set((input.triggers || []).map(trigger => trigger?.producerEvent).filter(Boolean));
+        const combinedHandles = new Set([...variableHandles, ...triggerHandles]);
+        if (combinedHandles.size === 0) {
+            throw new Error(`Consumer node ${consumerNode.instanceID} references custom component ${customNode.instanceID} without specifying an exposed handle.`);
+        }
+        if (combinedHandles.size > 1) {
+            throw new Error(`Consumer node ${consumerNode.instanceID} references multiple exposed handles of custom component ${customNode.instanceID}. Split the edges before inlining.`);
+        }
+        const [handle] = combinedHandles;
+        if (outputHandleMap.has(handle)) {
+            const mapping = outputHandleMap.get(handle);
+            input.producerInstanceID = mapping.nodeInstanceID;
+            (input.variables || []).forEach(variable => {
+                variable.producerOutput = mapping.portName;
+            });
+        } else if (eventHandleMap.has(handle)) {
+            const mapping = eventHandleMap.get(handle);
+            input.producerInstanceID = mapping.nodeInstanceID;
+            (input.triggers || []).forEach(trigger => {
+                trigger.producerEvent = mapping.eventName;
+            });
+        } else {
+            throw new Error(`Handle "${handle}" referenced by ${consumerNode.instanceID} is not exposed by custom component ${customNode.instanceID}.`);
+        }
+    });
+
+    return clonedNodes;
+}
 
 export const nodeTypeLookupTable = {
     "start": startNode,
@@ -174,6 +410,7 @@ export const nodeTypeLookupTable = {
     "arrayIndex": arrayIndexNode,
     "arrayIterator": arrayIteratorNode,
     "modelTraining": modelTrainingNode,
+    "customComponent": customComponentNode,
 };
 
 
@@ -192,9 +429,12 @@ export class StateMachine {
         this.historyCache = new Map();
         this.historyCacheOrder = [];
         this.cachedRecordGraph = null;
+        this.recordEventFingerprints = new Map();
         this.lastRecordGraphSnapshotSize = 0;
         this.lastRecordHistoryLoadInfo = { fullReload: true, delta: { newRecords: [], updatedRecords: [], deletedRecordIDs: [] } };
         this.aiPriorityNodeTypeSet = null;
+        this.customComponentRegistry = null;
+        this.componentInstances = new Map();
         this.plan = {
             readyToProcess: [],
             processing: [],
@@ -202,6 +442,30 @@ export class StateMachine {
             blockedNodes: new Map(),
         };
         this.lastRecordStateLog = new Map();
+        this.refreshCustomComponentRegistry();
+        inlineCustomComponentsInDescription(this.versionInfo?.stateMachineDescription, this.customComponentRegistry);
+        this.ensureRuntimeNodeRegistry();
+    }
+
+    refreshCustomComponentRegistry() {
+        const { Constants } = Config;
+        const maxDepth = Constants?.customComponents?.maxNestingDepth;
+        this.customComponentRegistry = new CustomComponentRegistry({
+            maxNestingDepth: maxDepth,
+        });
+        this.customComponentRegistry.hydrateFromVersionInfo(this.versionInfo);
+        const personalLibrary = this.session?.customComponents;
+        if (Array.isArray(personalLibrary)) {
+            this.customComponentRegistry.registerMany(personalLibrary, { skipDepthCheck: true });
+        }
+        const componentLibraries = this.session?.componentLibraries;
+        if (componentLibraries && typeof componentLibraries === "object") {
+            Object.values(componentLibraries).forEach((definitions) => {
+                this.customComponentRegistry.registerMany(definitions, { skipDepthCheck: true });
+            });
+        }
+        this.componentInstances = new Map();
+        return this.customComponentRegistry;
     }
 
     logNode(instanceName, data = null) {
@@ -259,6 +523,229 @@ export class StateMachine {
         this.debugLog('stateMachineRecords', message, ...args);
     }
 
+    ensureRuntimeNodeRegistry() {
+        if (!this.versionInfo) {
+            return {};
+        }
+        const existing = this.versionInfo.stateMachineRuntimeNodes;
+        if (existing && typeof existing === 'object' && !(existing instanceof Map)) {
+            return existing;
+        }
+        const initialValue = existing instanceof Map
+            ? Object.fromEntries(existing.entries())
+            : (existing && typeof existing === 'object') ? { ...existing } : {};
+        if (existing) {
+            try {
+                delete this.versionInfo.stateMachineRuntimeNodes;
+            } catch (error) {
+                // ignore; defineProperty below will overwrite if allowed
+            }
+        }
+        Object.defineProperty(this.versionInfo, 'stateMachineRuntimeNodes', {
+            value: initialValue,
+            configurable: true,
+            enumerable: false,
+            writable: true,
+        });
+        return this.versionInfo.stateMachineRuntimeNodes;
+    }
+
+    registerRuntimeNodeDescription(nodeDescription, nodeInstance) {
+        if (!nodeDescription || !nodeDescription.instanceID) {
+            return;
+        }
+        const registry = this.ensureRuntimeNodeRegistry();
+        try {
+            registry[nodeDescription.instanceID] = JSON.parse(JSON.stringify(nodeDescription));
+        } catch (error) {
+            registry[nodeDescription.instanceID] = { ...nodeDescription };
+        }
+        if (Array.isArray(this.versionInfo?.stateMachineDescription?.nodes)) {
+            const nodes = this.versionInfo.stateMachineDescription.nodes;
+            const existingIndex = nodes.findIndex(node => node.instanceID === nodeDescription.instanceID);
+            if (existingIndex >= 0) {
+                nodes[existingIndex] = nodeDescription;
+            } else {
+                nodes.push(nodeDescription);
+            }
+        }
+        if (nodeInstance) {
+            this.nodeInstances[nodeDescription.instanceID] = nodeInstance;
+        }
+    }
+
+    getRuntimeNodeDescription(instanceID) {
+        if (!instanceID) {
+            return null;
+        }
+        const registry = this.ensureRuntimeNodeRegistry();
+        if (!registry) {
+            return null;
+        }
+        if (registry instanceof Map) {
+            return registry.get(instanceID) || null;
+        }
+        return registry[instanceID] || null;
+    }
+
+    createNodeInstanceFromDescription(nodeDescription) {
+        if (!nodeDescription || !nodeDescription.instanceID || !nodeDescription.nodeType) {
+            return null;
+        }
+        const NodeClass = nodeTypeLookupTable[nodeDescription.nodeType];
+        if (!NodeClass) {
+            return null;
+        }
+        try {
+            const nodeInstance = new NodeClass({
+                db: this.db,
+                session: this.session,
+                fullNodeDescription: nodeDescription,
+                componentRegistry: this.customComponentRegistry,
+            });
+            return nodeInstance;
+        } catch (error) {
+            console.error("[StateMachine] Failed to instantiate node instance", {
+                nodeType: nodeDescription.nodeType,
+                instanceID: nodeDescription.instanceID,
+                error: error.message,
+            });
+            return null;
+        }
+    }
+
+    ensureNodeInstance(instanceID, { definition = null, record = null } = {}) {
+        if (!instanceID) {
+            return null;
+        }
+        if (this.nodeInstances?.[instanceID]) {
+            return this.nodeInstances[instanceID];
+        }
+
+        let description = definition;
+        if (!description) {
+            description = this.getNodeByInstanceID(instanceID);
+        }
+        if (!description) {
+            description = this.getRuntimeNodeDescription(instanceID);
+        }
+        if (!description && record?.context?.resolvedNodeDefinition) {
+            description = record.context.resolvedNodeDefinition;
+        }
+        if (!description) {
+            return null;
+        }
+
+        const nodeInstance = this.createNodeInstanceFromDescription(description);
+        if (nodeInstance) {
+            this.nodeInstances[instanceID] = nodeInstance;
+            this.registerRuntimeNodeDescription(description, nodeInstance);
+        }
+        return nodeInstance;
+    }
+
+    shouldKeepRuntimeNode(record) {
+        if (!record || record.deleted) {
+            return false;
+        }
+        const state = record.state;
+        if (state === "waitingForExternalInput" || state === "pending") {
+            return true;
+        }
+        const hasComponentPath = Array.isArray(record?.context?.componentPathSegments) && record.context.componentPathSegments.length > 0;
+        if (hasComponentPath) {
+            return true;
+        }
+        return false;
+    }
+
+    removeRuntimeNodeByRecord({ recordID, nodeInstanceID }) {
+        const registry = this.ensureRuntimeNodeRegistry();
+        const reasonDescription = recordID ? `record:${recordID}` : nodeInstanceID ? `instance:${nodeInstanceID}` : 'unknown';
+        const removeByInstanceID = (instanceID) => {
+            if (!instanceID) {
+                return;
+            }
+            const existing = registry[instanceID];
+            if (!existing) {
+                return;
+            }
+            if (!recordID || existing.__resolvedFromRecordID === recordID) {
+                delete registry[instanceID];
+            }
+        };
+        if (nodeInstanceID) {
+            removeByInstanceID(nodeInstanceID);
+            return;
+        }
+        if (recordID) {
+            Object.keys(registry).forEach(instanceID => {
+                const entry = registry[instanceID];
+                if (entry && entry.__resolvedFromRecordID === recordID) {
+                    delete registry[instanceID];
+                }
+            });
+        }
+    }
+
+    registerRuntimeNodeFromRecord(record) {
+        if (!this.shouldKeepRuntimeNode(record)) {
+            this.removeRuntimeNodeByRecord({ recordID: record?.recordID, nodeInstanceID: record?.nodeInstanceID });
+            return;
+        }
+        const definition = record?.context?.resolvedNodeDefinition;
+        if (!definition || !definition.instanceID) {
+            return;
+        }
+        const clone = JSON.parse(JSON.stringify(definition));
+        clone.__resolvedFromRecordID = record.recordID;
+        this.registerRuntimeNodeDescription(clone);
+        this.ensureNodeInstance(record.nodeInstanceID, { definition: clone, record });
+    }
+
+    rebuildRuntimeNodeRegistryFromRecords(records) {
+        const registry = this.ensureRuntimeNodeRegistry();
+        Object.keys(registry).forEach(key => {
+            delete registry[key];
+        });
+        if (!Array.isArray(records)) {
+            return;
+        }
+        records.forEach(record => this.registerRuntimeNodeFromRecord(record));
+    }
+
+    updateRuntimeNodeRegistryAfterRecordChanges({ newRecords = [], updatedRecords = [], deletedRecordIDs = [], records = [], fullReload = false } = {}) {
+        if (fullReload) {
+            this.rebuildRuntimeNodeRegistryFromRecords(records);
+            return;
+        }
+        newRecords.forEach(record => this.registerRuntimeNodeFromRecord(record));
+        updatedRecords.forEach(record => this.registerRuntimeNodeFromRecord(record));
+        deletedRecordIDs.forEach(recordID => {
+            this.removeRuntimeNodeByRecord({ recordID });
+        });
+    }
+
+    getComponentDefinitionForInstance(instanceID) {
+        if (!instanceID) {
+            return null;
+        }
+        if (this.componentInstances.has(instanceID)) {
+            return this.componentInstances.get(instanceID);
+        }
+        const nodes = this.versionInfo?.stateMachineDescription?.nodes || [];
+        const node = nodes.find(entry => entry.instanceID === instanceID);
+        if (!node || node.nodeType !== "customComponent") {
+            return null;
+        }
+        const definition = this.customComponentRegistry?.resolve(node?.params?.componentID);
+        if (definition) {
+            this.componentInstances.set(instanceID, definition);
+        }
+        return definition || null;
+    }
+
+
     logGraph(message, ...args) {
         this.debugLog('stateMachineGraph', message, ...args);
     }
@@ -315,13 +802,171 @@ export class StateMachine {
             return 'UNKNOWN NODE';
         }
         const typeLabel = this.formatNodeTypeForLog(nodeDescription.nodeType);
-        const instanceName = nodeDescription.instanceName;
-        return instanceName ? `${typeLabel} (${instanceName})` : typeLabel;
+        const nameSegments = Array.isArray(nodeDescription.componentNamePath)
+            ? [...nodeDescription.componentNamePath]
+            : [];
+        const instanceName = nodeDescription.instanceName || nodeDescription.originalInstanceID || nodeDescription.instanceID;
+        if (instanceName) {
+            nameSegments.push(instanceName);
+        }
+        const pathLabel = nameSegments.length > 0 ? nameSegments.join(' > ') : null;
+        return pathLabel ? `${typeLabel}: ${pathLabel}` : typeLabel;
     }
 
     formatNodeLabelByInstanceID(instanceID) {
         const instance = this.nodeInstances?.[instanceID];
-        return this.formatNodeLabel(instance?.fullNodeDescription);
+        let description = instance?.fullNodeDescription;
+        if (!description) {
+            const runtimeRegistry = this.ensureRuntimeNodeRegistry();
+            if (runtimeRegistry && typeof runtimeRegistry === 'object') {
+                description = runtimeRegistry[instanceID];
+            }
+        }
+        return this.formatNodeLabel(description);
+    }
+
+    formatWaitReason(reason) {
+        if (!reason || typeof reason !== 'object') {
+            return null;
+        }
+        const labelFor = (instanceID, fallbackLabel) => {
+            if (fallbackLabel) {
+                return fallbackLabel;
+            }
+            const label = this.formatNodeLabelByInstanceID(instanceID);
+            return label && label !== 'UNKNOWN NODE' ? label : instanceID;
+        };
+        switch (reason.type) {
+            case "internalNode": {
+                const label = labelFor(reason.nodeInstanceID, reason.nodeLabel);
+                const tokens = Array.isArray(reason.waitingFor) && reason.waitingFor.length
+                    ? `waiting for ${reason.waitingFor.join(', ')}`
+                    : reason.state
+                        ? `state ${reason.state}`
+                        : 'waiting';
+                return `${label} (${tokens})`;
+            }
+            case "componentInput": {
+                const parts = [];
+                if (reason.handle) {
+                    parts.push(`handle "${reason.handle}"`);
+                }
+                if (Array.isArray(reason.missingEvents) && reason.missingEvents.length > 0) {
+                    parts.push(`missing events: ${reason.missingEvents.join(', ')}`);
+                }
+                const label = labelFor(reason.nodeInstanceID, reason.nodeLabel);
+                return `${label} [component input${parts.length ? ` (${parts.join('; ')})` : ''}]`;
+            }
+            case "internalDependency": {
+                const label = labelFor(reason.nodeInstanceID, reason.nodeLabel);
+                const details = [];
+                if (Array.isArray(reason.missingEvents) && reason.missingEvents.length > 0) {
+                    details.push(`missing events: ${reason.missingEvents.join(', ')}`);
+                }
+                if (reason.producerInstanceID) {
+                    details.push(`from ${labelFor(reason.producerInstanceID)}`);
+                }
+                return `${label}${details.length ? ` (${details.join('; ')})` : ''}`;
+            }
+            default:
+                return JSON.stringify(reason);
+        }
+    }
+
+    getRecordTimestamp(record) {
+        if (!record) {
+            return 0;
+        }
+        const candidates = [
+            record.lastModifiedTime,
+            record.completionTime,
+            record.executionTime,
+            record.startTime,
+        ];
+        for (const candidate of candidates) {
+            if (!candidate) {
+                continue;
+            }
+            const dateValue = candidate instanceof Date ? candidate : new Date(candidate);
+            if (!Number.isNaN(dateValue.getTime())) {
+                return dateValue.getTime();
+            }
+        }
+        return 0;
+    }
+
+    hasCustomComponentDependencyUpdate(waitRecord, recordsByNodeInstanceID) {
+        if (!waitRecord) {
+            return false;
+        }
+        const waitReasons = Array.isArray(waitRecord?.context?.waitReasons)
+            ? waitRecord.context.waitReasons
+            : [];
+        if (waitReasons.length === 0) {
+            return false;
+        }
+        const waitTimestamp = this.getRecordTimestamp(waitRecord);
+        const hasUpdatedRecord = (runtimeID, predicate, reasonMeta) => {
+            if (!runtimeID) {
+                return false;
+            }
+            const candidateRecords = recordsByNodeInstanceID?.[runtimeID];
+            if (!Array.isArray(candidateRecords) || candidateRecords.length === 0) {
+                return false;
+            }
+            return candidateRecords.some(candidate => {
+                if (!candidate || candidate.deleted) {
+                    return false;
+                }
+                const candidateTime = this.getRecordTimestamp(candidate);
+                if (candidateTime <= waitTimestamp) {
+                    return false;
+                }
+                const predicateResult = predicate(candidate);
+                return predicateResult;
+            });
+        };
+
+        for (const reason of waitReasons) {
+            if (!reason || typeof reason !== 'object') {
+                continue;
+            }
+            if (reason.type === "componentInput") {
+                const runtimeID = reason.sourceRuntimeID;
+                const requiredEvents = Array.isArray(reason.missingEvents) && reason.missingEvents.length > 0
+                    ? reason.missingEvents
+                    : Array.isArray(reason.requiredEvents)
+                        ? reason.requiredEvents
+                        : [];
+                if (hasUpdatedRecord(runtimeID, candidate => {
+                    const events = Array.isArray(candidate.eventsEmitted) ? candidate.eventsEmitted : [];
+                    if (requiredEvents.length === 0) {
+                        return candidate.state === "completed";
+                    }
+                    return requiredEvents.every(eventName => events.includes(eventName));
+                }, { reason, type: "componentInput" })) {
+                    return true;
+                }
+            } else if (reason.type === "internalDependency") {
+                const runtimeID = reason.producerInstanceID;
+                const requiredEvents = Array.isArray(reason.missingEvents) && reason.missingEvents.length > 0
+                    ? reason.missingEvents
+                    : Array.isArray(reason.requiredEvents)
+                        ? reason.requiredEvents
+                        : [];
+                if (hasUpdatedRecord(runtimeID, candidate => {
+                    const events = Array.isArray(candidate.eventsEmitted) ? candidate.eventsEmitted : [];
+                    if (requiredEvents.length === 0) {
+                        return candidate.state === "completed";
+                    }
+                    return requiredEvents.every(eventName => events.includes(eventName));
+                }, { reason, type: "internalDependency" })) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     formatWaitingToken(token) {
@@ -346,6 +991,14 @@ export class StateMachine {
     describePendingReason(record) {
         if (!record) {
             return 'waiting for external input';
+        }
+        const waitReasons = Array.isArray(record?.context?.waitReasons)
+            ? record.context.waitReasons
+                .map(reason => this.formatWaitReason(reason))
+                .filter(Boolean)
+            : [];
+        if (waitReasons.length > 0) {
+            return waitReasons.join('; ');
         }
         if (Array.isArray(record.waitingFor) && record.waitingFor.length > 0) {
             const formatted = record.waitingFor.map(token => this.formatWaitingToken(token));
@@ -583,7 +1236,20 @@ export class StateMachine {
     }
 
     updateConsumerCursorWithRecord(record) {
-        if (!record || record.deleted || record.state !== "completed" || nullUndefinedOrEmpty(record.inputs)) {
+        if (!record || record.deleted || nullUndefinedOrEmpty(record.inputs)) {
+            return;
+        }
+        const hasTriggerableEvents = Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0;
+        let nodeAttributes = {};
+        try {
+            nodeAttributes = getMetadataForNodeType(record.nodeType)?.nodeAttributes || {};
+        } catch (error) {
+            this.debugLog('logStateMachineCursor', `Failed to load metadata for node type ${record.nodeType}: ${error?.message || error}`);
+        }
+        const treatWaitingAsConsumed =
+            record.state === "waitingForExternalInput" &&
+            (hasTriggerableEvents || nodeAttributes.userInput === true);
+        if (record.state !== "completed" && !treatWaitingAsConsumed) {
             return;
         }
         const consumerInstanceID = record.nodeInstanceID;
@@ -701,6 +1367,78 @@ export class StateMachine {
         this.handleCursorDeletions(deletedRecordIDs);
     }
 
+    resetConsumerCursorForProducer(producerInstanceID) {
+        if (!producerInstanceID || !this.consumerInputCursor) {
+            return;
+        }
+        Object.keys(this.consumerInputCursor).forEach(consumerInstanceID => {
+            const producerMap = this.consumerInputCursor[consumerInstanceID];
+            if (!producerMap || typeof producerMap !== "object") {
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(producerMap, producerInstanceID)) {
+                delete producerMap[producerInstanceID];
+                this.debugLog('logStateMachineCursor', `Cursor reset: ${consumerInstanceID} <= ${producerInstanceID}`);
+                if (Object.keys(producerMap).length === 0) {
+                    delete this.consumerInputCursor[consumerInstanceID];
+                }
+            }
+        });
+    }
+
+    updateRecordEventFingerprints({ newRecords = [], updatedRecords = [], deletedRecordIDs = [] } = {}) {
+        const computeFingerprint = (record) => {
+            if (!record || record.deleted) {
+                return null;
+            }
+            const events = Array.isArray(record.eventsEmitted) ? [...record.eventsEmitted].sort().join('|') : '';
+            const state = record.state || '';
+            const nonce = record?.context?.__eventEmissionNonce || '';
+            return `${state}::${events}::${nonce}`;
+        };
+
+        const trackRecord = (record, { resetOnChange = false, forceReset = false } = {}) => {
+            if (!record || !record.recordID) {
+                return;
+            }
+            const fingerprint = computeFingerprint(record);
+            const previous = this.recordEventFingerprints.get(record.recordID);
+            if (fingerprint === null) {
+                this.recordEventFingerprints.delete(record.recordID);
+                return;
+            }
+            const shouldReset = forceReset || (resetOnChange && fingerprint !== previous);
+            if (shouldReset) {
+                this.resetConsumerCursorForProducer(record.nodeInstanceID);
+                console.error("[StateMachine] Reset consumer cursor due to event fingerprint change", {
+                    recordID: record.recordID,
+                    nodeInstanceID: record.nodeInstanceID,
+                    previousFingerprint: previous,
+                    nextFingerprint: fingerprint,
+                    forceReset,
+                    resetOnChange,
+                });
+            }
+            this.recordEventFingerprints.set(record.recordID, fingerprint);
+        };
+
+        newRecords.forEach(record => trackRecord(record, { resetOnChange: false }));
+        updatedRecords.forEach(record => {
+            const shouldForceReset =
+                record &&
+                !record.deleted &&
+                record.state === "waitingForExternalInput" &&
+                Array.isArray(record.eventsEmitted) &&
+                record.eventsEmitted.length > 0;
+            trackRecord(record, { resetOnChange: true, forceReset: shouldForceReset });
+        });
+        deletedRecordIDs.forEach(recordID => {
+            if (this.recordEventFingerprints.has(recordID)) {
+                this.recordEventFingerprints.delete(recordID);
+            }
+        });
+    }
+
     ensureRecordGraphInitialized(records, nodes, { forceRebuild = false } = {}) {
         if (forceRebuild || !this.cachedRecordGraph) {
             this.cachedRecordGraph = new RecordGraph(records, nodes);
@@ -715,6 +1453,9 @@ export class StateMachine {
             return;
         }
         if (typeof this.cachedRecordGraph.applyDelta === 'function') {
+            if (Array.isArray(nodes) && nodes.length > 0) {
+                this.cachedRecordGraph.nodes = nodes;
+            }
             this.cachedRecordGraph.applyDelta({
                 newRecords,
                 updatedRecords,
@@ -738,10 +1479,23 @@ export class StateMachine {
         const deletedRecordIDs = Array.isArray(delta.deletedRecordIDs) ? delta.deletedRecordIDs : [];
         const records = this.recordHistory?.records || [];
         this.updateConsumerCursorWithDelta({ newRecords, updatedRecords, deletedRecordIDs });
+        this.updateRecordEventFingerprints({ newRecords, updatedRecords, deletedRecordIDs });
+        const isGraphEligibleRecord = (record) => {
+            if (!record || record.deleted) {
+                return false;
+            }
+            if (record.state === "completed") {
+                return true;
+            }
+            if (record.state === "waitingForExternalInput" && Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0) {
+                return true;
+            }
+            return false;
+        };
         const removedRecordIDs = [
             ...deletedRecordIDs,
             ...updatedRecords
-                .filter(record => record && (record.deleted || record.state !== "completed"))
+                .filter(record => record && !isGraphEligibleRecord(record))
                 .map(record => record.recordID)
         ];
         const affectedRecordIDs = [
@@ -754,11 +1508,18 @@ export class StateMachine {
             this.rebuildConsumerCursorFromRecords(records);
             this.clearHistoryCache();
         }
-        const completedNewRecords = newRecords.filter(record => record && !record.deleted && record.state === "completed");
-        const completedUpdatedRecords = updatedRecords.filter(record => record && !record.deleted && record.state === "completed");
+        const graphNewRecords = newRecords.filter(isGraphEligibleRecord);
+        const graphUpdatedRecords = updatedRecords.filter(isGraphEligibleRecord);
+        this.updateRuntimeNodeRegistryAfterRecordChanges({
+            newRecords,
+            updatedRecords,
+            deletedRecordIDs,
+            records,
+            fullReload
+        });
         const graphDelta = {
-            newRecords: completedNewRecords,
-            updatedRecords: completedUpdatedRecords,
+            newRecords: graphNewRecords,
+            updatedRecords: graphUpdatedRecords,
             deletedRecordIDs: removedRecordIDs
         };
         this.invalidateHistoryCacheForRecords(removedRecordIDs);
@@ -780,6 +1541,8 @@ export class StateMachine {
     }
 
     async load() {
+        this.refreshCustomComponentRegistry();
+        inlineCustomComponentsInDescription(this.versionInfo?.stateMachineDescription, this.customComponentRegistry);
         this.recordHistory = new RecordHistory(this.db, this.session.sessionID);
         this.aiPriorityNodeTypeSet = null;
         this.clearPlan({ preserveWaitMap: false });
@@ -804,15 +1567,37 @@ export class StateMachine {
 
         this.nodeInstances = {};
 
-        for (let j=0; j< this.versionInfo.stateMachineDescription.nodes.length; j++) {
+        for (let j = 0; j < this.versionInfo.stateMachineDescription.nodes.length; j++) {
             const nodeDescription = this.versionInfo.stateMachineDescription.nodes[j];
-            
-            if (nodeTypeLookupTable[nodeDescription.nodeType]) {
-                let nodeInstance = new nodeTypeLookupTable[nodeDescription.nodeType]({
-                    db: this.db, 
+            const NodeClass = nodeTypeLookupTable[nodeDescription.nodeType];
+
+            if (NodeClass) {
+                const isCustomComponent = nodeDescription.nodeType === "customComponent";
+                const componentDefinition = isCustomComponent
+                    ? this.customComponentRegistry?.resolve(nodeDescription?.params?.componentID)
+                    : null;
+                const fullNodeDescription = isCustomComponent
+                    ? {
+                        ...nodeDescription,
+                        resolvedComponentDefinition: componentDefinition,
+                        componentRegistry: this.customComponentRegistry,
+                    }
+                    : nodeDescription;
+                const nodeInstance = new NodeClass({
+                    db: this.db,
                     session: this.session,
-                    fullNodeDescription: nodeDescription
+                    fullNodeDescription,
+                    componentRegistry: this.customComponentRegistry,
                 });
+                if (isCustomComponent) {
+                    this.componentInstances.set(nodeDescription.instanceID, componentDefinition || null);
+                    if (typeof nodeInstance.setComponentRegistry === "function") {
+                        nodeInstance.setComponentRegistry(this.customComponentRegistry);
+                    }
+                    if (typeof nodeInstance.setComponentDefinition === "function") {
+                        nodeInstance.setComponentDefinition(componentDefinition || null);
+                    }
+                }
                 this.nodeInstances[nodeDescription.instanceID] = nodeInstance;
             } else if (!Object.keys(nodeTypeLookupTable).includes(nodeDescription.nodeType)) {
                 throw new Error(`Node type ${nodeDescription.nodeType} not found!`);
@@ -855,7 +1640,12 @@ export class StateMachine {
         
         if (input.triggers || input.variables) {
             recordsForProducerNode = recordsForProducerNode.filter(record => {
-                if (record.deleted || record.state != "completed") {
+                if (!record || record.deleted) {
+                    return false;
+                }
+                const hasTriggerableEvents = Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0;
+                const isWaitingWithEvents = record.state === "waitingForExternalInput" && hasTriggerableEvents;
+                if (record.state !== "completed" && !isWaitingWithEvents) {
                     return false;
                 }
                 // is at least one of the record.eventsEmitted in the triggers list?
@@ -893,8 +1683,8 @@ export class StateMachine {
             if (latestConsumedRecordID && (record.recordID == latestConsumedRecordID)) {
                 Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `    ${producerInstanceID} latest consumed index = ${i} record=${record.recordID}`)
                 break;
-            } else if (record.state == "completed") {
-                Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `    ${producerInstanceID} unconsumed index = ${i} record=${record.recordID}`)
+            } else if (record.state === "completed" || (record.state === "waitingForExternalInput" && Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0)) {
+                Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `    ${producerInstanceID} unconsumed index = ${i} record=${record.recordID} state=${record.state}`)
                 allUnconsumed.push(record);
             } else {
                 Constants.debug.logStateMachine && console.error(this.debugID + ' ' + `    ${producerInstanceID} ignoring index = ${i} record=${record.recordID} state=${record.state}`)
@@ -978,17 +1768,74 @@ export class StateMachine {
         return { success: true };
     }
 
-    generateRunInfoForNode({ node, unconsumedInputs }) {
+    generateRunInfoForNode({ node, unconsumedInputs, recordsByNodeInstanceID }) {
         const consumerLabel = this.formatNodeLabel(node);
 
         const waitEntries = this.plan?.waitForUpdateBeforeReattempting;
         if (waitEntries) {
-            const hasPendingExternalInput = Object.values(waitEntries).some(record =>
+            const pendingEntries = Object.entries(waitEntries).filter(([, record]) =>
                 record && record.nodeInstanceID === node.instanceID && record.state === "waitingForExternalInput"
             );
-            if (hasPendingExternalInput) {
-                this.logPlanning(`${consumerLabel} already waiting on external input; skipping new run.`);
-                return;
+            if (pendingEntries.length > 0) {
+                const hasNewInput = Object.values(unconsumedInputs || {}).some((list) => Array.isArray(list) && list.length > 0);
+                let resumeDueToInternalUpdate = false;
+                if (!hasNewInput && node.nodeType === "customComponent") {
+                    resumeDueToInternalUpdate = pendingEntries.some(([, waitRecord]) =>
+                        this.hasCustomComponentDependencyUpdate(waitRecord, recordsByNodeInstanceID)
+                    );
+                    if (resumeDueToInternalUpdate) {
+                        this.logPlanning(`${consumerLabel} received updated internal dependency; resuming execution.`);
+                    }
+                }
+                if (!hasNewInput && !resumeDueToInternalUpdate) {
+                    this.logPlanning(`${consumerLabel} already waiting on external input; skipping new run.`);
+                    return;
+                }
+                const shouldRequeueExisting = resumeDueToInternalUpdate && !hasNewInput;
+                const resumeTime = new Date();
+                pendingEntries.forEach(([recordID, waitRecord]) => {
+                    delete this.plan.waitForUpdateBeforeReattempting[recordID];
+                    this.lastRecordStateLog.delete(recordID);
+                    if (shouldRequeueExisting) {
+                        const nodeInstance = this.nodeInstances[node.instanceID];
+                        const clonedInputs = Array.isArray(waitRecord.inputs)
+                            ? waitRecord.inputs.map(input => {
+                                if (!input) {
+                                    return input;
+                                }
+                                if (typeof structuredClone === "function") {
+                                    try {
+                                        return structuredClone(input);
+                                    } catch (error) {
+                                        // fall through to JSON clone
+                                    }
+                                }
+                                try {
+                                    return JSON.parse(JSON.stringify(input));
+                                } catch (error) {
+                                    return { ...input };
+                                }
+                            })
+                            : [];
+                        const runInfo = {
+                            nodeInstance,
+                            readyTime: resumeTime,
+                            inputs: clonedInputs,
+                            existingRecord: waitRecord,
+                        };
+                        if (Array.isArray(waitRecord.componentBreadcrumb) && waitRecord.componentBreadcrumb.length > 0) {
+                            runInfo.componentBreadcrumb = [...waitRecord.componentBreadcrumb];
+                        }
+                        this.applyMessageHistoryToRunInfo(runInfo);
+                        this.plan.readyToProcess.push(runInfo);
+                        this.clearBlockedNode(node.instanceID);
+                        this.logPlanning(`${consumerLabel}: re-queued waiting record ${waitRecord.recordID}.`);
+                    }
+                });
+                if (shouldRequeueExisting) {
+                    return;
+                }
+                this.logPlanning(`${consumerLabel} received new input; resuming execution.`);
             }
         }
 
@@ -1002,6 +1849,13 @@ export class StateMachine {
                 readyTime: new Date(0),
                 inputs: [],
             };
+
+            if (node.nodeType === "customComponent") {
+                const definition = this.getComponentDefinitionForInstance(node.instanceID);
+                if (definition?.componentID) {
+                    runInfo.componentBreadcrumb = [definition.componentID];
+                }
+            }
 
             if (!runInfo.nodeInstance) {
                 throw new Error(`Node instance not found for node ${node.instanceID}`);
@@ -1202,7 +2056,7 @@ export class StateMachine {
 
         const unconsumedInputs = this.generateUnconsumedInputsForNode(node, recordsByNodeInstanceID);
 
-        this.generateRunInfoForNode({ node, unconsumedInputs });
+        this.generateRunInfoForNode({ node, unconsumedInputs, recordsByNodeInstanceID });
     }
     
 
@@ -1655,6 +2509,31 @@ export class StateMachine {
                 error: null
             };
 
+        if (!Array.isArray(record.componentBreadcrumb)) {
+            record.componentBreadcrumb = Array.isArray(runInfo.componentBreadcrumb)
+                ? [...runInfo.componentBreadcrumb]
+                : [];
+        }
+
+        if (!record.context || typeof record.context !== "object") {
+            record.context = {};
+        }
+
+        if (!record.context.resolvedNodeDefinition && nodeInstance?.fullNodeDescription) {
+            try {
+                record.context.resolvedNodeDefinition = cloneNodeDeep(nodeInstance.fullNodeDescription);
+            } catch (error) {
+                record.context.resolvedNodeDefinition = { ...nodeInstance.fullNodeDescription };
+            }
+        }
+
+        if (!Array.isArray(record.context.componentPathSegments) && Array.isArray(nodeInstance?.fullNodeDescription?.componentPathSegments)) {
+            record.context.componentPathSegments = [...nodeInstance.fullNodeDescription.componentPathSegments];
+        }
+
+        if (!Array.isArray(record.context.componentNamePath) && Array.isArray(nodeInstance?.fullNodeDescription?.componentNamePath)) {
+            record.context.componentNamePath = [...nodeInstance.fullNodeDescription.componentNamePath];
+        }
         
         //
         // Allow the node to do stuff like pre-report messages to the client

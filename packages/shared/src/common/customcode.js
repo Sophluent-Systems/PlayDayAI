@@ -1,5 +1,7 @@
+import vm from "vm";
+import { Config } from "@src/backend/config";
 
-export const defaultCodeStartingLines= [
+export const defaultCodeStartingLines = [
     "async function DoTurn({params, inputs, context}) {",
     "  // Put whatever state you want preserved inside context",
     "",
@@ -23,6 +25,23 @@ export function getCodeEndingLines() {
     return defaultCodeEndingLines;
   } 
 
+function customCodeLog(logType, ...messages) {
+    let logString = `${logType}: `;
+
+    logString += messages.map(message => {
+        if (typeof message === 'object') {
+            try {
+                return JSON.stringify(message);
+            } catch {
+                return String(message);
+            }
+        }
+        return message?.toString?.() ?? String(message);
+    }).join(' ');
+
+    return logString;
+}
+
 export function composeFullFunctionCode(startingCode, customCode, endingCode) {
     const startString = startingCode.join('\n');
     const codeString = (typeof customCode == 'string') ? customCode : "";
@@ -37,7 +56,8 @@ export function generateFullFunctionFromUserCode(customCode) {
   }
 
 
-  export async function updateParamsWithCustomCode(llmParameters, llmContext, mostRecentData, userTurnsSoFar) {
+export async function updateParamsWithCustomCode(llmParameters, llmContext, mostRecentData, userTurnsSoFar) {
+    const { Constants } = Config;
     if (llmParameters.code_UNSAFE) {
         const codeToUse = generateFullFunctionFromUserCode(llmParameters.code_UNSAFE);
         try {   

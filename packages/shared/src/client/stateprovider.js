@@ -2,11 +2,11 @@
 
 import React from 'react';
 import { stateManager } from './statemanager.js';
-import { topLevelStateController } from './toplevelstatecontroller.js';
+import { useTopLevelStateController } from './toplevelstatecontroller.js';
 
 export function StateProvider(props) {
   const { isSandbox, children } = props;
-  const state = topLevelStateController({ isSandbox });
+  const state = useTopLevelStateController({ isSandbox });
 
   return (
     <stateManager.Provider value={state}>

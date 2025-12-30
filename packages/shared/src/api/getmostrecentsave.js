@@ -17,8 +17,9 @@ async function handle(req, res) {
     // THE USER ALLOWED TO ACCESS THE BACKEND
     //
 
-    if ((!req.body.gameUrl || req.body.gameUrl.length === 0) && 
-        (!req.body.gameID || req.body.gameID.length === 0)) {
+    const { gameUrl, gameID: bodyGameID, versionName } = req.body ?? {};
+    if ((!gameUrl || gameUrl.length === 0) && 
+        (!bodyGameID || bodyGameID.length === 0)) {
       res.status(400).json({
         error: {
           message: 'Invalid parameters',
@@ -32,13 +33,14 @@ async function handle(req, res) {
     //
 
 
-    let gameID = req.body.gameID;
-    if (!gameID && req.body.gameUrl) {
-      gameInfo = await getGameInfoByUrl(db, req.body.gameUrl);
+    let gameID = bodyGameID;
+    let gameInfo = null;
+    if (!gameID && gameUrl) {
+      gameInfo = await getGameInfoByUrl(db, gameUrl);
       if (!gameInfo) {
         res.status(403).json({
           error: {
-            message: `Game ID ${gameID} could not be found.`,
+            message: `Game URL ${gameUrl} could not be found.`,
           }
         });
         return;
@@ -59,7 +61,7 @@ async function handle(req, res) {
     const canViewSource = await hasRight(acl, account.accountID, {resourceType: "game", resource: gameID, access: ["game_viewSource"]});
 
 
-    let session = await getMostRecentGameSessionForUser(db, account.accountID, gameID, req.body.versionName, canViewSource);
+    let session = await getMostRecentGameSessionForUser(db, account.accountID, gameID, versionName, canViewSource);
     
     if (!session) {
       res.status(200).json({session: null});

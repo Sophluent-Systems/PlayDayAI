@@ -14,10 +14,11 @@ async function handle(req, res) {
   }
     
 
-    if (!req.body.gameID ||
-      req.body.gameID.length == 0 ||
-      !req.body.versionName ||
-      req.body.versionName.length == 0) {
+    const { gameID, versionName } = req.body ?? {};
+    if (!gameID ||
+      gameID.length === 0 ||
+      !versionName ||
+      versionName.length === 0) {
       res.status(400).json({
         error: {
           message: 'Invalid parameters',
@@ -36,7 +37,7 @@ async function handle(req, res) {
     // WE HAVE AN ACCOUNT
     //
 
-    const gameInfo = await getGameInfoByID(db, req.body.gameID);
+    const gameInfo = await getGameInfoByID(db, gameID);
     if (!gameInfo) {
       res.status(403).json({
         error: {
@@ -62,7 +63,7 @@ async function handle(req, res) {
 
 
     try {
-      await deleteGameVersion(db, req.body.gameID, req.body.versionName);
+      await deleteGameVersion(db, gameID, versionName);
       res.status(200).json({status: "success"});
       
     } catch(error) {

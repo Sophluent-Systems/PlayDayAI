@@ -48,7 +48,7 @@ export default function Home() {
     if (typeof desired === 'boolean' && desired !== playViewOpen) {
       setPlayViewOpen(desired);
     }
-  }, [collapsiblePanelSettings]);
+  }, [collapsiblePanelSettings, playViewOpen]);
 
   useEffect(() => {
     const updateViewportHeight = () => setVh(window.innerHeight);

@@ -1,6 +1,6 @@
 
 
-async function callGetAllTestCasesForGame(gameID) {
+async function callGetAllTestCasesForGame(sessionID) {
     console.log("callGetAllTestCasesForGame");
   
     try {
@@ -9,7 +9,7 @@ async function callGetAllTestCasesForGame(gameID) {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({sessionID: sessionID}),
+            body: JSON.stringify({ sessionID }),
             });
         const data = await response.json();
         if (response.status !== 200) {
@@ -34,7 +34,7 @@ async function callGetTestCaseDetails(testCaseID) {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({sessionID: sessionID}),
+            body: JSON.stringify({ sessionID: testCaseID }),
             });
         const data = await response.json();
         if (response.status !== 200) {

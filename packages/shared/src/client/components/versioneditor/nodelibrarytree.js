@@ -1,7 +1,7 @@
 'use client';
 import React from "react";
 import clsx from "clsx";
-import { ChevronRight, Layers, Plus, Copy } from "lucide-react";
+import { ChevronRight, Layers, Plus, Copy, PackagePlus } from "lucide-react";
 import { getPersonaFromLocation } from "@src/common/personainfo";
 import { getMessageStyling } from "@src/client/themestyling";
 import { getAddableNodeTypes, getMetadataForNodeType } from "@src/common/nodeMetadata";
@@ -161,14 +161,45 @@ function TreeLeafButton({
 
 export function NodeLibraryTree({ versionInfo, readOnly }) {
   const nodes = versionInfo?.stateMachineDescription?.nodes ?? [];
+  const customComponents = Array.isArray(versionInfo?.stateMachineDescription?.customComponents)
+    ? versionInfo.stateMachineDescription.customComponents
+    : [];
 
   const [expandedBranches, setExpandedBranches] = React.useState(() => {
     const defaults = { templates: true, existing: true };
+    if (customComponents.length > 0) {
+      defaults.components = true;
+    }
     groupedTemplates.forEach((group) => {
       defaults[`templates:${group.key}`] = group.key === "user-input";
     });
     return defaults;
   });
+
+  React.useEffect(() => {
+    if (customComponents.length === 0) {
+      return;
+    }
+    setExpandedBranches((prev) => {
+      let next = prev;
+      let changed = false;
+      if (prev.components === undefined) {
+        next = { ...prev, components: true };
+        changed = true;
+      }
+      customComponents.forEach((definition) => {
+        const key = `components:${definition.library || "personal"}`;
+        if (next[key] === undefined) {
+          if (!changed) {
+            next = { ...next };
+            changed = true;
+          }
+          next[key] = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [customComponents]);
 
   const toggleBranch = React.useCallback((key) => {
     setExpandedBranches((previous) => ({
@@ -239,6 +270,100 @@ export function NodeLibraryTree({ versionInfo, readOnly }) {
                       })
                     }
                   />
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </li>
+    );
+  };
+
+  const renderCustomComponents = () => {
+    const branchKey = "components";
+    const expanded = expandedBranches[branchKey] ?? true;
+    if (customComponents.length === 0) {
+      return (
+        <li className="space-y-1">
+          <TreeBranchButton
+            label="Custom Components"
+            expanded={expanded}
+            icon={<PackagePlus className="h-4 w-4" />}
+            onClick={() => toggleBranch(branchKey)}
+          />
+          {expanded ? (
+            <div className="ml-6 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-4 text-xs text-slate-400">
+              Save grouped nodes as a component to reuse them here.
+            </div>
+          ) : null}
+        </li>
+      );
+    }
+
+    const groupedByLibrary = customComponents.reduce((accumulator, definition) => {
+      const key = definition.library || "personal";
+      if (!accumulator[key]) {
+        accumulator[key] = [];
+      }
+      accumulator[key].push(definition);
+      return accumulator;
+    }, {});
+
+    const libraryLabels = {
+      personal: "My Components",
+      shared: "Shared Library",
+    };
+
+    return (
+      <li className="space-y-1">
+        <TreeBranchButton
+          label={`Custom Components (${customComponents.length})`}
+          expanded={expanded}
+          icon={<PackagePlus className="h-4 w-4" />}
+          onClick={() => toggleBranch(branchKey)}
+        />
+        {expanded ? (
+          <ul className="ml-6 space-y-2 border-l border-white/10 pl-3">
+            {Object.entries(groupedByLibrary).map(([libraryKey, items]) => {
+              const branchId = `components:${libraryKey}`;
+              const branchExpanded = expandedBranches[branchId] ?? true;
+              const friendlyLabel = libraryLabels[libraryKey] || libraryKey;
+              return (
+                <li key={branchId} className="space-y-1">
+                  <TreeBranchButton
+                    label={`${friendlyLabel} (${items.length})`}
+                    expanded={branchExpanded}
+                    icon={<Layers className="h-4 w-4" />}
+                    onClick={() => toggleBranch(branchId)}
+                  />
+                  {branchExpanded ? (
+                    <ul className="ml-6 space-y-1 border-l border-white/10 pl-3">
+                      {items.map((definition) => (
+                        <li key={definition.componentID}>
+                          <TreeLeafButton
+                            label={definition.name || "Custom Component"}
+                            description={definition.description || "Reusable component"}
+                            draggable={!readOnly}
+                            visuals={{
+                              backgroundColor: "rgba(56,189,248,0.12)",
+                              borderColor: "rgba(56,189,248,0.45)",
+                              textColor: "#f8fafc",
+                              dotColor: "rgba(56,189,248,0.8)",
+                              hoverClass:
+                                "hover:border-sky-400/60 hover:shadow-[0_16px_40px_-20px_rgba(56,189,248,0.35)]",
+                            }}
+                            onDragStart={(event) =>
+                              !readOnly &&
+                              handleTemplateDragStart(event, {
+                                action: "addCustomComponent",
+                                componentID: definition.componentID,
+                              })
+                            }
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </li>
               );
             })}
@@ -361,6 +486,7 @@ export function NodeLibraryTree({ versionInfo, readOnly }) {
               </ul>
             ) : null}
           </li>
+          {renderCustomComponents()}
           {renderExistingNodes()}
         </ul>
       </nav>

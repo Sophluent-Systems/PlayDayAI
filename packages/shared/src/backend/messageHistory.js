@@ -6,10 +6,24 @@ import { getAllRecordsForSession } from "@src/backend/records";
 
 export function getNodeByInstanceID(versionInfo, instanceID) {
   const nodes = versionInfo?.stateMachineDescription?.nodes;
-  if (!nodes || nodes.length === 0) {
-    return null;
+  if (nodes && nodes.length > 0) {
+    const match = nodes.find((node) => node.instanceID === instanceID);
+    if (match) {
+      return match;
+    }
   }
-  return nodes.find((node) => node.instanceID === instanceID) || null;
+
+  const runtimeNodes = versionInfo?.stateMachineRuntimeNodes;
+  if (runtimeNodes) {
+    if (runtimeNodes instanceof Map) {
+      return runtimeNodes.get(instanceID) || null;
+    }
+    if (typeof runtimeNodes === 'object') {
+      return runtimeNodes[instanceID] || null;
+    }
+  }
+
+  return null;
 }
 
 function getRecordHistoryForAncestor(records, ancestorRecord) {
@@ -176,7 +190,9 @@ export function filterRecords(records = [], params = {}) {
 
 export function messageFromRecord(versionInfo, record, params = {}) {
   const { includeDebugInfo, appendPersonaIdentity } = params;
-  const node = getNodeByInstanceID(versionInfo, record.nodeInstanceID);
+  const nodeFromGraph = getNodeByInstanceID(versionInfo, record.nodeInstanceID);
+  const node = nodeFromGraph || record.context?.resolvedNodeDefinition || null;
+
   if (!node) {
     console.error('messageFromRecord: node not found for record', record.recordID, '...ignoring it');
     return null;
@@ -192,6 +208,34 @@ export function messageFromRecord(versionInfo, record, params = {}) {
     nodeAttributes: getMetadataForNodeType(node.nodeType).nodeAttributes,
   };
 
+  const breadcrumbFromContext = Array.isArray(record.context?.componentNamePath)
+    ? [...record.context.componentNamePath]
+    : null;
+  message.componentBreadcrumb = breadcrumbFromContext
+    ? breadcrumbFromContext
+    : (Array.isArray(record.componentBreadcrumb)
+        ? [...record.componentBreadcrumb]
+        : []);
+
+  const componentContext = record.context?.customComponent;
+  if (componentContext || node.nodeType === "customComponent") {
+    message.component = {
+      componentID: componentContext?.componentID ?? node?.params?.componentID ?? node?.componentID ?? null,
+      instanceID: componentContext?.instanceID ?? node?.instanceID ?? null,
+      name: componentContext?.name ?? node.instanceName ?? 'Custom Component',
+      version: componentContext?.version ?? node?.params?.version ?? null,
+      placeholder: componentContext?.placeholder ?? false,
+      path: componentContext?.path ?? record.context?.componentPathSegments ?? null,
+      namePath: componentContext?.namePath ?? record.context?.componentNamePath ?? null,
+    };
+  }
+
+  if (Array.isArray(record.context?.componentPathSegments)) {
+    message.componentPathSegments = [...record.context.componentPathSegments];
+  }
+
+  message.isComponentRoot = node.nodeType === "customComponent";
+
   // Include ratings if they exist
   if (record.ratings) {
     message.ratings = record.ratings;
@@ -205,6 +249,8 @@ export function messageFromRecord(versionInfo, record, params = {}) {
     const outputKeys = record.output ? Object.keys(record.output) : [];
     message.content.text = 'Input received: ' + (outputKeys.length > 0 ? outputKeys.join(', ') : 'none');
   }
+
+  message.instanceName = node.instanceName || null;
 
   if (!nullUndefinedOrEmpty(node.personaLocation)) {
     const persona = getNodePersonaDetails(versionInfo, node);
@@ -232,7 +278,6 @@ export function messageFromRecord(versionInfo, record, params = {}) {
 
   if (includeDebugInfo) {
     message.nodeType = node.nodeType;
-    message.instanceName = node.instanceName;
     message.hideOutput = node.hideOutput ? true : false;
   }
 

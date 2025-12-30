@@ -11,6 +11,7 @@ export class RecordGraph {
         this.nodesByInstanceID = {};
         this.consumersOfNode = {};
         this.startEntry = null;
+        this.syntheticComponentInputs = new Set();
 
         this.initialize();
     }
@@ -20,7 +21,10 @@ export class RecordGraph {
             record: record,
             parents: [],
             childSubtrees: {},
-            attributes: {}
+            attributes: {},
+            componentBreadcrumb: Array.isArray(record?.componentBreadcrumb)
+                ? [...record.componentBreadcrumb]
+                : []
         };
 
         if (record.nodeInstanceID === "start") {
@@ -76,8 +80,21 @@ export class RecordGraph {
         }
     }
 
-    addCompletedRecord(record) {
-        if (!record || record.deleted || record.state !== "completed") {
+    isEligibleRecord(record) {
+        if (!record || record.deleted) {
+            return false;
+        }
+        if (record.state === "completed") {
+            return true;
+        }
+        if (record.state === "waitingForExternalInput" && Array.isArray(record.eventsEmitted) && record.eventsEmitted.length > 0) {
+            return true;
+        }
+        return false;
+    }
+
+    addEligibleRecord(record) {
+        if (!this.isEligibleRecord(record)) {
             return;
         }
         if (this.recordEntries[record.recordID]) {
@@ -125,7 +142,7 @@ export class RecordGraph {
         try {
             if (Array.isArray(newRecords)) {
                 newRecords.forEach(record => {
-                    if (!record || record.deleted || record.state !== "completed") {
+                    if (!this.isEligibleRecord(record)) {
                         return;
                     }
                     if (this.recordEntries[record.recordID]) {
@@ -133,7 +150,7 @@ export class RecordGraph {
                         requiresFullRebuild = true;
                         return;
                     }
-                    this.addCompletedRecord(record);
+                    this.addEligibleRecord(record);
                 });
             }
         } catch (error) {
@@ -160,12 +177,10 @@ export class RecordGraph {
         this.nodesByInstanceID = {};
         this.consumersOfNode = {};
         this.startEntry = null;
+        this.syntheticComponentInputs = new Set();
         // first add a graph entry for each record
         this.inputRecords.forEach(record => {
-            if (record.deleted) {
-                return;
-            }
-            if (record.state != "completed") {
+            if (!this.isEligibleRecord(record)) {
                 return;
             }
             if (!this.recordEntries[record.recordID]) {
@@ -174,10 +189,7 @@ export class RecordGraph {
         });
         // Now connect all the parents
         this.inputRecords.forEach(record => {
-            if (record.deleted) {
-                return;
-            }
-            if (record.state != "completed") {
+            if (!this.isEligibleRecord(record)) {
                 return;
             }
             const currentRecord = this.recordEntries[record.recordID];
@@ -186,6 +198,28 @@ export class RecordGraph {
                     const input = currentRecord.record.inputs[i];
                     
                     let inputRecord = this.recordEntries[input.recordID];
+                    const producerInstanceID = input.producerInstanceID;
+                    const isSyntheticComponentInput =
+                        typeof producerInstanceID === "string" &&
+                        producerInstanceID.startsWith("__component_input__:");
+                    if (!inputRecord && isSyntheticComponentInput) {
+                        const syntheticRecord = {
+                            recordID: input.recordID,
+                            nodeInstanceID: producerInstanceID,
+                            nodeType: "componentInput",
+                            state: "completed",
+                            inputs: [],
+                            output: null,
+                            eventsEmitted: [],
+                            componentBreadcrumb: [],
+                            synthetic: true,
+                        };
+                        if (!this.syntheticComponentInputs.has(input.recordID)) {
+                            this.syntheticComponentInputs.add(input.recordID);
+                            this.addRecord(syntheticRecord);
+                        }
+                        inputRecord = this.recordEntries[input.recordID];
+                    }
                     if (!inputRecord) {
                         const originalRecord = this.inputRecords.find(r => r.recordID === input.recordID);
                         Constants.debug.logFlowControl && console.error("RecordGraph.initialize: input record not found in graph: ", input);
@@ -271,8 +305,13 @@ export class RecordGraph {
         // If any record has no parents, and it's not the start record, then it's an orphan which isn't allowed
         // so throw an error
         Object.keys(this.recordEntries).forEach(recordID => {
-            if (this.recordEntries[recordID].parents.length == 0 && this.recordEntries[recordID].record.nodeInstanceID !== "start") { 
-                throw new Error("RecordGraph.initialize: orphan record found: "  + JSON.stringify(this.recordEntries[recordID].record));
+            const entry = this.recordEntries[recordID];
+            const record = entry.record || {};
+            const isSyntheticComponentInput =
+                record.synthetic === true ||
+                (typeof record.nodeInstanceID === "string" && record.nodeInstanceID.startsWith("__component_input__:"));
+            if (entry.parents.length === 0 && record.nodeInstanceID !== "start" && !isSyntheticComponentInput) {
+                throw new Error("RecordGraph.initialize: orphan record found: " + JSON.stringify(record));
             }
         });
 
@@ -284,9 +323,13 @@ export class RecordGraph {
         const node = this.nodesByInstanceID[recordEntry.record.nodeInstanceID];
 
         if (!node) {
-            // The node may have been deleted
-            console.error("Warning: recordHasBeenConsumedByAllConsumers: node not found for recordID=", recordID, " nodeInstanceID=", recordEntry.record.nodeInstanceID);
-            return;
+            const nodeInstanceID = recordEntry?.record?.nodeInstanceID;
+            const isSyntheticComponentInput = typeof nodeInstanceID === "string" && nodeInstanceID.startsWith("__component_input__:");
+            if (isSyntheticComponentInput || recordEntry?.record?.synthetic === true) {
+                return true;
+            }
+            console.error("Warning: recordHasBeenConsumedByAllConsumers: node not found for recordID=", recordID, " nodeInstanceID=", nodeInstanceID);
+            return false;
         }
 
         const consumersOfNode = this.consumersOfNode[node.instanceID] || [];
@@ -386,6 +429,8 @@ export class RecordGraph {
         // infinite loops
 
         this.clearAttributeForAllNodes("checkedForAllChildrenConsumed");
+
+        let allChildrenConsumed = true;
 
         for (let i = 0; i < recordEntry.parents.length; i++) {
             const inputRecord = recordEntry.parents[i];
@@ -516,6 +561,22 @@ export class RecordGraph {
         Object.keys(this.recordEntries).forEach(recordID => {
             this.recordEntries[recordID].attributes = {};
         });
+    }
+
+    getComponentBreadcrumb(recordID) {
+        const entry = this.recordEntries[recordID];
+        if (!entry) {
+            return [];
+        }
+        return Array.isArray(entry.componentBreadcrumb) ? [...entry.componentBreadcrumb] : [];
+    }
+
+    setComponentBreadcrumb(recordID, breadcrumb = []) {
+        const entry = this.recordEntries[recordID];
+        if (!entry) {
+            return;
+        }
+        entry.componentBreadcrumb = Array.isArray(breadcrumb) ? [...breadcrumb] : [];
     }
 
     printEntry(entry, prefix = "") {

@@ -1,22 +1,3 @@
-
-async function callRequestAccess() {
-  console.log("callRedeemCode");
-  try {
-      const result = await fetch("/api/coderedeem", {
-      method: "POST",
-      headers: {
-          "Content-Type": "application/json"
-      },
-      body: JSON.stringify({code: codeToUse}),
-      });
-      const response = await result.json();
-      return response;
-  } catch (error) {
-      console.error("callRedeemCode: ", error);
-      throw error;
-  };
-}
-
 export async function callGetAccountInfo() {
     try {
         const response = await fetch(`/api/getaccountinfo`);

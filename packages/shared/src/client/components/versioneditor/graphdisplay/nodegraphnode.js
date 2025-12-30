@@ -37,25 +37,15 @@ const defaultHeight = 120;
 const handleHeight = 22;
 
 const handleBaseStyle = {
-
   width: defaultWidth,
-
   height: `${handleHeight}px`,
-
   background: 'transparent',
-
   border: 'transparent',
-
   justifyContent: 'flex-start',
-
   alignItems: 'center',
-
   display: 'flex',
-
   position: 'absolute',
-
   zIndex: 1000,
-
 };
 
 const targetHandleWidth = 8;
@@ -75,8 +65,6 @@ const targetHandleBaseStyle = {
   pointerEvents: 'auto',
   cursor: 'pointer',
 };
-
-
 
 const handleContainerStyle = {
   display: 'flex',
@@ -136,8 +124,6 @@ const NodeGraphNode = memo((props) => {
 
   const [metadata, setMetadata] = useState(null);
 
-  const [styling, setStyling] = useState(null);
-
 
 
   const persona = getNodePersonaDetails(versionInfo, node);
@@ -175,7 +161,21 @@ const NodeGraphNode = memo((props) => {
     [node, nodeMetadata, usesCustomPersona]
   );
 
-  useEffect(() => {
+  const nodeForMeta = useMemo(() => {
+    if (!node || node.nodeType !== "customComponent") {
+      return node;
+    }
+    const definitions = versionInfo?.stateMachineDescription?.customComponents;
+    if (!definitions || definitions.length === 0) {
+      return node;
+    }
+    return {
+      ...node,
+      availableComponentDefinitions: definitions,
+    };
+  }, [node, versionInfo?.stateMachineDescription?.customComponents]);
+
+  const styling = useMemo(() => {
     let baseStyling;
 
     if (usesCustomPersona) {
@@ -202,16 +202,14 @@ const NodeGraphNode = memo((props) => {
       ),
     };
 
-    setStyling(newStyling);
+    return newStyling;
   }, [paletteVisuals, persona, usesCustomPersona, isSelected, isTarget]);
 
 
 
   useEffect(() => {
-
-    if (node) {
-
-      const meta = getInputsAndOutputsForNode(node);
+    if (nodeForMeta) {
+      const meta = getInputsAndOutputsForNode(nodeForMeta);
 
       const normalizedMeta = {
         ...meta,
@@ -224,7 +222,60 @@ const NodeGraphNode = memo((props) => {
 
     }
 
-  }, [node]);
+  }, [nodeForMeta]);
+
+
+
+  const fallbackInputs = useMemo(() => {
+    if (!node || node.nodeType !== "customComponent") {
+      return [];
+    }
+    if (metadata?.inputs && metadata.inputs.length > 0) {
+      return [];
+    }
+    const bindings = node?.params?.inputBindings || {};
+    return Object.keys(bindings).map((handle) => ({
+      value: handle,
+      label: bindings[handle]?.portName || handle,
+      portType: bindings[handle]?.portType || (bindings[handle]?.mediaType === "event" ? "event" : "variable"),
+      mediaType: bindings[handle]?.mediaType,
+    }));
+  }, [metadata, node]);
+
+  const effectiveInputs =
+    metadata && metadata.inputs && metadata.inputs.length > 0
+      ? metadata.inputs
+      : fallbackInputs;
+
+  useEffect(() => {
+    if (!metadata || node?.nodeType !== "customComponent") {
+      return;
+    }
+    const componentLabel =
+      node?.instanceName ||
+      node?.params?.metadata?.componentName ||
+      node?.params?.componentID ||
+      "Unnamed Custom Component";
+    const inputRows = (effectiveInputs || []).map((entry, index) => ({
+      index: index + 1,
+      name: entry.label || entry.value,
+      handle: entry.value,
+    }));
+    const outputRows = (metadata.outputs || []).map((entry, index) => ({
+      index: index + 1,
+      name: entry.label || entry.value,
+      handle: entry.value,
+    }));
+    const consoleGroup = console.groupCollapsed || console.group;
+    if (consoleGroup) {
+      consoleGroup(`[Custom Component] ${componentLabel}`);
+    }
+    console.log("Inputs:", inputRows.length > 0 ? inputRows : "(none)");
+    console.log("Outputs:", outputRows.length > 0 ? outputRows : "(none)");
+    if (consoleGroup && console.groupEnd) {
+      console.groupEnd();
+    }
+  }, [metadata, node?.instanceID, node?.instanceName, effectiveInputs]);
 
 
 
@@ -280,9 +331,6 @@ const NodeGraphNode = memo((props) => {
           <div style={{ 
             ...leftHandleContainerStyle, 
             color: '#fff',
-            width: defaultWidth,
-            position: 'absolute',
-            left: targetHandleOffset,
           }}>
 
             <Play className="h-3.5 w-3.5" />
@@ -295,17 +343,20 @@ const NodeGraphNode = memo((props) => {
 
 
 
-      {metadata.inputs.map((variable, index) => (
+      {effectiveInputs.map((variable, index) => {
+        const isEventInput = variable?.portType === "event" || variable?.mediaType === "event";
+        const handlePrefix = isEventInput ? "trigger" : "variable";
+        return (
 
         <Handle
 
-          key={`variable-${variable.value}`}
+          key={`${handlePrefix}-${variable.value}`}
 
           type="target"
 
           position={Position.Left}
 
-          id={`variable-${variable.value}`}
+          id={`${handlePrefix}-${variable.value}`}
 
           style={{
             ...targetHandleBaseStyle,
@@ -321,9 +372,6 @@ const NodeGraphNode = memo((props) => {
             style={{
               ...leftHandleContainerStyle,
               color: '#fff',
-              width: defaultWidth,
-              position: 'absolute',
-              left: targetHandleOffset,
             }}
           >
 
@@ -334,42 +382,38 @@ const NodeGraphNode = memo((props) => {
           </div>
 
         </Handle>
+);
+      })}
 
-      ))}
 
 
-
-      {!isConnecting && metadata.events.map((event, index) => (
-
+      {metadata.events.map((event, index) => (
         <Handle
-
           key={`event-${event.value}-${index}`}
-
           type="source"
-
           position={Position.Right}
-
           id={`event-${event.value}`}
-
-          style={{ ...handleBaseStyle, right: 0, top: `${IOTopOffset + index * IOHeight}px` }}
-
+          style={{
+            ...handleBaseStyle,
+            right: 0,
+            top: `${IOTopOffset + index * IOHeight}px`,
+          }}
         >
-
-          <div style={{ ...rightHandleContainerStyle, color: '#fff' }}>
-
+          <div
+            style={{
+              ...rightHandleContainerStyle,
+              color: '#fff',
+            }}
+          >
             <span className="text-[10px] uppercase tracking-wider text-white/80">{event.label}</span>
-
             <span className="h-2 w-2 rounded-full bg-white/90" />
-
           </div>
-
         </Handle>
-
       ))}
 
 
 
-      {!isConnecting && metadata.outputs.map((output, index) => (
+      {metadata.outputs.map((output, index) => (
 
         <Handle
 
@@ -381,11 +425,20 @@ const NodeGraphNode = memo((props) => {
 
           id={`output-${output.value}`}
 
-          style={{ ...handleBaseStyle, right: 0, top: `${IOTopOffset + (metadata.events.length + index) * IOHeight}px` }}
+          style={{
+            ...handleBaseStyle,
+            right: 0,
+            top: `${IOTopOffset + (metadata.events.length + index) * IOHeight}px`,
+          }}
 
         >
 
-          <div style={{ ...rightHandleContainerStyle, color: '#fff' }}>
+          <div
+            style={{
+              ...rightHandleContainerStyle,
+              color: '#fff',
+            }}
+          >
 
             <span className="text-[10px] uppercase tracking-wider text-white/80">{output.label}</span>
 
@@ -442,10 +495,11 @@ const NodeGraphNode = memo((props) => {
 
 });
 
+NodeGraphNode.displayName = 'NodeGraphNode';
+
 
 
 export default NodeGraphNode;
-
 
 
 

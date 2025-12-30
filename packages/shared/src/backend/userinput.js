@@ -1,5 +1,5 @@
 import { nullUndefinedOrEmpty } from '@src/common/objects';
-import { getOldestPendingRecordForInputTypes, updateRecord } from '@src/backend/records';
+import { getPendingRecordForNodeInstance, updateRecord } from '@src/backend/records';
 import { messageFromRecord, getNodeByInstanceID } from '@src/backend/messageHistory';
 import { enqueueSessionCommand, getActiveSessionMachine } from '@src/backend/sessionCommands';
 import { getAccountServiceKey } from '@src/backend/accounts';
@@ -132,18 +132,72 @@ export async function applyUserInputToPendingRecord({
 }) {
   validateMediaTypes(mediaTypes);
 
-  const nodeInstance = getNodeByInstanceID(session.versionInfo, nodeInstanceID);
+  const inputTypes = Object.keys(mediaTypes);
+
+  if (inputTypes.length === 0) {
+    throw new Error('Invalid parameter - no media types supplied');
+  }
+
+  const pendingRecord = await getPendingRecordForNodeInstance(
+    db,
+    session.sessionID,
+    nodeInstanceID,
+  );
+
+  if (!pendingRecord) {
+    throw new Error('The system was not expecting new input from the user');
+  }
+
+  console.error('[userInput] resolved pending record', {
+    sessionID: session.sessionID,
+    nodeInstanceID,
+    recordID: pendingRecord.recordID,
+    waitingFor: pendingRecord.waitingFor,
+    requestedTypes: inputTypes,
+  });
+
+  if (pendingRecord.waitingFor) {
+    const waitingFor = Array.isArray(pendingRecord.waitingFor)
+      ? pendingRecord.waitingFor
+      : [pendingRecord.waitingFor];
+    const missingTypes = inputTypes.filter((inputType) => !waitingFor.includes(inputType));
+    if (missingTypes.length > 0) {
+      throw new Error(`Input types [${missingTypes.join(', ')}] not expected for node ${nodeInstanceID}`);
+    }
+  }
+
+  if (pendingRecord.state === 'completed' || pendingRecord.state === 'error') {
+    throw new Error(`Found a pending record, but it had the wrong state (${pendingRecord.state})`);
+  }
+
+  let nodeInstance = getNodeByInstanceID(session.versionInfo, nodeInstanceID);
+  if (!nodeInstance && pendingRecord.context?.resolvedNodeDefinition) {
+    nodeInstance = pendingRecord.context.resolvedNodeDefinition;
+  }
+  if (!nodeInstance) {
+    nodeInstance = {
+      nodeType: pendingRecord.nodeType,
+      instanceID: pendingRecord.nodeInstanceID,
+      params: pendingRecord.params ?? pendingRecord.context?.resolvedNodeDefinition?.params ?? {},
+    };
+    console.error('[userInput] reconstructed nodeInstance from pending record context', {
+      recordID: pendingRecord.recordID,
+      nodeType: nodeInstance.nodeType,
+      instanceID: nodeInstance.instanceID,
+    });
+  } else {
+    console.error('[userInput] located nodeInstance from session', {
+      nodeType: nodeInstance.nodeType,
+      instanceID: nodeInstance.instanceID,
+      hasComponentPath: Array.isArray(nodeInstance.componentPathSegments) && nodeInstance.componentPathSegments.length > 0,
+    });
+  }
 
   if (!nodeInstance) {
     throw new Error('Invalid parameter - nodeInstanceID not found');
   }
 
-  const inputTypes = Object.keys(mediaTypes);
   const supportedTypes = resolveSupportedTypes(nodeInstance);
-
-  if (inputTypes.length === 0) {
-    throw new Error('Invalid parameter - no media types supplied');
-  }
 
   inputTypes.forEach((inputType) => {
     if (!SUPPORTED_INPUT_TYPES.includes(inputType)) {
@@ -159,20 +213,6 @@ export async function applyUserInputToPendingRecord({
     }
   });
 
-  const pendingRecord = await getOldestPendingRecordForInputTypes(
-    db,
-    session.sessionID,
-    inputTypes,
-  );
-
-  if (!pendingRecord) {
-    throw new Error('The system was not expecting new input from the user');
-  }
-
-  if (pendingRecord.state === 'completed' || pendingRecord.state === 'error') {
-    throw new Error(`Found a pending record, but it had the wrong state (${pendingRecord.state})`);
-  }
-
   const eventSet = new Set(['completed']);
 
   const contextUpdate = {
@@ -182,10 +222,12 @@ export async function applyUserInputToPendingRecord({
     contextUpdate.inputMode = inputMode;
   }
 
+  const now = new Date();
   const recordUpdate = {
     eventsEmitted: [],
     output: {},
-    completionTime: new Date(),
+    completionTime: now,
+    lastModifiedTime: now,
     pending: false,
     state: 'completed',
     context: contextUpdate,
@@ -285,6 +327,16 @@ export async function applyUserInputToPendingRecord({
 
   await updateRecord(db, pendingRecord.recordID, recordUpdate, pendingRecord.state);
 
+  console.error('[userInput] record updated', {
+    recordID: pendingRecord.recordID,
+    nodeInstanceID: pendingRecord.nodeInstanceID,
+    newState: recordUpdate.state,
+    events: recordUpdate.eventsEmitted,
+    emittedKeys: Object.keys(recordUpdate.output || {}),
+    componentPath: recordUpdate.context?.componentPathSegments,
+    waitReasons: recordUpdate.context?.waitReasons,
+  });
+
   const mergedRecord = {
     ...pendingRecord,
     ...recordUpdate,
@@ -305,10 +357,15 @@ export async function applyUserInputToPendingRecord({
     { target: 'client', machineID: activeInfo?.machineID ?? null },
   );
 
+  console.error('[userInput] enqueued updated message', {
+    recordID: pendingRecord.recordID,
+    sessionID: session.sessionID,
+    machineID: activeInfo?.machineID ?? null,
+  });
+
   return {
     recordID: pendingRecord.recordID,
     nodeInstanceID: mergedRecord.nodeInstanceID,
     inputTypes,
   };
 }
-

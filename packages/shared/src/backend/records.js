@@ -147,6 +147,9 @@ export async function getMostRecentRecordOfInstance(db, sessionID, nodeInstanceI
       sort: { completionTime: -1 }
     }
     let result = await coll.findOne(query, options);
+    if (!result) {
+      return null;
+    }
     result = await applyEngineVersionUpdates(db, result);
     delete result._id;
     return result;
@@ -263,6 +266,30 @@ export async function getOldestPendingRecordForInputTypes(db, sessionID, inputTy
   const options = {
     sort: { startTime: 1 }
   }
+  let result = await coll.findOne(query, options);
+  if (!result) {
+    return null;
+  }
+  result = await applyEngineVersionUpdates(db, result);
+  delete result._id;
+  return result;
+}
+
+export async function getPendingRecordForNodeInstance(db, sessionID, nodeInstanceID) {
+  if (!sessionID || !nodeInstanceID) {
+    return null;
+  }
+
+  const coll = db.collection('records');
+  const query = {
+    sessionID,
+    nodeInstanceID,
+    state: 'waitingForExternalInput',
+    deleted: { $ne: true },
+  };
+  const options = {
+    sort: { startTime: 1 },
+  };
   let result = await coll.findOne(query, options);
   if (!result) {
     return null;
